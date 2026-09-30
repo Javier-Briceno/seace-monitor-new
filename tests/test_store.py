@@ -1,7 +1,4 @@
-"""Runs against the Docker Postgres (docker compose up -d).
-
-psycopg opens a transaction on the first statement; each test rolls it back.
-"""
+"""Runs against the Docker Postgres (docker compose up -d). Nothing is kept."""
 
 from decimal import Decimal
 from pathlib import Path
@@ -22,11 +19,10 @@ def conn():
         connection = db.connect()
     except psycopg.OperationalError:
         pytest.skip("Postgres not running (docker compose up -d)")
-    try:
+    # force_rollback: the outer transaction never commits, and the transaction
+    # inside save_new_licitaciones becomes a savepoint within it.
+    with connection, connection.transaction(force_rollback=True):
         yield connection
-    finally:
-        connection.rollback()
-        connection.close()
 
 
 @pytest.fixture(scope="module")
