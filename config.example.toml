@@ -1,0 +1,7 @@
+# Copy to config.toml and adjust. config.toml is not committed.
+
+# Departamentos whose obras are watched. v1 uses one; the list form is kept on purpose.
+departamentos = ["LA LIBERTAD"]
+
+# SEACE objeto. v1 only covers obras.
+objeto = "Obra"
