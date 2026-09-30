@@ -148,7 +148,7 @@ def search_fields(form: Form, query: Query) -> dict[str, str]:
     if query.hasta:
         fields[f"{FORM}:dfechaFin_input"] = query.hasta.strftime("%d/%m/%Y")
 
-    fields[f"{FORM}:tokenBusProSel"] = ""  # the reCAPTCHA token is not checked (U1, A2b)
+    fields[f"{FORM}:tokenBusProSel"] = ""  # the portal does not check the reCAPTCHA token (tested 2026-09-29)
     fields[FORM] = FORM
     fields.update({
         "javax.faces.partial.ajax": "true",
