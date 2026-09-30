@@ -16,21 +16,30 @@ CREATE TABLE licitaciones (
         CHECK (ubicacion_fuente IN ('mef', 'text', 'ubigeo', 'entity', 'unknown')),
     reiniciado_desde   text,
     posible_duplicado  boolean NOT NULL DEFAULT false,
+    -- Reading the ficha (document list) needs the search session, so it is
+    -- retried on later searches until at least one bases is listed.
+    ficha_estado       text NOT NULL DEFAULT 'pending'
+        CHECK (ficha_estado IN ('pending', 'done', 'error')),
+    ficha_intentos     integer NOT NULL DEFAULT 0 CHECK (ficha_intentos >= 0),
+    ficha_ultimo_error text,
     visto_primero_en   timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE documentos (
     id                 bigserial PRIMARY KEY,
     nid_proceso        bigint NOT NULL REFERENCES licitaciones (nid_proceso),
-    tipo               text NOT NULL,
-    url                text NOT NULL,
+    uuid               text NOT NULL UNIQUE,  -- id in SEACE's document store; enough to download
+    etapa              text NOT NULL,
+    tipo               text NOT NULL,         -- e.g. "Bases Administrativas"
+    nombre_archivo     text NOT NULL,
+    publicado_en       timestamptz,
     ruta_local         text,
+    tamano_bytes       bigint,
     estado             text NOT NULL DEFAULT 'pending'
         CHECK (estado IN ('pending', 'done', 'error')),
     intentos           integer NOT NULL DEFAULT 0 CHECK (intentos >= 0),
     ultimo_error       text,
-    visto_primero_en   timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (nid_proceso, url)
+    visto_primero_en   timestamptz NOT NULL DEFAULT now()
 );
 
 -- A new extractor version adds a row; earlier extractions are kept.
