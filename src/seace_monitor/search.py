@@ -49,6 +49,13 @@ class SearchError(Exception):
     pass
 
 
+class AccessError(SearchError):
+    """SEACE cannot be reached at all (VPN down, IP blocked).
+
+    Stops the run and never counts as a failed attempt of a single item.
+    """
+
+
 @dataclass(frozen=True)
 class Query:
     objeto: str
@@ -70,6 +77,9 @@ class Form:
 class SearchResult:
     rows: list[dict]
     total: int
+    # Needed to open fichas: they only work within the session of this search.
+    form: Form | None = None
+    viewstate: str | None = None
 
 
 def normalize(text: str) -> str:
@@ -197,8 +207,11 @@ def parse_results(xml: str) -> SearchResult:
             row["fecha_publicacion"], "%d/%m/%Y %H:%M"
         ).replace(tzinfo=LIMA)
         row["valor_referencial"] = parse_amount(row["valor_referencial"], row["nid_proceso"])
+        button = re.search(r"addSubmitParam\('[^']+',\{([^}]*ptoRetorno[^}]*)\}", raw)
+        row["ficha_params"] = dict(re.findall(r"'([^']+)':'([^']*)'", button.group(1))) if button else None
         rows.append(row)
-    return SearchResult(rows, int(total.group(1)))
+    viewstate = re.search(r'ViewState[^"]*"><!\[CDATA\[([^\]]+)\]\]>', xml)
+    return SearchResult(rows, int(total.group(1)), viewstate=viewstate.group(1) if viewstate else None)
 
 
 def make_session(proxy: str | None = None) -> requests.Session:
@@ -228,12 +241,23 @@ def search(query: Query, session: requests.Session | None = None) -> SearchResul
         )
         response.raise_for_status()
         response.encoding = "utf-8"
-    except requests.exceptions.ProxyError as error:
-        raise SearchError(
+    except requests.RequestException as error:
+        raise access_error(session, error) or SearchError(f"search failed: {error}") from error
+    result = parse_results(response.text)
+    result.form = form
+    return result
+
+
+def access_error(session: requests.Session, error: requests.RequestException) -> AccessError | None:
+    """The error as an AccessError when it means SEACE is unreachable, else None."""
+    route = "through the VPN proxy" if session.proxies else "directly, without proxy"
+    if isinstance(error, requests.exceptions.ProxyError):
+        return AccessError(
             f"VPN proxy {session.proxies.get('https')} not reachable; "
             f"start it with `docker compose --profile vpn up -d vpn`: {error}"
-        ) from error
-    except requests.RequestException as error:
-        route = "through the VPN proxy" if session.proxies else "directly, without proxy"
-        raise SearchError(f"portal not reachable {route}: {error}") from error
-    return parse_results(response.text)
+        )
+    if isinstance(error, requests.exceptions.ConnectionError):
+        return AccessError(f"SEACE not reachable {route}: {error}")
+    if isinstance(error, requests.HTTPError) and error.response is not None and error.response.status_code == 403:
+        return AccessError(f"SEACE refused access (403) {route}; it blocks IPs outside Peru")
+    return None

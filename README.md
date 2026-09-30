@@ -2,7 +2,7 @@
 
 Daily monitor for public works tenders (obras) on SEACE, Peru's public procurement portal.
 
-Work in progress: the search runs and new licitaciones are stored in Postgres; nothing is reported yet.
+Work in progress: the monitor searches SEACE, stores new licitaciones with their location, lists their documents and downloads them. Nothing is extracted or reported yet.
 
 ## Setup
 

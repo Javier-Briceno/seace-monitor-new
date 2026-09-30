@@ -1,4 +1,4 @@
-"""Runs against the Docker Postgres (docker compose up -d). Nothing is kept."""
+"""Runs against a test database in the Docker Postgres (see conftest.py)."""
 
 from decimal import Decimal
 from pathlib import Path
@@ -9,21 +9,13 @@ import pytest
 from seace_monitor import db
 from seace_monitor.locate import locate
 from seace_monitor.search import parse_results
-from seace_monitor.store import save_new_licitaciones
+from seace_monitor.ficha import parse_documents
+from seace_monitor.store import (
+    MAX_ATTEMPTS, document_done, document_failed, ficha_failed, fichas_to_read,
+    pending_documents, save_ficha, save_new_licitaciones,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture
-def conn():
-    try:
-        connection = db.connect()
-    except psycopg.OperationalError:
-        pytest.skip("Postgres not running (docker compose up -d)")
-    # force_rollback: the outer transaction never commits, and the transaction
-    # inside save_new_licitaciones becomes a savepoint within it.
-    with connection, connection.transaction(force_rollback=True):
-        yield connection
 
 
 @pytest.fixture(scope="module")
@@ -75,3 +67,75 @@ def test_departamentos_stored_as_list(conn, rows):
     save_new_licitaciones(conn, rows[:1])
     stored = conn.execute("SELECT departamentos, ubicacion_fuente FROM licitaciones").fetchone()
     assert stored == (rows[0]["departamentos"], rows[0]["ubicacion_fuente"])
+
+
+def ficha_state(conn, nid):
+    return conn.execute(
+        "SELECT ficha_estado, ficha_intentos FROM licitaciones WHERE nid_proceso = %s", [nid]
+    ).fetchone()
+
+
+@pytest.fixture(scope="module")
+def documents():
+    return parse_documents((FIXTURES / "ficha_two_documents.html").read_text(encoding="utf-8"))
+
+
+def test_new_rows_need_their_ficha(conn, rows):
+    save_new_licitaciones(conn, rows)
+    nids = [r["nid_proceso"] for r in rows]
+    assert fichas_to_read(conn, nids) == set(nids)
+
+
+def test_ficha_with_bases_is_done_and_not_read_again(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    assert save_ficha(conn, nid, documents) == 2
+    assert ficha_state(conn, nid) == ("done", 0)
+    assert fichas_to_read(conn, [nid]) == set()
+    assert save_ficha(conn, nid, documents) == 0
+
+
+def test_ficha_without_bases_stays_pending_without_spending_attempts(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents[:1])
+    assert ficha_state(conn, nid) == ("pending", 0)
+
+
+def test_failed_ficha_is_retried_until_the_limit(conn, rows):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    for _ in range(MAX_ATTEMPTS - 1):
+        ficha_failed(conn, nid, "timeout")
+    assert ficha_state(conn, nid) == ("pending", MAX_ATTEMPTS - 1)
+    ficha_failed(conn, nid, "timeout")
+    assert ficha_state(conn, nid) == ("error", MAX_ATTEMPTS)
+    assert fichas_to_read(conn, [nid]) == set()
+
+
+def test_document_states(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    save_ficha(conn, rows[0]["nid_proceso"], documents)
+    first, second = pending_documents(conn)
+    document_done(conn, first["id"], "data/x.pdf", 10)
+    for _ in range(MAX_ATTEMPTS):
+        document_failed(conn, second["id"], "hangs")
+    assert pending_documents(conn) == []
+    assert conn.execute("SELECT estado FROM documentos ORDER BY id").fetchall() == [("done",), ("error",)]
+
+
+def test_writes_survive_the_connection(test_dbname, rows, documents):
+    """A read before a write must not leave the write uncommitted."""
+    nid = rows[0]["nid_proceso"]
+    try:
+        with db.connect(test_dbname) as first:
+            save_new_licitaciones(first, rows[:1])
+            fichas_to_read(first, [nid])
+            save_ficha(first, nid, documents)
+        with db.connect(test_dbname) as second:
+            assert ficha_state(second, nid) == ("done", 0)
+            assert second.execute("SELECT count(*) FROM documentos WHERE nid_proceso = %s", [nid]).fetchone()[0] == 2
+    finally:
+        with db.connect(test_dbname) as cleanup:
+            cleanup.execute("DELETE FROM documentos WHERE nid_proceso = %s", [nid])
+            cleanup.execute("DELETE FROM licitaciones WHERE nid_proceso = %s", [nid])
