@@ -1,4 +1,4 @@
-"""Runs against the Docker Postgres (docker compose up -d). Nothing is kept."""
+"""Runs against a test database in the Docker Postgres (see conftest.py)."""
 
 from decimal import Decimal
 from pathlib import Path
@@ -16,18 +16,6 @@ from seace_monitor.store import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture
-def conn():
-    try:
-        connection = db.connect()
-    except psycopg.OperationalError:
-        pytest.skip("Postgres not running (docker compose up -d)")
-    # force_rollback: the outer transaction never commits, and the transaction
-    # inside save_new_licitaciones becomes a savepoint within it.
-    with connection, connection.transaction(force_rollback=True):
-        yield connection
 
 
 @pytest.fixture(scope="module")
@@ -134,3 +122,20 @@ def test_document_states(conn, rows, documents):
         document_failed(conn, second["id"], "hangs")
     assert pending_documents(conn) == []
     assert conn.execute("SELECT estado FROM documentos ORDER BY id").fetchall() == [("done",), ("error",)]
+
+
+def test_writes_survive_the_connection(test_dbname, rows, documents):
+    """A read before a write must not leave the write uncommitted."""
+    nid = rows[0]["nid_proceso"]
+    try:
+        with db.connect(test_dbname) as first:
+            save_new_licitaciones(first, rows[:1])
+            fichas_to_read(first, [nid])
+            save_ficha(first, nid, documents)
+        with db.connect(test_dbname) as second:
+            assert ficha_state(second, nid) == ("done", 0)
+            assert second.execute("SELECT count(*) FROM documentos WHERE nid_proceso = %s", [nid]).fetchone()[0] == 2
+    finally:
+        with db.connect(test_dbname) as cleanup:
+            cleanup.execute("DELETE FROM documentos WHERE nid_proceso = %s", [nid])
+            cleanup.execute("DELETE FROM licitaciones WHERE nid_proceso = %s", [nid])
