@@ -1,7 +1,25 @@
 # Copy to config.toml and adjust. config.toml is not committed.
+# Values are the labels the SEACE buscador shows; accents and case do not matter.
+# A value the portal does not offer stops the run and lists the valid options.
 
-# Departamentos whose obras are watched. v1 uses one; the list form is kept on purpose.
+[search]
+objeto = "Obra"
+
+# One search per departamento. The portal filters by the entity's seat, not the site.
 departamentos = ["LA LIBERTAD"]
 
-# SEACE objeto. v1 only covers obras.
-objeto = "Obra"
+# Optional. Leave out to search every year the portal offers.
+anio = 2026
+
+# Optional. "Seace 3" or "Seace 2".
+version_seace = "Seace 3"
+
+# Publication date window: the last N days up to today (Lima time).
+dias = 3
+
+[network]
+# HTTP proxy for portal requests. SEACE blocks IPs outside Peru.
+# Outside Peru: start the VPN container (docker compose --profile vpn up -d vpn)
+# and set "http://127.0.0.1:8888". Inside Peru: leave empty to connect directly.
+# If the proxy is set but down, the run fails; it never falls back to direct.
+proxy = "http://127.0.0.1:8888"

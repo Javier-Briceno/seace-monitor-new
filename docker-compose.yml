@@ -1,7 +1,10 @@
 services:
   db:
     image: postgres:17
-    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
@@ -12,5 +15,29 @@ services:
       interval: 5s
       retries: 10
 
+  # Only needed outside Peru: SEACE blocks foreign IPs. Starts with --profile vpn
+  # and exposes an HTTP proxy; set [network] proxy in config.toml to use it.
+  vpn:
+    image: qmcgaw/gluetun:v3
+    profiles: [vpn]
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:-nordvpn}
+      VPN_TYPE: ${VPN_TYPE:-openvpn}
+      OPENVPN_USER: ${OPENVPN_USER:-}
+      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD:-}
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:-}
+      OPENVPN_PROTOCOL: ${OPENVPN_PROTOCOL:-udp}
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-Peru}
+      HTTPPROXY: "on"
+    ports:
+      - "127.0.0.1:${VPN_PROXY_PORT:-8888}:8888"
+    volumes:
+      # Server list, refreshed with: docker compose run --rm vpn update -enduser -providers nordvpn
+      - gluetun:/gluetun
+
 volumes:
   pgdata:
+  gluetun:
