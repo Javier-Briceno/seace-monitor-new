@@ -7,6 +7,7 @@ import psycopg
 import pytest
 
 from seace_monitor import db
+from seace_monitor.locate import locate
 from seace_monitor.search import parse_results
 from seace_monitor.store import save_new_licitaciones
 
@@ -27,7 +28,10 @@ def conn():
 
 @pytest.fixture(scope="module")
 def rows():
-    return parse_results((FIXTURES / "search_page1.xml").read_text(encoding="utf-8")).rows
+    rows = parse_results((FIXTURES / "search_page1.xml").read_text(encoding="utf-8")).rows
+    for row in rows:
+        row["departamentos"], row["ubicacion_fuente"] = locate(row["descripcion"])
+    return rows
 
 
 def test_first_save_inserts_every_row(conn, rows):
@@ -65,3 +69,9 @@ def test_one_bad_row_stores_none_of_the_search(conn, rows):
     with pytest.raises(psycopg.errors.NotNullViolation):
         save_new_licitaciones(conn, [rows[0], broken])
     assert conn.execute("SELECT count(*) FROM licitaciones").fetchone()[0] == 0
+
+
+def test_departamentos_stored_as_list(conn, rows):
+    save_new_licitaciones(conn, rows[:1])
+    stored = conn.execute("SELECT departamentos, ubicacion_fuente FROM licitaciones").fetchone()
+    assert stored == (rows[0]["departamentos"], rows[0]["ubicacion_fuente"])
