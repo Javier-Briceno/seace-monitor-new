@@ -30,3 +30,7 @@ def queries(config: dict, today: date | None = None) -> list[Query]:
 def proxy(config: dict) -> str | None:
     """HTTP proxy for portal requests; None means a direct connection."""
     return config.get("network", {}).get("proxy") or None
+
+
+def download_dir(config: dict) -> Path:
+    return Path(config.get("download", {}).get("dir") or "data/documentos")

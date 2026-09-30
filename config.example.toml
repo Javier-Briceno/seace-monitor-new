@@ -23,3 +23,7 @@ dias = 3
 # and set "http://127.0.0.1:8888". Inside Peru: leave empty to connect directly.
 # If the proxy is set but down, the run fails; it never falls back to direct.
 proxy = "http://127.0.0.1:8888"
+
+[download]
+# Where downloaded documents are stored, one folder per licitación.
+dir = "data/documentos"
