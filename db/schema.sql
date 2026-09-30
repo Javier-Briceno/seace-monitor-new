@@ -11,7 +11,7 @@ CREATE TABLE licitaciones (
     valor_referencial  numeric(15, 2),       -- NULL when the list shows "---"
     moneda             text,
     cui                text,
-    departamento       text,
+    departamentos      text[] NOT NULL DEFAULT '{}',  -- every one named; a road can span two
     ubicacion_fuente   text NOT NULL DEFAULT 'unknown'
         CHECK (ubicacion_fuente IN ('mef', 'text', 'ubigeo', 'entity', 'unknown')),
     reiniciado_desde   text,
