@@ -7,6 +7,7 @@ import argparse
 import sys
 
 from . import config, db
+from .locate import locate
 from .search import SearchError, make_session, search
 from .store import save_new_licitaciones
 
@@ -31,13 +32,16 @@ def main() -> int:
         print(f"  portal total {result.total}, rows on this page {len(result.rows)}")
         if result.total > len(result.rows):
             print(f"  warning: only the first page is read, {result.total - len(result.rows)} rows not collected")
+        for row in result.rows:
+            row["departamentos"], row["ubicacion_fuente"] = locate(row["descripcion"])
         new = set(save_new_licitaciones(conn, result.rows))
         print(f"  new: {len(new)}, already stored: {len(result.rows) - len(new)}")
         for row in result.rows:
             mark = "new" if row["nid_proceso"] in new else "   "
             print(
                 f"  {mark} {row['nid_proceso']}  {row['fecha_publicacion']:%d/%m %H:%M}  "
-                f"{row['nomenclatura']}  {row['valor_referencial']} {row['moneda']}"
+                f"{row['nomenclatura']}  {row['valor_referencial']} {row['moneda']}  "
+                f"{'/'.join(row['departamentos']) or '?'}"
             )
     return 0
 
