@@ -1,0 +1,67 @@
+"""Runs against the Docker Postgres (docker compose up -d). Nothing is kept."""
+
+from decimal import Decimal
+from pathlib import Path
+
+import psycopg
+import pytest
+
+from seace_monitor import db
+from seace_monitor.search import parse_results
+from seace_monitor.store import save_new_licitaciones
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture
+def conn():
+    try:
+        connection = db.connect()
+    except psycopg.OperationalError:
+        pytest.skip("Postgres not running (docker compose up -d)")
+    # force_rollback: the outer transaction never commits, and the transaction
+    # inside save_new_licitaciones becomes a savepoint within it.
+    with connection, connection.transaction(force_rollback=True):
+        yield connection
+
+
+@pytest.fixture(scope="module")
+def rows():
+    return parse_results((FIXTURES / "search_page1.xml").read_text(encoding="utf-8")).rows
+
+
+def test_first_save_inserts_every_row(conn, rows):
+    new = save_new_licitaciones(conn, rows)
+    assert sorted(new) == sorted(r["nid_proceso"] for r in rows)
+
+
+def test_second_save_inserts_nothing(conn, rows):
+    save_new_licitaciones(conn, rows)
+    assert save_new_licitaciones(conn, rows) == []
+    assert conn.execute("SELECT count(*) FROM licitaciones").fetchone()[0] == len(rows)
+
+
+def test_known_row_is_not_overwritten(conn, rows):
+    save_new_licitaciones(conn, rows)
+    changed = dict(rows[0], valor_referencial=Decimal("1.00"))
+    save_new_licitaciones(conn, [changed])
+    stored = conn.execute(
+        "SELECT valor_referencial FROM licitaciones WHERE nid_proceso = %s", [changed["nid_proceso"]]
+    ).fetchone()[0]
+    assert stored == rows[0]["valor_referencial"]
+
+
+def test_values_round_trip(conn, rows):
+    save_new_licitaciones(conn, rows[:1])
+    stored = conn.execute(
+        "SELECT nomenclatura, fecha_publicacion, valor_referencial, moneda FROM licitaciones"
+    ).fetchone()
+    first = rows[0]
+    assert stored == (first["nomenclatura"], first["fecha_publicacion"], first["valor_referencial"], first["moneda"])
+
+
+def test_one_bad_row_stores_none_of_the_search(conn, rows):
+    broken = dict(rows[1], entidad=None)
+    with pytest.raises(psycopg.errors.NotNullViolation):
+        save_new_licitaciones(conn, [rows[0], broken])
+    assert conn.execute("SELECT count(*) FROM licitaciones").fetchone()[0] == 0
