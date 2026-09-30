@@ -24,6 +24,13 @@ an HTTP proxy on `127.0.0.1:8888`:
 docker compose --profile vpn up -d --wait vpn
 ```
 
+If the container stays unhealthy with `TLS key negotiation failed`, gluetun's
+built-in server list is probably out of date. Refresh it, then start again:
+
+```
+docker compose --profile vpn run --rm vpn update -enduser -providers nordvpn
+```
+
 `[network] proxy` in `config.toml` switches between the proxy and a direct
 connection. In Peru, leave it empty and skip the `vpn` service.
 

@@ -29,10 +29,15 @@ services:
       OPENVPN_USER: ${OPENVPN_USER:-}
       OPENVPN_PASSWORD: ${OPENVPN_PASSWORD:-}
       WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:-}
+      OPENVPN_PROTOCOL: ${OPENVPN_PROTOCOL:-udp}
       SERVER_COUNTRIES: ${VPN_COUNTRY:-Peru}
       HTTPPROXY: "on"
     ports:
       - "127.0.0.1:${VPN_PROXY_PORT:-8888}:8888"
+    volumes:
+      # Server list, refreshed with: docker compose run --rm vpn update -enduser -providers nordvpn
+      - gluetun:/gluetun
 
 volumes:
   pgdata:
+  gluetun:
