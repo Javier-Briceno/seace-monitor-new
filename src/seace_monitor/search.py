@@ -201,10 +201,20 @@ def parse_results(xml: str) -> SearchResult:
     return SearchResult(rows, int(total.group(1)))
 
 
+def make_session(proxy: str | None = None) -> requests.Session:
+    session = requests.Session()
+    session.headers["User-Agent"] = USER_AGENT
+    # Only config.toml decides the route; proxy environment variables
+    # (HTTPS_PROXY, NO_PROXY) could otherwise send requests out directly.
+    session.trust_env = False
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
+    return session
+
+
 def search(query: Query, session: requests.Session | None = None) -> SearchResult:
     """First results page for one query."""
-    session = session or requests.Session()
-    session.headers["User-Agent"] = USER_AGENT
+    session = session or make_session()
     try:
         page = session.get(PAGE, timeout=60)
         page.raise_for_status()
@@ -218,6 +228,12 @@ def search(query: Query, session: requests.Session | None = None) -> SearchResul
         )
         response.raise_for_status()
         response.encoding = "utf-8"
+    except requests.exceptions.ProxyError as error:
+        raise SearchError(
+            f"VPN proxy {session.proxies.get('https')} not reachable; "
+            f"start it with `docker compose --profile vpn up -d vpn`: {error}"
+        ) from error
     except requests.RequestException as error:
-        raise SearchError(f"portal not reachable (is the Peruvian VPN on?): {error}") from error
+        route = "through the VPN proxy" if session.proxies else "directly, without proxy"
+        raise SearchError(f"portal not reachable {route}: {error}") from error
     return parse_results(response.text)

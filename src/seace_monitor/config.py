@@ -25,3 +25,8 @@ def queries(config: dict, today: date | None = None) -> list[Query]:
         )
         for departamento in search["departamentos"]
     ]
+
+
+def proxy(config: dict) -> str | None:
+    """HTTP proxy for portal requests; None means a direct connection."""
+    return config.get("network", {}).get("proxy") or None

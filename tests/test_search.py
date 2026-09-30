@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from seace_monitor import config
-from seace_monitor.search import FORM, LIMA, Query, SearchError, parse_form, parse_results, search_fields
+from seace_monitor.search import (
+    FORM, LIMA, Query, SearchError, make_session, parse_form, parse_results, search, search_fields,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -99,3 +101,22 @@ def test_unreadable_amount_is_an_error():
     xml = read("search_page1.xml").replace("3,522,447.65", "S/ 3.5 M")
     with pytest.raises(SearchError, match="1250328"):
         parse_results(xml)
+
+
+def test_proxy_switch():
+    assert config.proxy({"network": {"proxy": "http://127.0.0.1:8888"}}) == "http://127.0.0.1:8888"
+    assert config.proxy({"network": {"proxy": ""}}) is None
+    assert config.proxy({}) is None
+
+
+def test_session_ignores_proxy_environment(monkeypatch):
+    monkeypatch.setenv("NO_PROXY", "*")
+    session = make_session("http://127.0.0.1:8888")
+    assert session.trust_env is False
+    assert session.proxies["https"] == "http://127.0.0.1:8888"
+
+
+def test_dead_proxy_fails_instead_of_going_direct():
+    # Port 9 on localhost has nothing listening, like a stopped VPN container.
+    with pytest.raises(SearchError, match="VPN proxy"):
+        search(Query(objeto="Obra"), make_session("http://127.0.0.1:9"))

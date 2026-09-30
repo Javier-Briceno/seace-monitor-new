@@ -7,7 +7,7 @@ import argparse
 import sys
 
 from . import config
-from .search import SearchError, search
+from .search import SearchError, make_session, search
 
 
 def main() -> int:
@@ -15,10 +15,14 @@ def main() -> int:
     parser.add_argument("--config", default="config.toml")
     args = parser.parse_args()
 
-    for query in config.queries(config.load(args.config)):
+    cfg = config.load(args.config)
+    proxy = config.proxy(cfg)
+    session = make_session(proxy)
+    print(f"route: {'VPN proxy ' + proxy if proxy else 'direct'}")
+    for query in config.queries(cfg):
         print(f"{query.objeto} / {query.departamento} / {query.desde} to {query.hasta}")
         try:
-            result = search(query)
+            result = search(query, session)
         except SearchError as error:
             print(f"  failed: {error}", file=sys.stderr)
             return 1
