@@ -5,8 +5,12 @@ CREATE TABLE licitaciones (
     nid_proceso        bigint PRIMARY KEY,  -- SEACE nidProceso = OCDS tenderId
     nomenclatura       text NOT NULL,
     entidad            text NOT NULL,
+    objeto             text NOT NULL,
     descripcion        text NOT NULL,
     fecha_publicacion  timestamptz,
+    valor_referencial  numeric(15, 2),       -- NULL when the list shows "---"
+    moneda             text,
+    cui                text,
     departamento       text,
     ubicacion_fuente   text NOT NULL DEFAULT 'unknown'
         CHECK (ubicacion_fuente IN ('mef', 'text', 'ubigeo', 'entity', 'unknown')),
