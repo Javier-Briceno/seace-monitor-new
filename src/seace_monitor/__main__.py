@@ -1,19 +1,19 @@
 """Search SEACE, store new licitaciones, list and download their documents, write the daily report.
 
-    python -m seace_monitor [--config config.toml]
+    python -m seace_monitor [--config config.toml] [--no-mail]
 """
 
 import argparse
 import sys
 import time
 
-from . import config, db, report
+from . import config, db, mail, report
 from .download import DocumentError, download
 from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
 from .search import AccessError, SearchError, make_session, search
 from .store import (
-    document_done, document_failed, ficha_failed, fichas_to_read, pending_documents,
+    document_done, document_failed, ficha_failed, fichas_to_read, mark_reported, pending_documents,
     save_ficha, save_new_licitaciones,
 )
 
@@ -73,6 +73,7 @@ def run_downloads(conn, session, root) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(prog="seace_monitor")
     parser.add_argument("--config", default="config.toml")
+    parser.add_argument("--no-mail", action="store_true", help="write the report but do not send it or mark anything")
     args = parser.parse_args()
 
     cfg = config.load(args.config)
@@ -94,6 +95,16 @@ def main() -> int:
         return 1
     text, csv_path, nids = report.build(conn, config.watched(cfg), config.download_dir(cfg), config.report_dir(cfg))
     print(f"\n{text}\nreport: {csv_path.with_suffix('.md')} and {csv_path} ({len(nids)} obras)")
+    if args.no_mail:
+        print("not sent (--no-mail); nothing marked as reported")
+        return 0
+    try:
+        to = mail.send(text.splitlines()[0], text, csv_path)
+    except mail.MailError as error:
+        print(f"{error}; the same obras go into tomorrow's report", file=sys.stderr)
+        return 1
+    mark_reported(conn, nids)
+    print(f"sent to {', '.join(to)}; {len(nids)} obras marked as reported")
     return 0
 
 

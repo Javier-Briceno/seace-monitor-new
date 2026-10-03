@@ -113,3 +113,10 @@ def document_failed(conn: psycopg.Connection, doc_id: int, error: str) -> None:
                WHERE id = %s""",
             [error, MAX_ATTEMPTS, doc_id],
         )
+
+
+def mark_reported(conn: psycopg.Connection, nids: list[int]) -> None:
+    """Call only after the report was accepted by the mail server: a crash before
+    this line sends the same obras again tomorrow, which is better than losing them."""
+    with conn.transaction():
+        conn.execute("UPDATE licitaciones SET informado_en = now() WHERE nid_proceso = ANY(%s)", [nids])
