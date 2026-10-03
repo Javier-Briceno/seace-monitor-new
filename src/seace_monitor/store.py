@@ -1,5 +1,7 @@
 """Read and write pipeline state in Postgres."""
 
+from datetime import datetime
+
 import psycopg
 
 from .ficha import has_bases
@@ -46,14 +48,20 @@ def fichas_to_read(conn: psycopg.Connection, nids: list[int]) -> set[int]:
     return {r[0] for r in rows}
 
 
-def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict]) -> int:
-    """Store a ficha's documents; return how many were new.
+def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadline: datetime | None = None) -> int:
+    """Store a ficha's documents and offer deadline; return how many documents were new.
 
     The ficha counts as read only once it lists a bases. Until then it stays
     pending without spending attempts, since entities often publish it later.
+    A stored deadline is never overwritten: a postponement is a change for historial.
     """
     new = 0
     with conn.transaction():
+        if deadline:
+            conn.execute(
+                "UPDATE licitaciones SET fecha_limite_ofertas = COALESCE(fecha_limite_ofertas, %s) WHERE nid_proceso = %s",
+                [deadline, nid],
+            )
         for d in documents:
             inserted = conn.execute(
                 """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, publicado_en)

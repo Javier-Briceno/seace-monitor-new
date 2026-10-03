@@ -9,7 +9,7 @@ import time
 
 from . import config, db
 from .download import DocumentError, download
-from .ficha import FichaError, open_ficha, parse_documents
+from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
 from .search import AccessError, SearchError, make_session, search
 from .store import (
@@ -43,13 +43,16 @@ def run_search(conn, session, query) -> None:
             continue
         time.sleep(PAUSE)
         try:
-            documents = parse_documents(open_ficha(session, result, row))
+            page = open_ficha(session, result, row)
+            documents = parse_documents(page)
+            deadline = parse_deadline(page)
         except FichaError as error:
             ficha_failed(conn, nid, str(error))
             print(f"{line}  ficha failed: {error}")
             continue
-        added = save_ficha(conn, nid, documents)
-        print(f"{line}  documents: {len(documents)} ({added} new)")
+        added = save_ficha(conn, nid, documents, deadline)
+        print(f"{line}  documents: {len(documents)} ({added} new), offers until {deadline:%d/%m %H:%M}" if deadline
+              else f"{line}  documents: {len(documents)} ({added} new), no offer deadline in the cronograma")
 
 
 def run_downloads(conn, session, root) -> None:

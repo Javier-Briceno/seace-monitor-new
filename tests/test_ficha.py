@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from seace_monitor.ficha import FichaError, has_bases, parse_documents
+from seace_monitor.ficha import FichaError, has_bases, parse_deadline, parse_documents
 from seace_monitor.search import LIMA
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -45,3 +45,24 @@ def test_bases_detected_by_document_type():
 def test_page_without_document_table_is_an_error():
     with pytest.raises(FichaError, match="document table"):
         parse_documents("<html>session expired</html>")
+
+
+def test_deadline_is_the_end_of_the_offer_stage():
+    # Stage name arrives with a broken accent ("Presentaci�n de propuestas") in these pages.
+    assert parse_deadline(read("ficha_two_documents.html")) == datetime(2026, 10, 9, 23, 59, tzinfo=LIMA)
+    assert parse_deadline(read("ficha_rar.html")) == datetime(2026, 10, 29, 23, 59, tzinfo=LIMA)
+
+
+def test_date_without_time_lasts_until_the_end_of_the_day():
+    page = read("ficha_rar.html").replace("29/10/2026 23:59", "29/10/2026", 1)
+    assert parse_deadline(page) == datetime(2026, 10, 29, 23, 59, tzinfo=LIMA)
+
+
+def test_no_offer_stage_gives_none():
+    page = re.sub(r"Presentaci\S* de propuestas", "Otra etapa", read("ficha_rar.html"))
+    assert parse_deadline(page) is None
+
+
+def test_missing_cronograma_is_an_error():
+    with pytest.raises(FichaError):
+        parse_deadline("<html></html>")
