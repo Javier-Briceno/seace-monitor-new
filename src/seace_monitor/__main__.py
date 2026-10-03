@@ -1,19 +1,20 @@
-"""Search SEACE, store new licitaciones, list their documents and download them.
+"""Search SEACE, store new licitaciones, list and download their documents, write the daily report.
 
-    python -m seace_monitor [--config config.toml]
+    python -m seace_monitor [--config config.toml] [--no-mail]
 """
 
 import argparse
 import sys
 import time
+from datetime import datetime
 
-from . import config, db
+from . import config, db, mail, report
 from .download import DocumentError, download
-from .ficha import FichaError, open_ficha, parse_documents
+from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
-from .search import AccessError, SearchError, make_session, search
+from .search import LIMA, AccessError, SearchError, make_session, search
 from .store import (
-    document_done, document_failed, ficha_failed, fichas_to_read, pending_documents,
+    document_done, document_failed, ficha_failed, fichas_to_read, mark_reported, pending_documents,
     save_ficha, save_new_licitaciones,
 )
 
@@ -43,18 +44,21 @@ def run_search(conn, session, query) -> None:
             continue
         time.sleep(PAUSE)
         try:
-            documents = parse_documents(open_ficha(session, result, row))
+            page = open_ficha(session, result, row)
+            documents = parse_documents(page)
+            deadline = parse_deadline(page)
         except FichaError as error:
             ficha_failed(conn, nid, str(error))
             print(f"{line}  ficha failed: {error}")
             continue
-        added = save_ficha(conn, nid, documents)
-        print(f"{line}  documents: {len(documents)} ({added} new)")
+        added = save_ficha(conn, nid, documents, deadline)
+        print(f"{line}  documents: {len(documents)} ({added} new), offers until {deadline:%d/%m %H:%M}" if deadline
+              else f"{line}  documents: {len(documents)} ({added} new), no offer deadline in the cronograma")
 
 
-def run_downloads(conn, session, root) -> None:
-    pending = pending_documents(conn)
-    print(f"downloads pending: {len(pending)}")
+def run_downloads(conn, session, root, nids) -> None:
+    pending = pending_documents(conn, nids)
+    print(f"downloads pending for {len(nids)} obras of the report: {len(pending)}")
     for document in pending:
         time.sleep(PAUSE)
         try:
@@ -70,6 +74,7 @@ def run_downloads(conn, session, root) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(prog="seace_monitor")
     parser.add_argument("--config", default="config.toml")
+    parser.add_argument("--no-mail", action="store_true", help="write the report but do not send it or mark anything")
     args = parser.parse_args()
 
     cfg = config.load(args.config)
@@ -77,16 +82,34 @@ def main() -> int:
     session = make_session(proxy)
     print(f"route: {'VPN proxy ' + proxy if proxy else 'direct'}")
     conn = db.connect()
+    for version in db.migrate(conn):
+        print(f"migration applied: {version}")
     try:
         for query in config.queries(cfg):
             run_search(conn, session, query)
-        run_downloads(conn, session, config.download_dir(cfg))
+        # Only the obras that go into today's report; documents of older obras
+        # are fetched by the step that needs them.
+        candidates = [i["nid_proceso"] for i in report.pending(
+            conn, config.watched(cfg), config.download_dir(cfg), datetime.now(LIMA))]
+        run_downloads(conn, session, config.download_dir(cfg), candidates)
     except AccessError as error:
         print(f"stopped, SEACE unreachable; no attempts were counted: {error}", file=sys.stderr)
         return 1
     except SearchError as error:
         print(f"search failed: {error}", file=sys.stderr)
         return 1
+    text, csv_path, nids = report.build(conn, config.watched(cfg), config.download_dir(cfg), config.report_dir(cfg))
+    print(f"\n{text}\nreport: {csv_path.with_suffix('.md')} and {csv_path} ({len(nids)} obras)")
+    if args.no_mail:
+        print("not sent (--no-mail); nothing marked as reported")
+        return 0
+    try:
+        to = mail.send(text.splitlines()[0], text, csv_path)
+    except mail.MailError as error:
+        print(f"{error}; the same obras go into tomorrow's report", file=sys.stderr)
+        return 1
+    mark_reported(conn, nids)
+    print(f"sent to {', '.join(to)}; {len(nids)} obras marked as reported")
     return 0
 
 

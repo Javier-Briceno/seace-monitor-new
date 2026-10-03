@@ -27,3 +27,7 @@ proxy = "http://127.0.0.1:8888"
 [download]
 # Where downloaded documents are stored, one folder per licitación.
 dir = "data/documentos"
+
+[report]
+# Where each day's summary (.md) and full list (.csv) are written.
+dir = "data/informes"

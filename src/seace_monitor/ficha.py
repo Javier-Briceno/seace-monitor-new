@@ -74,5 +74,25 @@ def parse_documents(page: str) -> list[dict]:
     return documents
 
 
+def parse_deadline(page: str) -> datetime | None:
+    """End of the offer stage in the ficha's cronograma, or None if the ficha has no such stage.
+
+    The stage is matched without its accent, which some pages send broken.
+    """
+    body = page.find("tbFicha:dtCronograma_data")
+    if body < 0:
+        raise FichaError("cronograma missing from the ficha")
+    table = page[body : page.index("</tbody>", body)]
+    for raw in re.findall(r"<tr[^>]*data-ri[^>]*>(.*?)</tr>", table, re.S):
+        cells = [cell_text(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", raw, re.S)]
+        if len(cells) < 3 or not re.match(r"presentaci\S* de (propuestas|ofertas)", normalize(cells[0])):
+            continue
+        end = cells[2]
+        if re.fullmatch(r"\d\d/\d\d/\d{4}", end):  # a date without time lasts until the end of the day
+            end += " 23:59"
+        return datetime.strptime(end, "%d/%m/%Y %H:%M").replace(tzinfo=LIMA)
+    return None
+
+
 def has_bases(documents: list[dict]) -> bool:
     return any("bases" in normalize(d["tipo"]) for d in documents)

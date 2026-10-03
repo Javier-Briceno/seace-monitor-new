@@ -1,5 +1,6 @@
 """Runs against a test database in the Docker Postgres (see conftest.py)."""
 
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -8,7 +9,7 @@ import pytest
 
 from seace_monitor import db
 from seace_monitor.locate import locate
-from seace_monitor.search import parse_results
+from seace_monitor.search import LIMA, parse_results
 from seace_monitor.ficha import parse_documents
 from seace_monitor.store import (
     MAX_ATTEMPTS, document_done, document_failed, ficha_failed, fichas_to_read,
@@ -116,12 +117,22 @@ def test_failed_ficha_is_retried_until_the_limit(conn, rows):
 def test_document_states(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     save_ficha(conn, rows[0]["nid_proceso"], documents)
-    first, second = pending_documents(conn)
+    nid = rows[0]["nid_proceso"]
+    first, second = pending_documents(conn, [nid])
     document_done(conn, first["id"], "data/x.pdf", 10)
     for _ in range(MAX_ATTEMPTS):
         document_failed(conn, second["id"], "hangs")
-    assert pending_documents(conn) == []
+    assert pending_documents(conn, [nid]) == []
     assert conn.execute("SELECT estado FROM documentos ORDER BY id").fetchall() == [("done",), ("error",)]
+
+
+def test_pending_documents_only_of_the_obras_asked_for(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:2])
+    wanted, other = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    save_ficha(conn, wanted, documents)
+    save_ficha(conn, other, [{**d, "uuid": d["uuid"] + "-other"} for d in documents])
+    assert {d["nid_proceso"] for d in pending_documents(conn, [wanted])} == {wanted}
+    assert pending_documents(conn, []) == []
 
 
 def test_writes_survive_the_connection(test_dbname, rows, documents):
@@ -139,3 +150,13 @@ def test_writes_survive_the_connection(test_dbname, rows, documents):
         with db.connect(test_dbname) as cleanup:
             cleanup.execute("DELETE FROM documentos WHERE nid_proceso = %s", [nid])
             cleanup.execute("DELETE FROM licitaciones WHERE nid_proceso = %s", [nid])
+
+
+def test_deadline_is_stored_once_and_never_overwritten(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    first = datetime(2026, 10, 9, 23, 59, tzinfo=LIMA)
+    save_ficha(conn, nid, documents, first)
+    save_ficha(conn, nid, documents, datetime(2026, 10, 20, 23, 59, tzinfo=LIMA))
+    stored = conn.execute("SELECT fecha_limite_ofertas FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()[0]
+    assert stored == first

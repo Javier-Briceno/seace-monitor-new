@@ -1,5 +1,7 @@
 """Read and write pipeline state in Postgres."""
 
+from datetime import datetime
+
 import psycopg
 
 from .ficha import has_bases
@@ -46,14 +48,20 @@ def fichas_to_read(conn: psycopg.Connection, nids: list[int]) -> set[int]:
     return {r[0] for r in rows}
 
 
-def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict]) -> int:
-    """Store a ficha's documents; return how many were new.
+def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadline: datetime | None = None) -> int:
+    """Store a ficha's documents and offer deadline; return how many documents were new.
 
     The ficha counts as read only once it lists a bases. Until then it stays
     pending without spending attempts, since entities often publish it later.
+    A stored deadline is never overwritten: a postponement is a change for historial.
     """
     new = 0
     with conn.transaction():
+        if deadline:
+            conn.execute(
+                "UPDATE licitaciones SET fecha_limite_ofertas = COALESCE(fecha_limite_ofertas, %s) WHERE nid_proceso = %s",
+                [deadline, nid],
+            )
         for d in documents:
             inserted = conn.execute(
                 """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, publicado_en)
@@ -80,9 +88,12 @@ def ficha_failed(conn: psycopg.Connection, nid: int, error: str) -> None:
         )
 
 
-def pending_documents(conn: psycopg.Connection) -> list[dict]:
+def pending_documents(conn: psycopg.Connection, nids: list[int]) -> list[dict]:
+    """Pending documents of these licitaciones only; each caller says which obras it needs."""
     rows = conn.execute(
-        "SELECT id, nid_proceso, uuid, nombre_archivo FROM documentos WHERE estado = 'pending' ORDER BY id"
+        "SELECT id, nid_proceso, uuid, nombre_archivo FROM documentos"
+        " WHERE estado = 'pending' AND nid_proceso = ANY(%s) ORDER BY id",
+        [nids],
     ).fetchall()
     return [dict(zip(("id", "nid_proceso", "uuid", "nombre_archivo"), r)) for r in rows]
 
@@ -105,3 +116,10 @@ def document_failed(conn: psycopg.Connection, doc_id: int, error: str) -> None:
                WHERE id = %s""",
             [error, MAX_ATTEMPTS, doc_id],
         )
+
+
+def mark_reported(conn: psycopg.Connection, nids: list[int]) -> None:
+    """Call only after the report was accepted by the mail server: a crash before
+    this line sends the same obras again tomorrow, which is better than losing them."""
+    with conn.transaction():
+        conn.execute("UPDATE licitaciones SET informado_en = now() WHERE nid_proceso = ANY(%s)", [nids])
