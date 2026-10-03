@@ -77,6 +77,8 @@ def main() -> int:
     session = make_session(proxy)
     print(f"route: {'VPN proxy ' + proxy if proxy else 'direct'}")
     conn = db.connect()
+    for version in db.migrate(conn):
+        print(f"migration applied: {version}")
     try:
         for query in config.queries(cfg):
             run_search(conn, session, query)

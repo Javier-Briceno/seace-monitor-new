@@ -11,7 +11,7 @@ SCHEMA = Path(__file__).parents[1] / "db" / "schema.sql"
 
 @pytest.fixture(scope="session")
 def test_dbname():
-    """A separate database, rebuilt from schema.sql once per test run."""
+    """A separate database, rebuilt from schema.sql and the migrations once per test run."""
     try:
         admin = db.connect()
     except psycopg.OperationalError:
@@ -22,6 +22,7 @@ def test_dbname():
         admin.execute(f'CREATE DATABASE "{name}"')
     with db.connect(name) as conn:
         conn.execute(SCHEMA.read_text(encoding="utf-8"))
+        db.migrate(conn)
     return name
 
 
