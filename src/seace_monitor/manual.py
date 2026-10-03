@@ -31,6 +31,7 @@ def template(obra: dict, bases: list[dict]) -> str:
         f"# {obra['descripcion'][:200]}",
         "#",
         "# Fill `valor` and `pagina` of each field; leave `valor` empty if the bases do not say it.",
+        "# `pagina` is the page number in the PDF viewer, not the one printed on the page.",
         "# Set listo = true when done; the next run imports the file.",
         "",
         f"nid_proceso = {obra['nid_proceso']}",
