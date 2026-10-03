@@ -34,3 +34,11 @@ def proxy(config: dict) -> str | None:
 
 def download_dir(config: dict) -> Path:
     return Path(config.get("download", {}).get("dir") or "data/documentos")
+
+
+def report_dir(config: dict) -> Path:
+    return Path(config.get("report", {}).get("dir") or "data/informes")
+
+
+def watched(config: dict) -> list[str]:
+    return list(config["search"]["departamentos"])

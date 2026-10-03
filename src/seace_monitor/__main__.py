@@ -1,4 +1,4 @@
-"""Search SEACE, store new licitaciones, list their documents and download them.
+"""Search SEACE, store new licitaciones, list and download their documents, write the daily report.
 
     python -m seace_monitor [--config config.toml]
 """
@@ -7,7 +7,7 @@ import argparse
 import sys
 import time
 
-from . import config, db
+from . import config, db, report
 from .download import DocumentError, download
 from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
@@ -92,6 +92,8 @@ def main() -> int:
     except SearchError as error:
         print(f"search failed: {error}", file=sys.stderr)
         return 1
+    text, csv_path, nids = report.build(conn, config.watched(cfg), config.download_dir(cfg), config.report_dir(cfg))
+    print(f"\n{text}\nreport: {csv_path.with_suffix('.md')} and {csv_path} ({len(nids)} obras)")
     return 0
 
 
