@@ -2,7 +2,7 @@
 
 Daily monitor for public works tenders (obras) on SEACE, Peru's public procurement portal.
 
-Work in progress: the monitor searches SEACE, stores new licitaciones with their location, lists their documents and downloads them. Nothing is extracted or reported yet.
+Work in progress: the monitor searches SEACE, stores new licitaciones with their location and offer deadline, downloads their documents and sends a daily report by email: a short summary of the new obras, most urgent first, and a CSV with all of them. Nothing is extracted from the documents yet.
 
 ## Setup
 
@@ -48,9 +48,21 @@ If the container stays unhealthy, read `docker compose logs vpn`:
 `[network] proxy` in `config.toml` switches between the proxy and a direct
 connection. In Peru, leave it empty and skip the `vpn` service.
 
+## Daily report
+
+Set the `SMTP_*` and `REPORT_TO` values in `.env` (see `.env.example`). Any SMTP account works;
+for Gmail use `smtp.gmail.com` and an app password. `REPORT_TO` takes several addresses separated by commas.
+
+An obra is marked as reported only after the mail server accepted the report, so a failed send
+puts the same obras into the next report. A day without new obras still sends a report, so a
+missing mail means something failed.
+
 ## Run
 
 ```
-.venv/Scripts/python -m seace_monitor
+.venv/Scripts/python -m seace_monitor             # search, download, report, send
+.venv/Scripts/python -m seace_monitor --no-mail   # write the report to data/informes without sending or marking
 .venv/Scripts/python -m pytest
 ```
+
+Database changes go into numbered files in `db/migrations/`, applied once each at startup.
