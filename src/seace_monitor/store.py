@@ -88,9 +88,12 @@ def ficha_failed(conn: psycopg.Connection, nid: int, error: str) -> None:
         )
 
 
-def pending_documents(conn: psycopg.Connection) -> list[dict]:
+def pending_documents(conn: psycopg.Connection, nids: list[int]) -> list[dict]:
+    """Pending documents of these licitaciones only; each caller says which obras it needs."""
     rows = conn.execute(
-        "SELECT id, nid_proceso, uuid, nombre_archivo FROM documentos WHERE estado = 'pending' ORDER BY id"
+        "SELECT id, nid_proceso, uuid, nombre_archivo FROM documentos"
+        " WHERE estado = 'pending' AND nid_proceso = ANY(%s) ORDER BY id",
+        [nids],
     ).fetchall()
     return [dict(zip(("id", "nid_proceso", "uuid", "nombre_archivo"), r)) for r in rows]
 

@@ -117,12 +117,22 @@ def test_failed_ficha_is_retried_until_the_limit(conn, rows):
 def test_document_states(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     save_ficha(conn, rows[0]["nid_proceso"], documents)
-    first, second = pending_documents(conn)
+    nid = rows[0]["nid_proceso"]
+    first, second = pending_documents(conn, [nid])
     document_done(conn, first["id"], "data/x.pdf", 10)
     for _ in range(MAX_ATTEMPTS):
         document_failed(conn, second["id"], "hangs")
-    assert pending_documents(conn) == []
+    assert pending_documents(conn, [nid]) == []
     assert conn.execute("SELECT estado FROM documentos ORDER BY id").fetchall() == [("done",), ("error",)]
+
+
+def test_pending_documents_only_of_the_obras_asked_for(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:2])
+    wanted, other = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    save_ficha(conn, wanted, documents)
+    save_ficha(conn, other, [{**d, "uuid": d["uuid"] + "-other"} for d in documents])
+    assert {d["nid_proceso"] for d in pending_documents(conn, [wanted])} == {wanted}
+    assert pending_documents(conn, []) == []
 
 
 def test_writes_survive_the_connection(test_dbname, rows, documents):

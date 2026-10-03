@@ -6,12 +6,13 @@
 import argparse
 import sys
 import time
+from datetime import datetime
 
 from . import config, db, mail, report
 from .download import DocumentError, download
 from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
-from .search import AccessError, SearchError, make_session, search
+from .search import LIMA, AccessError, SearchError, make_session, search
 from .store import (
     document_done, document_failed, ficha_failed, fichas_to_read, mark_reported, pending_documents,
     save_ficha, save_new_licitaciones,
@@ -55,9 +56,9 @@ def run_search(conn, session, query) -> None:
               else f"{line}  documents: {len(documents)} ({added} new), no offer deadline in the cronograma")
 
 
-def run_downloads(conn, session, root) -> None:
-    pending = pending_documents(conn)
-    print(f"downloads pending: {len(pending)}")
+def run_downloads(conn, session, root, nids) -> None:
+    pending = pending_documents(conn, nids)
+    print(f"downloads pending for {len(nids)} obras of the report: {len(pending)}")
     for document in pending:
         time.sleep(PAUSE)
         try:
@@ -86,7 +87,11 @@ def main() -> int:
     try:
         for query in config.queries(cfg):
             run_search(conn, session, query)
-        run_downloads(conn, session, config.download_dir(cfg))
+        # Only the obras that go into today's report; documents of older obras
+        # are fetched by the step that needs them.
+        candidates = [i["nid_proceso"] for i in report.pending(
+            conn, config.watched(cfg), config.download_dir(cfg), datetime.now(LIMA))]
+        run_downloads(conn, session, config.download_dir(cfg), candidates)
     except AccessError as error:
         print(f"stopped, SEACE unreachable; no attempts were counted: {error}", file=sys.stderr)
         return 1
