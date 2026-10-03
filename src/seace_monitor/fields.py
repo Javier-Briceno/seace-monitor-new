@@ -1,30 +1,33 @@
 """The fields read from the bases, in one place. Manual extraction uses them now, automatic extraction later.
 
+Where to look is given by section title: entities drop or add subsections, so the numbers move
+(the offer deadline's neighbours were 3.3.14-3.3.17 in one bases and 3.3.12-3.3.15 in another).
+
 Every section of the 2025-law standard bases is either a field here or listed in EXCLUDED with a reason,
 so nothing is left out without a decision.
 """
 
-# key, label, where to look in the standard bases
+# key, label, where to look in the standard bases (by title)
 FIELDS = (
-    ("cuantia", "Cuantía de la contratación (S/)", "1.4"),
-    ("fuente_financiamiento", "Fuente de financiamiento", "1.6"),
-    ("sistema_entrega", "Sistema de entrega (solo construcción / diseño y construcción)", "capítulo III, título"),
-    ("plazo_ejecucion_dias", "Plazo de ejecución (días calendario)", "3.3.14"),
-    ("modalidad_pago", "Modalidad de pago (suma alzada / precios unitarios / mixta)", "3.3.16"),
-    ("oferta_economica", "Evaluación económica (fija / limitada)", "4.2"),
-    ("experiencia_monto", "Experiencia del postor: monto facturado pedido (S/)", "3.8.1 A"),
-    ("experiencia_especialidad", "Experiencia del postor: especialidad y subespecialidades", "3.8.1 A"),
-    ("experiencia_ventana_anios", "Experiencia del postor: años hacia atrás", "3.8.1 A"),
-    ("personal_clave", "Personal clave: cargo, profesión y meses, uno por línea", "3.8.1 B"),
-    ("equipamiento", "Equipamiento estratégico", "3.8.1 C"),
-    ("consorcio", "Consorcio: máximo de integrantes y porcentajes mínimos", "3.8.1 D"),
-    ("factores", "Factores de evaluación con sus puntos, uno por línea", "capítulo IV"),
-    ("factores_subjetivos", "Factores que el evaluador juzga por contenido (mejora al requerimiento, plan, metodología); o 'ninguno'", "capítulo IV"),
-    ("minimo_tecnico", "Puntaje técnico mínimo", "4.1"),
-    ("adelantos", "Adelantos: directo y de materiales (%)", "3.3.17"),
-    ("penalidades", "Penalidades: por mora y otras", "3.3.1 y 3.3.2 (al final del capítulo III)"),
-    ("terreno", "Disponibilidad física del terreno", "3.3.7"),
-    ("garantias", "Garantías para firmar el contrato", "2.3"),
+    ("cuantia", "Cuantía de la contratación (S/)", "cap. I, CUANTÍA DE LA CONTRATACIÓN"),
+    ("fuente_financiamiento", "Fuente de financiamiento", "cap. I, FUENTE DE FINANCIAMIENTO"),
+    ("sistema_entrega", "Sistema de entrega (solo construcción / diseño y construcción)", "cap. III, título del requerimiento"),
+    ("plazo_ejecucion_dias", "Plazo de ejecución (días calendario)", "cap. III, PLAZO DE EJECUCIÓN"),
+    ("modalidad_pago", "Modalidad de pago (suma alzada / precios unitarios / mixta)", "cap. III, MODALIDAD DE PAGO"),
+    ("oferta_economica", "Evaluación económica (fija / limitada)", "cap. IV, EVALUACIÓN ECONÓMICA"),
+    ("experiencia_monto", "Experiencia del postor: monto facturado pedido (S/)", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
+    ("experiencia_especialidad", "Experiencia del postor: especialidad y subespecialidades", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
+    ("experiencia_ventana_anios", "Experiencia del postor: años hacia atrás", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
+    ("personal_clave", "Personal clave: cargo, profesión y meses, uno por línea", "cap. III, REQUISITOS DE CALIFICACIÓN, PERSONAL CLAVE"),
+    ("equipamiento", "Equipamiento estratégico", "cap. III, REQUISITOS DE CALIFICACIÓN, EQUIPAMIENTO ESTRATÉGICO"),
+    ("consorcio", "Consorcio: máximo de integrantes y porcentajes mínimos", "cap. III, REQUISITOS DE CALIFICACIÓN, PARTICIPACIÓN EN CONSORCIO"),
+    ("factores", "Factores de evaluación con sus puntos, uno por línea", "cap. IV, FACTORES DE EVALUACIÓN"),
+    ("factores_subjetivos", "Factores que el evaluador juzga por contenido (mejora al requerimiento, plan, metodología); o 'ninguno'", "cap. IV, FACTORES DE EVALUACIÓN"),
+    ("minimo_tecnico", "Puntaje técnico mínimo", "cap. IV, EVALUACIÓN TÉCNICA"),
+    ("adelantos", "Adelantos: directo y de materiales (%)", "cap. III, ADELANTOS"),
+    ("penalidades", "Penalidades: por mora y otras", "cap. III, PENALIDADES"),
+    ("terreno", "Disponibilidad física del terreno", "cap. III, DISPONIBILIDAD FÍSICA DEL TERRENO"),
+    ("garantias", "Garantías para firmar el contrato", "cap. II, REQUISITOS PARA PERFECCIONAR EL CONTRATO"),
     ("notas", "Notas libres", ""),
 )
 

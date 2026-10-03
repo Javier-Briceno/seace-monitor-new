@@ -45,7 +45,7 @@ def template(obra: dict, bases: list[dict]) -> str:
         lines += [
             "",
             f"[{key}]",
-            f"# {label}" + (f" | sección {where}" if where else ""),
+            f"# {label}" + (f" | {where}" if where else ""),
             'valor = """"""' if key in ("personal_clave", "factores", "notas", "penalidades") else 'valor = ""',
             'pagina = ""',
         ]
