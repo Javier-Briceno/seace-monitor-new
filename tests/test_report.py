@@ -1,10 +1,12 @@
 """Runs against the test database (see conftest.py)."""
 
 import csv
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from seace_monitor.fields import KEYS
 from seace_monitor.report import TOP, build, pending, summary
 from seace_monitor.search import LIMA
 
@@ -68,12 +70,40 @@ def test_empty_report_still_says_so(conn):
 
 def test_build_writes_summary_and_a_csv_excel_can_read(conn, tmp_path):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4))
-    text, csv_path, nids = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
-    assert nids == [1]
-    assert (tmp_path / "2026-10-03.md").read_text(encoding="utf-8") == text
-    with open(csv_path, encoding="utf-8-sig", newline="") as f:
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert rep.nids == [1] and rep.extraction_ids == []
+    assert (tmp_path / "2026-10-03.md").read_text(encoding="utf-8") == rep.text
+    assert rep.files == [tmp_path / "2026-10-03.csv"]  # no extractions, no second CSV
+    with open(rep.files[0], encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f, delimiter=";"))
     assert rows[0]["nomenclatura"] == "LP-ABR-1"
     assert rows[0]["valor_referencial"] == "1500000,00"
     assert rows[0]["fecha_limite_ofertas"] == "07/10/2026 09:00"
     assert rows[0]["carpeta"].endswith("1")
+
+
+def add_extraction(conn, nid, **values):
+    campos = {k: {"valor": values.get(k, ""), "pagina": "12" if k in values else ""} for k in KEYS}
+    doc = conn.execute(
+        """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo)
+           VALUES (%s, %s, 'Convocatoria', 'Bases Administrativas', 'BASES.pdf') RETURNING id""", [nid, f"u{nid}"]
+    ).fetchone()[0]
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'manual', %s, 'done')",
+                 [doc, json.dumps(campos)])
+
+
+def test_extraction_of_an_already_reported_obra_gets_its_own_section(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1, plazo_ejecucion_dias="120", factores_subjetivos="ninguno")
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert rep.nids == [] and len(rep.extraction_ids) == 1
+    assert "Extraídas a mano desde el último informe: 1" in rep.text
+    assert "- LP-ABR-1 | MUNICIPALIDAD DE PRUEBA | plazo: 120 | subjetivos: ninguno" in rep.text
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        row = next(csv.DictReader(f, delimiter=";"))
+    assert row["plazo_ejecucion_dias"] == "120" and row["plazo_ejecucion_dias_pagina"] == "12"
+
+
+def test_problems_are_listed(conn, tmp_path):
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW, problems=["1.toml: not valid TOML"])
+    assert "Problemas:\n- 1.toml: not valid TOML" in rep.text

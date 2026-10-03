@@ -11,6 +11,7 @@ from pathlib import Path
 import psycopg
 
 from .fields import FIELDS, KEYS
+from .search import normalize
 
 VERSION = "manual"
 
@@ -104,3 +105,28 @@ def import_ready(conn: psycopg.Connection, folder: Path) -> tuple[list[str], lis
         if changed:
             done.append(path.name)
     return done, errors
+
+
+def write_template(conn: psycopg.Connection, nid: int, folder: Path) -> Path:
+    """Write the template of one obra; never overwrites a file a person may have started filling."""
+    path = folder / f"{nid}.toml"
+    if path.exists():
+        raise TemplateError(f"{path} already exists; edit it or delete it first")
+    row = conn.execute(
+        "SELECT nid_proceso, nomenclatura, entidad, descripcion FROM licitaciones WHERE nid_proceso = %s", [nid]
+    ).fetchone()
+    if not row:
+        raise TemplateError(f"{nid} is not a stored licitación")
+    bases = [
+        {"uuid": u, "nombre_archivo": n, "ruta_local": r}
+        for u, n, r, tipo in conn.execute(
+            "SELECT uuid, nombre_archivo, ruta_local, tipo FROM documentos WHERE nid_proceso = %s ORDER BY id", [nid]
+        ).fetchall()
+        if "bases" in normalize(tipo)
+    ]
+    if not bases:
+        raise TemplateError(f"{nid} has no bases listed yet")
+    folder.mkdir(parents=True, exist_ok=True)
+    path.write_text(template(dict(zip(("nid_proceso", "nomenclatura", "entidad", "descripcion"), row)), bases),
+                    encoding="utf-8")
+    return path

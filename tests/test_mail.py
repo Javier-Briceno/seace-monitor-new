@@ -55,7 +55,7 @@ def smtp(monkeypatch, tmp_path):
 
 
 def test_report_goes_to_every_recipient_with_the_csv(smtp):
-    assert mail.send("Informe SEACE", "cuerpo", smtp) == ["a@example.org", "b@example.org"]
+    assert mail.send("Informe SEACE", "cuerpo", [smtp]) == ["a@example.org", "b@example.org"]
     server, msg = FakeSMTP.sent[0]
     assert server.tls
     assert msg["From"] == "monitor@example.org"
@@ -67,19 +67,19 @@ def test_report_goes_to_every_recipient_with_the_csv(smtp):
 def test_missing_setting_is_an_error_not_a_silent_skip(smtp, monkeypatch):
     monkeypatch.delenv("SMTP_PASSWORD")
     with pytest.raises(mail.MailError, match="SMTP_PASSWORD"):
-        mail.send("Informe SEACE", "cuerpo", smtp)
+        mail.send("Informe SEACE", "cuerpo", [smtp])
 
 
 def test_rejected_login_is_an_error(smtp):
     FakeSMTP.fail_login = True
     with pytest.raises(mail.MailError, match="not sent"):
-        mail.send("Informe SEACE", "cuerpo", smtp)
+        mail.send("Informe SEACE", "cuerpo", [smtp])
 
 
 def test_a_refused_recipient_is_an_error(smtp):
     FakeSMTP.refuse = {"b@example.org": (550, b"no such user")}
     with pytest.raises(mail.MailError, match="b@example.org"):
-        mail.send("Informe SEACE", "cuerpo", smtp)
+        mail.send("Informe SEACE", "cuerpo", [smtp])
 
 
 def test_marked_obras_leave_the_next_report(conn):

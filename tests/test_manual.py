@@ -5,7 +5,7 @@ import tomllib
 import pytest
 
 from seace_monitor.fields import KEYS
-from seace_monitor.manual import TemplateError, import_ready, load, template
+from seace_monitor.manual import TemplateError, import_ready, load, template, write_template
 
 OBRA = {"nid_proceso": 1, "nomenclatura": "LP-ABR-1", "entidad": "MD DE PRUEBA", "descripcion": 'OBRA "COBERTURA" DE PRUEBA'}
 BASES = [{"uuid": "uuid-bases", "nombre_archivo": "BASES.pdf", "ruta_local": "data/documentos/1/BASES.pdf"}]
@@ -80,3 +80,11 @@ def test_document_of_another_obra_is_refused(conn, tmp_path):
     (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES)), encoding="utf-8")
     done, errors = import_ready(conn, tmp_path)
     assert done == [] and "is not a document of 1" in errors[0]
+
+
+def test_write_template_from_the_database_and_never_overwrite(conn, tmp_path):
+    add_obra(conn)
+    path = write_template(conn, 1, tmp_path)
+    assert tomllib.loads(path.read_text(encoding="utf-8"))["documento"] == "uuid-bases"
+    with pytest.raises(TemplateError, match="already exists"):
+        write_template(conn, 1, tmp_path)
