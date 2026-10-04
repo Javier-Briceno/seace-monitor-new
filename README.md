@@ -2,7 +2,7 @@
 
 Daily monitor for public works tenders (obras) on SEACE, Peru's public procurement portal.
 
-Work in progress: the monitor searches SEACE, stores new licitaciones with their location and offer deadline, downloads their documents and sends a daily report by email: a short summary of the new obras, most urgent first, and a CSV with all of them. Nothing is extracted from the documents yet.
+Work in progress: the monitor searches SEACE, stores new licitaciones with their location and offer deadline, downloads their documents and sends a daily report by email: a short summary of the new obras, most urgent first, and a CSV with all of them. Fields from the bases are extracted by hand for now (see below).
 
 ## Setup
 
@@ -64,5 +64,18 @@ missing mail means something failed.
 .venv/Scripts/python -m seace_monitor --no-mail   # write the report to data/informes without sending or marking
 .venv/Scripts/python -m pytest
 ```
+
+## Manual extraction
+
+Until automatic extraction exists, a person reads the bases of the obras they pick from the report:
+
+```
+.venv/Scripts/python -m seace_monitor --plantilla <nid_proceso>
+```
+
+writes `data/extracciones/<nid_proceso>.toml` with every field and the section of the bases to look in
+(the list lives in `src/seace_monitor/fields.py`). Fill `valor` and `pagina`, set `listo = true`, and the next
+run imports it and lists it in the report, with all fields in a second CSV. Editing the file later replaces
+the extraction and reports it again as a correction.
 
 Database changes go into numbered files in `db/migrations/`, applied once each at startup.

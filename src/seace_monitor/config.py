@@ -42,3 +42,7 @@ def report_dir(config: dict) -> Path:
 
 def watched(config: dict) -> list[str]:
     return list(config["search"]["departamentos"])
+
+
+def extraction_dir(config: dict) -> Path:
+    return Path(config.get("extract", {}).get("dir") or "data/extracciones")

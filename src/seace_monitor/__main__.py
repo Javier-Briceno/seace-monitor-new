@@ -1,6 +1,7 @@
 """Search SEACE, store new licitaciones, list and download their documents, write the daily report.
 
     python -m seace_monitor [--config config.toml] [--no-mail]
+    python -m seace_monitor --plantilla <nid_proceso>
 """
 
 import argparse
@@ -8,13 +9,14 @@ import sys
 import time
 from datetime import datetime
 
-from . import config, db, mail, report
+from . import config, db, mail, manual, report
 from .download import DocumentError, download
 from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
 from .search import LIMA, AccessError, SearchError, make_session, search
 from .store import (
-    document_done, document_failed, ficha_failed, fichas_to_read, mark_reported, pending_documents,
+    document_done, document_failed, ficha_failed, fichas_to_read, mark_extractions_reported, mark_reported,
+    pending_documents,
     save_ficha, save_new_licitaciones,
 )
 
@@ -75,6 +77,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="seace_monitor")
     parser.add_argument("--config", default="config.toml")
     parser.add_argument("--no-mail", action="store_true", help="write the report but do not send it or mark anything")
+    parser.add_argument("--plantilla", type=int, metavar="NID_PROCESO", help="write the manual extraction template of one obra and exit")
     args = parser.parse_args()
 
     cfg = config.load(args.config)
@@ -84,6 +87,13 @@ def main() -> int:
     conn = db.connect()
     for version in db.migrate(conn):
         print(f"migration applied: {version}")
+    if args.plantilla:
+        try:
+            print(f"template written: {manual.write_template(conn, args.plantilla, config.extraction_dir(cfg))}")
+        except manual.TemplateError as error:
+            print(error, file=sys.stderr)
+            return 1
+        return 0
     try:
         for query in config.queries(cfg):
             run_search(conn, session, query)
@@ -98,18 +108,22 @@ def main() -> int:
     except SearchError as error:
         print(f"search failed: {error}", file=sys.stderr)
         return 1
-    text, csv_path, nids = report.build(conn, config.watched(cfg), config.download_dir(cfg), config.report_dir(cfg))
-    print(f"\n{text}\nreport: {csv_path.with_suffix('.md')} and {csv_path} ({len(nids)} obras)")
+    imported, problems = manual.import_ready(conn, config.extraction_dir(cfg))
+    for name in imported:
+        print(f"manual extraction imported: {name}")
+    rep = report.build(conn, config.watched(cfg), config.download_dir(cfg), config.report_dir(cfg), problems=problems)
+    print(f"\n{rep.text}\nreport files: {', '.join(str(f) for f in rep.files)}")
     if args.no_mail:
         print("not sent (--no-mail); nothing marked as reported")
         return 0
     try:
-        to = mail.send(text.splitlines()[0], text, csv_path)
+        to = mail.send(rep.text.splitlines()[0], rep.text, rep.files)
     except mail.MailError as error:
         print(f"{error}; the same obras go into tomorrow's report", file=sys.stderr)
         return 1
-    mark_reported(conn, nids)
-    print(f"sent to {', '.join(to)}; {len(nids)} obras marked as reported")
+    mark_reported(conn, rep.nids)
+    mark_extractions_reported(conn, rep.extraction_ids)
+    print(f"sent to {', '.join(to)}; {len(rep.nids)} obras and {len(rep.extraction_ids)} extractions marked as reported")
     return 0
 
 

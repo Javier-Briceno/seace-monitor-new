@@ -123,3 +123,8 @@ def mark_reported(conn: psycopg.Connection, nids: list[int]) -> None:
     this line sends the same obras again tomorrow, which is better than losing them."""
     with conn.transaction():
         conn.execute("UPDATE licitaciones SET informado_en = now() WHERE nid_proceso = ANY(%s)", [nids])
+
+
+def mark_extractions_reported(conn: psycopg.Connection, ids: list[int]) -> None:
+    with conn.transaction():
+        conn.execute("UPDATE extracciones SET informado_en = now() WHERE id = ANY(%s)", [ids])

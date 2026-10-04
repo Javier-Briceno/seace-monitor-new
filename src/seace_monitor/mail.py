@@ -25,20 +25,21 @@ def settings() -> dict:
     }
 
 
-def message(subject: str, body: str, attachment: Path, sender: str, to: list[str]) -> EmailMessage:
+def message(subject: str, body: str, attachments: list[Path], sender: str, to: list[str]) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = ", ".join(to)
     msg.set_content(body)
-    msg.add_attachment(attachment.read_bytes(), maintype="text", subtype="csv", filename=attachment.name)
+    for attachment in attachments:
+        msg.add_attachment(attachment.read_bytes(), maintype="text", subtype="csv", filename=attachment.name)
     return msg
 
 
-def send(subject: str, body: str, attachment: Path) -> list[str]:
+def send(subject: str, body: str, attachments: list[Path]) -> list[str]:
     """Send and return the recipients. Raises MailError unless the server accepted every recipient."""
     s = settings()
-    msg = message(subject, body, attachment, s["sender"], s["to"])
+    msg = message(subject, body, attachments, s["sender"], s["to"])
     try:
         if s["port"] == 465:
             server = smtplib.SMTP_SSL(s["host"], s["port"], timeout=60)

@@ -31,3 +31,7 @@ dir = "data/documentos"
 [report]
 # Where each day's summary (.md) and full list (.csv) are written.
 dir = "data/informes"
+
+[extract]
+# Manual extraction templates, one TOML file per obra (python -m seace_monitor --plantilla <nid_proceso>).
+dir = "data/extracciones"
