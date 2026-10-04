@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from seace_monitor.fields import KEYS
+from seace_monitor.fields import KEYS, NAMES
 from seace_monitor.report import TOP, build, pending, summary
 from seace_monitor.search import LIMA
 
@@ -101,8 +101,13 @@ def test_extraction_of_an_already_reported_obra_gets_its_own_section(conn, tmp_p
     assert ("MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n  Plazo: 120 días\n  Factores subjetivos: ninguno\n"
             "  Consultas: 0\n") in rep.text
     with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
-        row = next(csv.DictReader(f, delimiter=";"))
-    assert row["plazo_ejecucion_dias"] == "120" and row["plazo_ejecucion_dias_pagina"] == "12"
+        rows = list(csv.DictReader(f, delimiter=";"))
+    assert len(rows) == len(KEYS)
+    assert {"obra": "MUNICIPALIDAD DE PRUEBA (LP-ABR-1)", "campo": "Plazo", "valor": "120", "página": "12"} in rows
+
+
+def test_every_field_has_a_short_name():
+    assert set(NAMES) == set(KEYS)
 
 
 def test_each_extraction_shows_its_own_consultas(conn, tmp_path):

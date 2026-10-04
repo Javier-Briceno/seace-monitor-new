@@ -7,15 +7,13 @@ from pathlib import Path
 
 import psycopg
 
-from .fields import KEYS
+from .fields import KEYS, NAMES
 from .search import LIMA, normalize
 
 TOP = 10  # obras listed in the summary; the CSV holds all of them
 
 # The few extracted fields shown in the mail body; the extractions CSV holds all of them.
-SUMMARY_FIELDS = (("cuantia", "Cuantía"), ("plazo_ejecucion_dias", "Plazo"),
-                  ("experiencia_monto", "Experiencia pedida"), ("minimo_tecnico", "Mínimo técnico"),
-                  ("factores_subjetivos", "Factores subjetivos"))
+SUMMARY_FIELDS = ("cuantia", "plazo_ejecucion_dias", "experiencia_monto", "minimo_tecnico", "factores_subjetivos")
 
 # Dropped from the entity's name in a block title; the nomenclatura next to it already says it.
 ENTITY_PREFIXES = ("MUNICIPALIDAD DISTRITAL DE ", "MUNICIPALIDAD PROVINCIAL DE ")
@@ -76,6 +74,14 @@ def money(value, currency) -> str:
     return f"{prefix} {value:,.0f}".replace(",", ".")
 
 
+def title(extraction: dict) -> str:
+    """The obra as readers name it: the entity's short name and the nomenclatura."""
+    entidad = extraction["entidad"].upper()
+    for prefix in ENTITY_PREFIXES:
+        entidad = entidad.removeprefix(prefix)
+    return f"{entidad} ({extraction['nomenclatura']})"
+
+
 def consultas(notas: str) -> int:
     """Questions to ask the entity: lines of the notes that start with 'Consulta:'."""
     return sum(1 for line in notas.splitlines() if line.strip().lower().startswith("consulta:"))
@@ -106,16 +112,13 @@ def summary(items: list[dict], now: datetime, watched: list[str],
         lines += ["", f"Extraídas a mano desde el último informe: {len(extracted)} (todos los campos en el CSV de extracciones)"]
         for e in extracted:
             c = e["campos"]
-            entidad = e["entidad"].upper()
-            for prefix in ENTITY_PREFIXES:
-                entidad = entidad.removeprefix(prefix)
-            lines += ["", f"{entidad} ({e['nomenclatura']})"]
-            for key, label in SUMMARY_FIELDS:
+            lines += ["", title(e)]
+            for key in SUMMARY_FIELDS:
                 valor = c[key]["valor"].strip()
                 if key == "plazo_ejecucion_dias" and valor.isdigit():
                     valor += " días"
                 if valor:
-                    lines.append(f"  {label}: {valor}")
+                    lines.append(f"  {NAMES[key]}: {valor}")
             lines.append(f"  Consultas: {consultas(c['notas']['valor'])}")
     if problems:
         lines += ["", "Problemas:"] + [f"- {p}" for p in problems]
@@ -148,13 +151,13 @@ def extractions(conn: psycopg.Connection) -> list[dict]:
 
 
 def write_extractions_csv(extracted: list[dict], path: Path) -> None:
+    # One row per field, so an obra reads top to bottom on a phone instead of scrolling sideways.
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f, delimiter=";")
-        writer.writerow(["nid_proceso", "nomenclatura", "entidad", "version"]
-                        + [c for key in KEYS for c in (key, f"{key}_pagina")])
+        writer.writerow(["obra", "campo", "valor", "página"])
         for e in extracted:
-            writer.writerow([e["nid_proceso"], e["nomenclatura"], e["entidad"], e["version"]]
-                            + [v for key in KEYS for v in (e["campos"][key]["valor"], e["campos"][key]["pagina"])])
+            for key in KEYS:
+                writer.writerow([title(e), NAMES[key], e["campos"][key]["valor"].strip(), e["campos"][key]["pagina"]])
 
 
 @dataclass

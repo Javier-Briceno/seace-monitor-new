@@ -34,6 +34,17 @@ FIELDS = (
 
 KEYS = tuple(key for key, _, _ in FIELDS)
 
+# Short names for readers of the report; the labels above are instructions for whoever fills a template.
+NAMES = {
+    "cuantia": "Cuantía", "fuente_financiamiento": "Fuente de financiamiento", "sistema_entrega": "Sistema de entrega",
+    "plazo_ejecucion_dias": "Plazo", "modalidad_pago": "Modalidad de pago", "oferta_economica": "Evaluación económica",
+    "experiencia_monto": "Experiencia pedida", "experiencia_especialidad": "Especialidad de la experiencia",
+    "experiencia_ventana_anios": "Antigüedad de la experiencia", "personal_clave": "Personal clave",
+    "equipamiento": "Equipamiento", "consorcio": "Consorcio", "factores": "Factores de evaluación",
+    "factores_subjetivos": "Factores subjetivos", "minimo_tecnico": "Mínimo técnico", "adelantos": "Adelantos",
+    "penalidades": "Penalidades", "terreno": "Terreno", "garantias": "Garantías", "notas": "Notas",
+}
+
 EXCLUDED = {
     "1.1 base legal, 1.5 expediente": "the same in every bases",
     "1.2 entidad, 1.3 objeto": "already in the search list",
