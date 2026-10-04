@@ -35,11 +35,15 @@ FIELDS = (
 KEYS = tuple(key for key, _, _ in FIELDS)
 
 # Fields filled as rows because the verdict compares their parts one by one (see 02-verdict-design).
-# Each column has a kind: str, int, bool, list (of strings) or a tuple of the allowed values.
+# Each column has a kind: str, int, bool, list (of strings, not empty), OPTIONAL_LIST, or a tuple of the allowed values.
+OPTIONAL_LIST = "optional list"
+
+# An accepted job is a role, or a role in an area when the bases combine them ("Jefe y/o Coordinador
+# en/de: Seguridad ... y/o SSOMA"); `areas` stays empty when the bases list whole job titles.
 ROW_FIELDS = {
     "personal_clave": (
         ("cargo", str), ("cantidad", int), ("profesiones", list), ("grado", ("título profesional", "bachiller")),
-        ("colegiado", bool), ("meses", int), ("desde_colegiatura", bool), ("cargos_validos", list),
+        ("colegiado", bool), ("meses", int), ("desde_colegiatura", bool), ("roles", list), ("areas", OPTIONAL_LIST),
         ("ambito", ("subespecialidad", "obras en general")), ("ventana_anios", int), ("pagina", str),
     ),
 }

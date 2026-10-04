@@ -10,7 +10,7 @@ from pathlib import Path
 
 import psycopg
 
-from .fields import FIELDS, KEYS, ROW_FIELDS
+from .fields import FIELDS, KEYS, OPTIONAL_LIST, ROW_FIELDS
 from .report import title
 from .search import normalize
 
@@ -63,7 +63,7 @@ def empty_column(column: str, kind) -> str:
         return f"{column} = 0"
     if kind is bool:
         return f"{column} = false"
-    if kind is list:
+    if kind is list or kind == OPTIONAL_LIST:
         return f"{column} = []"
     if isinstance(kind, tuple):
         return f'{column} = ""  # {" | ".join(kind)}'
@@ -89,9 +89,10 @@ def check_rows(name: str, key: str, value) -> list[dict]:
                 ok, expected = type(v) is int and v > 0, "a whole number above 0"
             elif kind is bool:
                 ok, expected = type(v) is bool, "true or false"
-            elif kind is list:
-                ok = isinstance(v, list) and v != [] and all(isinstance(x, str) and x.strip() for x in v)
-                expected = 'a list of texts, like ["a", "b"]'
+            elif kind is list or kind == OPTIONAL_LIST:
+                ok = (isinstance(v, list) and (v != [] or kind == OPTIONAL_LIST)
+                      and all(isinstance(x, str) and x.strip() for x in v))
+                expected = 'a list of texts, like ["a", "b"]' + (" (may be empty)" if kind == OPTIONAL_LIST else "")
             else:
                 ok, expected = v in kind, "one of " + " | ".join(kind)
             if not ok:

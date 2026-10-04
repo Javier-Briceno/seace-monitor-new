@@ -172,9 +172,9 @@ def describe(key: str, row: dict) -> str:
         grado = row["grado"] + (" colegiado" if row["colegiado"] else "")
         desde = " desde la colegiatura" if row["desde_colegiatura"] else ""
         ambito = "en la especialidad y subespecialidad" if row["ambito"] == "subespecialidad" else "en obras en general"
+        como = " o ".join(row["roles"]) + (" en " + " o ".join(row["areas"]) if row["areas"] else "")
         return (f"{row['cargo']} ({row['cantidad']}): {' o '.join(row['profesiones'])}, {grado}; "
-                f"{row['meses']} meses{desde} como {', '.join(row['cargos_validos'])}; {ambito}; "
-                f"últimos {row['ventana_anios']} años")
+                f"{row['meses']} meses{desde} como {como}; {ambito}; últimos {row['ventana_anios']} años")
     return "; ".join(f"{k}: {v}" for k, v in row.items() if k != "pagina")
 
 

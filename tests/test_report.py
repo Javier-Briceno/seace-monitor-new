@@ -111,9 +111,10 @@ def test_key_personnel_rows_get_one_csv_row_each(conn, tmp_path):
     add_extraction(conn, 1)
     residente = {"cargo": "Residente de obra", "cantidad": 1, "profesiones": ["Ingeniero civil", "Arquitecto"],
                  "grado": "título profesional", "colegiado": False, "meses": 24, "desde_colegiatura": True,
-                 "cargos_validos": ["Residente de obra", "Inspector de obra"], "ambito": "subespecialidad",
+                 "roles": ["Residente de obra", "Inspector de obra"], "areas": [], "ambito": "subespecialidad",
                  "ventana_anios": 25, "pagina": "56"}
-    calidad = dict(residente, cargo="Ingeniero de calidad", meses=12, ambito="obras en general", pagina="57")
+    calidad = dict(residente, cargo="Ingeniero de calidad", meses=12, roles=["Jefe", "Coordinador"], areas=["Calidad"],
+                   ambito="obras en general", pagina="57")
     conn.execute("UPDATE extracciones SET campos = jsonb_set(campos, '{personal_clave}', %s)",
                  [json.dumps({"filas": [residente, calidad]})])
     rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
@@ -121,9 +122,9 @@ def test_key_personnel_rows_get_one_csv_row_each(conn, tmp_path):
         rows = [r for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Personal clave"]
     assert [r["página"] for r in rows] == ["56", "57"]
     assert rows[0]["valor"] == ("Residente de obra (1): Ingeniero civil o Arquitecto, título profesional; 24 meses desde "
-                                "la colegiatura como Residente de obra, Inspector de obra; en la especialidad y "
+                                "la colegiatura como Residente de obra o Inspector de obra; en la especialidad y "
                                 "subespecialidad; últimos 25 años")
-    assert "Ingeniero de calidad (1)" in rows[1]["valor"] and "en obras en general" in rows[1]["valor"]
+    assert "como Jefe o Coordinador en Calidad; en obras en general" in rows[1]["valor"]
 
 
 def test_every_field_has_a_short_name():

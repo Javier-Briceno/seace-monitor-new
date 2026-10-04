@@ -20,7 +20,8 @@ grado = "título profesional"
 colegiado = true
 meses = 24
 desde_colegiatura = true
-cargos_validos = ["Residente de obra", "Supervisor de obra"]
+roles = ["Residente de obra", "Supervisor de obra"]
+areas = []
 ambito = "subespecialidad"
 ventana_anios = 25
 pagina = "56"
@@ -80,12 +81,23 @@ def test_key_personnel_is_loaded_as_typed_rows(tmp_path):
     filas = load(tmp_path / "1.toml")["campos"]["personal_clave"]["filas"]
     assert [(f["cargo"], f["meses"]) for f in filas] == [("Residente de obra", 24), ("Especialista en seguridad", 12)]
     assert filas[0]["profesiones"] == ["Ingeniero civil", "Arquitecto"] and filas[0]["desde_colegiatura"] is True
+    assert filas[0]["areas"] == []  # whole job titles need no area
+
+
+def test_roles_can_combine_with_areas(tmp_path):
+    combined = RESIDENTE.replace('roles = ["Residente de obra", "Supervisor de obra"]', 'roles = ["Jefe", "Coordinador"]')
+    combined = combined.replace("areas = []", 'areas = ["Seguridad, salud en el trabajo y medio ambiente", "SSOMA"]')
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), rows=combined), encoding="utf-8")
+    fila = load(tmp_path / "1.toml")["campos"]["personal_clave"]["filas"][0]
+    assert fila["roles"] == ["Jefe", "Coordinador"] and fila["areas"][1] == "SSOMA"
 
 
 @pytest.mark.parametrize("wrong, message", [
     ('meses = "24 meses"', "`meses` must be a whole number above 0, got '24 meses'"),
     ('ambito = "general"', "`ambito` must be one of subespecialidad | obras en general"),
     ("profesiones = []", "`profesiones` must be a list of texts"),
+    ("roles = []", "`roles` must be a list of texts"),
+    ('areas = [""]', "`areas` must be a list of texts, like [\"a\", \"b\"] (may be empty)"),
     ("desde_colegiatura = 1", "`desde_colegiatura` must be true or false"),
 ])
 def test_a_wrong_column_stops_the_whole_file(tmp_path, wrong, message):
