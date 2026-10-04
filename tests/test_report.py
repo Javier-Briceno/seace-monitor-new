@@ -98,8 +98,7 @@ def test_extraction_of_an_already_reported_obra_gets_its_own_section(conn, tmp_p
     rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
     assert rep.nids == [] and len(rep.extraction_ids) == 1
     assert "Extraídas a mano desde el último informe: 1" in rep.text
-    assert ("MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n  Plazo: 120 días\n  Factores subjetivos: ninguno\n"
-            "  Consultas: 0\n") in rep.text
+    assert "MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n  Plazo: 120 días\n  Consultas: 0\n" in rep.text
     with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f, delimiter=";"))
     assert len(rows) == len(KEYS)
@@ -144,6 +143,35 @@ def test_bidder_experience_in_the_mail_and_the_csv(conn, tmp_path):
     assert row["valor"] == ("S/ 436,482.01 (1 vez la cuantía) en Edificaciones y afines: Establecimientos o espacios "
                             "deportivos (tipología Instalaciones deportivas recreativas); últimos 20 años desde el acta "
                             "de recepción")
+
+
+def test_factors_in_the_csv_and_judged_ones_in_the_mail(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    common = {"nombre": "Gestión de calidad", "letra": "E", "puntos_max": 10, "cita": "x", "pagina": "57"}
+    filas = [
+        dict(common, parte="e.1", tipo="herramienta", herramienta="Software de gestión de proyectos",
+             escala=[{"nivel": "avanzada", "puntos": 5}]),
+        dict(common, parte="e.2", tipo="juicio_comite", que_se_juzga="Ishikawa, Pareto y plan de calidad",
+             escala=[{"nivel": "procedimientos documentados", "puntos": 5}]),
+        {"letra": "G", "nombre": "Experiencia adicional del postor en la especialidad", "parte": "G", "puntos_max": 15,
+         "cita": "x", "pagina": "59", "tipo": "experiencia_adicional", "ventana_anios": 25,
+         "cuenta_desde": "conformidad o comprobante de pago",
+         "escala": [{"monto_minimo": 1309446.03, "estricto": False, "puntos": 15},
+                    {"monto_minimo": 436482.01, "estricto": True, "puntos": 5}]},
+    ]
+    conn.execute("UPDATE extracciones SET campos = jsonb_set(campos, '{factores}', %s)", [json.dumps({"filas": filas})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert "  Factores subjetivos: E. Gestión de calidad (Ishikawa, Pareto y plan de calidad)\n" in rep.text
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        rows = [r["valor"] for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Factores de evaluación"]
+    assert rows == [
+        "E. Gestión de calidad, e.1 (máx. 10): Software de gestión de proyectos; avanzada → 5",
+        "E. Gestión de calidad, e.2 (máx. 10): lo juzga el comité: Ishikawa, Pareto y plan de calidad; "
+        "procedimientos documentados → 5",
+        "G. Experiencia adicional del postor en la especialidad (máx. 15): desde S/ 1,309,446.03 → 15; "
+        "más de S/ 436,482.01 → 5 (últimos 25 años desde la conformidad o el pago)",
+    ]
 
 
 def test_every_field_has_a_short_name():

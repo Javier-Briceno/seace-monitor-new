@@ -50,6 +50,31 @@ def empty_rows(text: str) -> str:
     return empty_block(text, "[[personal_clave]]")
 
 
+FACTORES = """[[factores]]
+letra = "A"
+nombre = "Experiencia específica adicional del personal clave"
+parte = "A"
+puntos_max = 70
+cita = "Si el 50% o más ... supere el requisito"
+pagina = "59"
+tipo = "personal_adicional"
+cargos = ["Residente de obra"]
+anios_extra = 1
+escala = [{pct_minimo = 50, puntos = 70}]
+
+[[factores]]
+letra = "D"
+nombre = "Integridad en la contratación pública"
+parte = "D"
+puntos_max = 30
+cita = "ISO 37001"
+pagina = "61"
+tipo = "certificacion_empresa"
+certificado = "ISO 37001"
+alcance_pedido = "ninguno"
+escala = [{nivel = "acredita", puntos = 30}]
+"""
+
 CUANTIA = """[cuantia]
 monto = 436482.01
 cita = "CUANTÍA DE CONTRATACIÓN (TOTAL) S/ 436,482.01"
@@ -57,10 +82,12 @@ pagina = "21"
 """
 
 
-def filled(text: str, rows: str = RESIDENTE, experiencia: str = EXPERIENCIA, cuantia: str = CUANTIA, **values) -> str:
+def filled(text: str, rows: str = RESIDENTE, experiencia: str = EXPERIENCIA, cuantia: str = CUANTIA,
+           factores: str = FACTORES, **values) -> str:
     text = (text.replace("listo = false", "listo = true").replace(empty_rows(text), rows)
             .replace(empty_block(text, "[experiencia_requerida]"), experiencia)
-            .replace(empty_block(text, "[cuantia]"), cuantia))
+            .replace(empty_block(text, "[cuantia]"), cuantia)
+            .replace(empty_block(text, "[[factores]]"), factores))
     for key, value in values.items():
         start = text.index(f"[{key}]")
         text = text[:start] + text[start:].replace('valor = ""', f'valor = "{value}"', 1)
@@ -78,7 +105,9 @@ def test_template_is_valid_toml_with_every_field():
     data = tomllib.loads(template(OBRA, BASES))
     assert data["listo"] is False
     assert data["documento"] == "uuid-bases"  # the only candidate is filled in
-    assert all(data[k] == {"valor": "", "pagina": ""} for k in KEYS if k not in ROW_FIELDS and k not in BLOCK_FIELDS)
+    plain = [k for k in KEYS if k not in ROW_FIELDS and k not in BLOCK_FIELDS and k != "factores"]
+    assert all(data[k] == {"valor": "", "pagina": ""} for k in plain)
+    assert data["factores"][0]["tipo"] == "" and data["factores"][0]["escala"] == []
     assert data["experiencia_requerida"]["monto"] == 0  # an empty block, rejected until filled
     assert len(data["personal_clave"]) == 1 and data["personal_clave"][0]["meses"] == 0  # one empty row to copy
 
@@ -167,6 +196,54 @@ def test_an_amount_rounded_to_the_centimo_is_accepted(tmp_path):
     half = EXPERIENCIA.replace("monto = 436482.01", "monto = 218241.01").replace("veces_cuantia = 1", "veces_cuantia = 0.5")
     (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), experiencia=half), encoding="utf-8")  # 218241.005 rounded up
     assert load(tmp_path / "1.toml")["campos"]["cuantia"]["bloque"]["monto"] == 436482.01
+
+
+def test_factor_parts_are_loaded_with_their_type_and_scale(tmp_path):
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES)), encoding="utf-8")
+    filas = load(tmp_path / "1.toml")["campos"]["factores"]["filas"]
+    assert [(f["letra"], f["tipo"]) for f in filas] == [("A", "personal_adicional"), ("D", "certificacion_empresa")]
+    assert filas[0]["escala"] == [{"pct_minimo": 50, "puntos": 70}] and filas[1]["certificado"] == "ISO 37001"
+
+
+@pytest.mark.parametrize("change, message", [
+    (('letra = "D"', 'letra = "d"'), "`letra` must be one capital letter as in the bases, got 'd'"),
+    (('tipo = "certificacion_empresa"', 'tipo = "certificado"'), "`tipo` must be one of personal_adicional"),
+    (("puntos = 30}", "puntos = 25}"), "factor D: its parts give at most 25 points, but `puntos_max` is 30"),
+    (("puntos_max = 30", "puntos_max = 25"), "factor D: its parts give at most 30 points, but `puntos_max` is 25"),
+    (('cargos = ["Residente de obra"]', 'cargos = ["Residente"]'), "factor A: ['Residente'] is not a `cargo` of personal_clave"),
+    (('parte = "D"', 'parte = "A"'), "a `parte` appears twice: ['A']"),
+    (('nivel = "acredita"', 'nivel = "sí"'), "factores 2: escala 1: `nivel` must be one of acredita"),
+    (("certificado = \"ISO 37001\"\n", ""), "factores 2: unknown columns [], missing columns ['certificado']"),
+])
+def test_a_wrong_factor_stops_the_whole_file(tmp_path, change, message):
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), factores=FACTORES.replace(*change)), encoding="utf-8")
+    with pytest.raises(TemplateError, match=re.escape(message)):
+        load(tmp_path / "1.toml")
+
+
+def test_factor_maxima_must_add_up_to_100(tmp_path):
+    lower = FACTORES.replace("puntos_max = 30", "puntos_max = 20").replace("puntos = 30}", "puntos = 20}")
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), factores=lower), encoding="utf-8")
+    with pytest.raises(TemplateError, match="the maxima add up to 90, not 100"):
+        load(tmp_path / "1.toml")
+
+
+def test_a_factor_split_in_parts_repeats_its_name_and_maximum(tmp_path):
+    split = FACTORES.replace("puntos_max = 70", "puntos_max = 30").replace("puntos = 70}", "puntos = 30}") + """
+[[factores]]
+letra = "D"
+nombre = "Integridad"
+parte = "d.2"
+puntos_max = 30
+cita = "x"
+pagina = "61"
+tipo = "herramienta"
+herramienta = "software"
+escala = [{nivel = "avanzada", puntos = 10}]
+"""
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), factores=split), encoding="utf-8")
+    with pytest.raises(TemplateError, match="factor D: every part must repeat the same `nombre` and `puntos_max`"):
+        load(tmp_path / "1.toml")
 
 
 def test_the_empty_row_of_the_template_is_not_accepted(tmp_path):

@@ -20,8 +20,7 @@ FIELDS = (
     ("personal_clave", "Personal clave: un bloque por cargo; copia el bloque entero para cada uno", "cap. III, REQUISITOS DE CALIFICACIÓN, PERSONAL CLAVE"),
     ("equipamiento", "Equipamiento estratégico", "cap. III, REQUISITOS DE CALIFICACIÓN, EQUIPAMIENTO ESTRATÉGICO"),
     ("consorcio", "Consorcio: máximo de integrantes y porcentajes mínimos", "cap. III, REQUISITOS DE CALIFICACIÓN, PARTICIPACIÓN EN CONSORCIO"),
-    ("factores", "Factores de evaluación con sus puntos, uno por línea", "cap. IV, FACTORES DE EVALUACIÓN"),
-    ("factores_subjetivos", "Factores que el evaluador juzga por contenido (mejora al requerimiento, plan, metodología); o 'ninguno'", "cap. IV, FACTORES DE EVALUACIÓN"),
+    ("factores", "Factores de evaluación: un bloque por parte de cada factor; las columnas extra dependen del tipo (ver abajo)", "cap. IV, FACTORES DE EVALUACIÓN y CUADRO RESUMEN"),
     ("minimo_tecnico", "Puntaje técnico mínimo", "cap. IV, EVALUACIÓN TÉCNICA"),
     ("adelantos", "Adelantos: directo y de materiales (%)", "cap. III, ADELANTOS (suele ser 3.3.15)"),
     ("penalidades", "Penalidades: por mora y otras", "cap. III, PENALIDADES (suele ser 3.3.19 o 3.3.20)"),
@@ -48,13 +47,35 @@ ROW_FIELDS = {
 
 # Fields filled as one block of typed columns. `cita` is the bases' own sentence, so every value
 # can be checked; `veces_cuantia` keeps the rule behind `monto` so it can be recomputed.
+CUENTA_DESDE = ("acta de recepción", "conformidad o comprobante de pago")
+
 BLOCK_FIELDS = {
     "cuantia": (("monto", float), ("cita", str), ("pagina", str)),
     "experiencia_requerida": (
         ("monto", float), ("veces_cuantia", float), ("especialidad", str), ("subespecialidades", list),
-        ("tipologias", OPTIONAL_LIST), ("ventana_anios", int),
-        ("cuenta_desde", ("acta de recepción", "conformidad o comprobante de pago")), ("cita", str), ("pagina", str),
+        ("tipologias", OPTIONAL_LIST), ("ventana_anios", int), ("cuenta_desde", CUENTA_DESDE), ("cita", str),
+        ("pagina", str),
     ),
+}
+
+# Evaluation factors, one row per part of a factor ("K" = k.1 ISO 45001 + k.3 software). A factor's rows
+# repeat its letter, name and maximum from the summary table. Each type adds its own columns and the
+# columns of each step of its `escala`; internal names, never shown to the reader.
+FACTOR_COLUMNS = (("letra", str), ("nombre", str), ("parte", str), ("puntos_max", int), ("cita", str), ("pagina", str))
+
+# type: (extra columns, columns of each escala step)
+FACTOR_TYPES = {
+    # share of the evaluated positions that exceed the required months by anios_extra; the highest step met counts
+    "personal_adicional": ((("cargos", list), ("anios_extra", int)), (("pct_minimo", float), ("puntos", int))),
+    # amount of additional experience; `estricto` when the bases say "más de" instead of "desde"
+    "experiencia_adicional": ((("ventana_anios", int), ("cuenta_desde", CUENTA_DESDE)),
+                              (("monto_minimo", float), ("estricto", bool), ("puntos", int))),
+    "certificacion_empresa": ((("certificado", str), ("alcance_pedido", str)),
+                              (("nivel", ("acredita", "con el alcance pedido", "con otro alcance")), ("puntos", int))),
+    "capacitacion_personal": ((("cargo", str), ("tema", str)), (("nivel", str), ("puntos", int))),
+    "herramienta": ((("herramienta", str),), (("nivel", ("avanzada", "básica")), ("puntos", int))),
+    # judged by the committee on content (Ishikawa, plan, methodology): never scored by a rule
+    "juicio_comite": ((("que_se_juzga", str),), (("nivel", str), ("puntos", int))),
 }
 
 # Short names for readers of the report; the labels above are instructions for whoever fills a template.
@@ -63,7 +84,7 @@ NAMES = {
     "plazo_ejecucion_dias": "Plazo", "modalidad_pago": "Modalidad de pago", "oferta_economica": "Evaluación económica",
     "experiencia_requerida": "Experiencia pedida", "personal_clave": "Personal clave",
     "equipamiento": "Equipamiento", "consorcio": "Consorcio", "factores": "Factores de evaluación",
-    "factores_subjetivos": "Factores subjetivos", "minimo_tecnico": "Mínimo técnico", "adelantos": "Adelantos",
+    "minimo_tecnico": "Mínimo técnico", "adelantos": "Adelantos",
     "penalidades": "Penalidades", "terreno": "Terreno", "garantias": "Garantías", "notas": "Notas",
 }
 

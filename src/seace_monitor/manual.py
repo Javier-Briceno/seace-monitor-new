@@ -5,12 +5,13 @@ extraction and reports it again as a correction.
 """
 
 import json
+import re
 import tomllib
 from pathlib import Path
 
 import psycopg
 
-from .fields import BLOCK_FIELDS, FIELDS, KEYS, OPTIONAL_LIST, ROW_FIELDS
+from .fields import BLOCK_FIELDS, FACTOR_COLUMNS, FACTOR_TYPES, FIELDS, KEYS, OPTIONAL_LIST, ROW_FIELDS
 from .report import title
 from .search import normalize
 
@@ -50,11 +51,18 @@ def template(obra: dict, bases: list[dict]) -> str:
         if key in BLOCK_FIELDS:
             lines += ["", f"[{key}]", comment] + [empty_column(column, kind) for column, kind in BLOCK_FIELDS[key]]
             continue
+        if key == "factores":
+            lines += ["", comment, "# Cada tipo agrega sus columnas; escala = lista de pasos, el más alto que se cumple da los puntos:"]
+            lines += [f"#   {tipo}: {', '.join(c for c, _ in extra)}; escala: [{{{', '.join(c for c, _ in step)}}}, ...]"
+                      for tipo, (extra, step) in FACTOR_TYPES.items()]
+            lines += ["[[factores]]"] + [empty_column(c, k) for c, k in FACTOR_COLUMNS]
+            lines += [f'tipo = ""  # {" | ".join(FACTOR_TYPES)}', "escala = []"]
+            continue
         lines += [
             "",
             f"[{key}]",
             comment,
-            'valor = """"""' if key in ("factores", "notas", "penalidades") else 'valor = ""',
+            'valor = """"""' if key in ("notas", "penalidades") else 'valor = ""',
             'pagina = ""',
         ]
     return "\n".join(lines) + "\n"
@@ -111,6 +119,51 @@ def check_amounts(name: str, campos: dict) -> None:
             f"{experiencia['veces_cuantia']:g} x cuantia {cuantia['monto']:,.2f} = {expected:,.2f}")
 
 
+def check_factores(name: str, value, personal: list[dict]) -> list[dict]:
+    """The parts of the evaluation factors, each checked by its type, then checked against each other."""
+    if not isinstance(value, list) or not value or not all(isinstance(row, dict) for row in value):
+        raise TemplateError(f"{name}: `factores` needs one [[factores]] block per part of a factor")
+    rows = []
+    for number, row in enumerate(value, 1):
+        where = f"{name}: factores {number}"
+        tipo = row.get("tipo")
+        if tipo not in FACTOR_TYPES:
+            raise TemplateError(f"{where}: `tipo` must be one of {' | '.join(FACTOR_TYPES)}, got {tipo!r}")
+        extra, step = FACTOR_TYPES[tipo]
+        escala = row.get("escala")
+        if not isinstance(escala, list) or not escala or not all(isinstance(s, dict) for s in escala):
+            raise TemplateError(f'{where}: `escala` must be a list of steps, like [{{nivel = "acredita", puntos = 5}}]')
+        checked = check_row(where, FACTOR_COLUMNS + extra, {k: v for k, v in row.items() if k not in ("tipo", "escala")})
+        if not re.fullmatch(r"[A-Z]", checked["letra"]):
+            raise TemplateError(f"{where}: `letra` must be one capital letter as in the bases, got {checked['letra']!r}")
+        checked["tipo"] = tipo
+        checked["escala"] = [check_row(f"{where}: escala {i}", step, s) for i, s in enumerate(escala, 1)]
+        rows.append(checked)
+
+    partes = [r["parte"] for r in rows]
+    if len(set(partes)) != len(partes):
+        raise TemplateError(f"{name}: factores: a `parte` appears twice: {sorted({p for p in partes if partes.count(p) > 1})}")
+    by_letter: dict[str, list[dict]] = {}
+    for row in rows:
+        by_letter.setdefault(row["letra"], []).append(row)
+    for letra, parts in by_letter.items():
+        if any((p["nombre"], p["puntos_max"]) != (parts[0]["nombre"], parts[0]["puntos_max"]) for p in parts):
+            raise TemplateError(f"{name}: factor {letra}: every part must repeat the same `nombre` and `puntos_max`")
+        most = sum(max(s["puntos"] for s in p["escala"]) for p in parts)
+        if most != parts[0]["puntos_max"]:
+            raise TemplateError(f"{name}: factor {letra}: its parts give at most {most} points, "
+                                f"but `puntos_max` is {parts[0]['puntos_max']}")
+    total = sum(parts[0]["puntos_max"] for parts in by_letter.values())
+    if total != 100:
+        raise TemplateError(f"{name}: factores: the maxima add up to {total}, not 100")
+    cargos = {p["cargo"] for p in personal}
+    for row in rows:
+        if row["tipo"] == "personal_adicional" and set(row["cargos"]) - cargos:
+            raise TemplateError(f"{name}: factor {row['letra']}: {sorted(set(row['cargos']) - cargos)} "
+                                f"is not a `cargo` of personal_clave")
+    return rows
+
+
 def check_rows(name: str, key: str, value) -> list[dict]:
     if not isinstance(value, list) or not value or not all(isinstance(row, dict) for row in value):
         raise TemplateError(f"{name}: `{key}` needs one [[{key}]] block per row")
@@ -140,7 +193,10 @@ def load(path: Path) -> dict | None:
         if key in BLOCK_FIELDS:
             campos[key] = {"bloque": check_row(f"{path.name}: {key}", BLOCK_FIELDS[key], field)}
             continue
+        if key == "factores":
+            continue  # checked last, against the key personnel
         campos[key] = {"valor": str(field.get("valor", "")).strip(), "pagina": str(field.get("pagina", "")).strip()}
+    campos["factores"] = {"filas": check_factores(path.name, data["factores"], campos["personal_clave"]["filas"])}
     check_amounts(path.name, campos)
     return {"nid_proceso": data["nid_proceso"], "documento": data["documento"], "campos": campos}
 
