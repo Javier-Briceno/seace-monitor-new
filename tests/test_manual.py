@@ -264,6 +264,16 @@ def test_bases_without_factors_or_with_a_wrong_total_are_recorded_on_the_whole_f
     assert load(tmp_path / "1.toml")["campos"]["factores"] == {"filas": []}
 
 
+def test_a_tool_level_is_written_in_the_bases_words(tmp_path):
+    tool = FACTORES.replace('tipo = "certificacion_empresa"\ncertificado = "ISO 37001"\nalcance_pedido = "ninguno"',
+                            'tipo = "herramienta"\nherramienta = "monitoreo con cámaras"')
+    tool = tool.replace('escala = [{nivel = "acredita", puntos = 30}]',
+                        'escala = [{nivel = "herramientas digitales avanzadas", puntos = 30}, '
+                        '{nivel = "evidencia limitada a herramientas básicas de monitoreo", puntos = 10}]')
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), factores=tool), encoding="utf-8")
+    assert load(tmp_path / "1.toml")["campos"]["factores"]["filas"][1]["escala"][0]["nivel"] == "herramientas digitales avanzadas"
+
+
 def test_a_certificate_level_is_written_in_the_bases_words(tmp_path):
     other = FACTORES.replace('escala = [{nivel = "acredita", puntos = 30}]',
                              'escala = [{nivel = "Reconocimiento del MTPE", puntos = 30}, '

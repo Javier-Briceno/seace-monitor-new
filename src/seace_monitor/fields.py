@@ -75,7 +75,7 @@ FACTOR_TYPES = {
     # `nivel` in the bases' words: they also score "otro tipo de certificaciones", certifications by count, etc.
     "certificacion_empresa": ((("certificado", str), ("alcance_pedido", str)), (("nivel", str), ("puntos", int))),
     "capacitacion_personal": ((("cargo", str), ("tema", str)), (("nivel", str), ("puntos", int))),
-    "herramienta": ((("herramienta", str),), (("nivel", ("avanzada", "básica")), ("puntos", int))),
+    "herramienta": ((("herramienta", str),), (("nivel", str), ("puntos", int))),
     # judged by the committee on content (Ishikawa, plan, methodology): never scored by a rule
     "juicio_comite": ((("que_se_juzga", str),), (("nivel", str), ("puntos", int))),
 }
