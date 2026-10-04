@@ -72,8 +72,8 @@ FACTOR_TYPES = {
     # amount of additional experience; `estricto` when the bases say "más de" instead of "desde"
     "experiencia_adicional": ((("ventana_anios", int), ("cuenta_desde", CUENTA_DESDE)),
                               (("monto_minimo", float), ("estricto", bool), ("puntos", int))),
-    "certificacion_empresa": ((("certificado", str), ("alcance_pedido", str)),
-                              (("nivel", ("acredita", "con el alcance pedido", "con otro alcance")), ("puntos", int))),
+    # `nivel` in the bases' words: they also score "otro tipo de certificaciones", certifications by count, etc.
+    "certificacion_empresa": ((("certificado", str), ("alcance_pedido", str)), (("nivel", str), ("puntos", int))),
     "capacitacion_personal": ((("cargo", str), ("tema", str)), (("nivel", str), ("puntos", int))),
     "herramienta": ((("herramienta", str),), (("nivel", ("avanzada", "básica")), ("puntos", int))),
     # judged by the committee on content (Ishikawa, plan, methodology): never scored by a rule
@@ -83,7 +83,9 @@ FACTOR_TYPES = {
 # An incongruence of the bases. The fields above hold one consistent reading (`lectura_usada`, e.g. the
 # summary table wins); when the other reading is a different value of one column, `campo`, `fila`,
 # `columna` and `valor` say which, so the verdict can be computed both ways. `fila` is a factor letter
-# or part, a cargo of personal_clave, or "" for a block. All four stay "" when nothing can be recomputed.
+# or part, a cargo of personal_clave, or "" for a block. All four stay "" when nothing can be recomputed;
+# `campo` (and `fila`) without `columna` says what the incongruence is about, e.g. a factor whose points
+# do not add up in the bases, which the import requires to be recorded this way.
 INCONGRUENCE_COLUMNS = (
     ("descripcion", str), ("cita", str), ("paginas", str), ("lectura_usada", str), ("consulta", bool),
     ("campo", OPTIONAL_TEXT), ("fila", OPTIONAL_TEXT), ("columna", OPTIONAL_TEXT),

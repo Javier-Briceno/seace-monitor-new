@@ -214,7 +214,7 @@ def test_factor_parts_are_loaded_with_their_type_and_scale(tmp_path):
     (("puntos_max = 30", "puntos_max = 25"), "factor D: its parts give at most 30 points, but `puntos_max` is 25"),
     (('cargos = ["Residente de obra"]', 'cargos = ["Residente"]'), "factor A: ['Residente'] is not a `cargo` of personal_clave"),
     (('parte = "D"', 'parte = "A"'), "a `parte` appears twice: ['A']"),
-    (('nivel = "acredita"', 'nivel = "sí"'), "factores 2: escala 1: `nivel` must be one of acredita"),
+    (('nivel = "acredita"', 'nivel = ""'), "factores 2: escala 1: `nivel` must be text"),
     (("certificado = \"ISO 37001\"\n", ""), "factores 2: unknown columns [], missing columns ['certificado']"),
 ])
 def test_a_wrong_factor_stops_the_whole_file(tmp_path, change, message):
@@ -226,8 +226,50 @@ def test_a_wrong_factor_stops_the_whole_file(tmp_path, change, message):
 def test_factor_maxima_must_add_up_to_100(tmp_path):
     lower = FACTORES.replace("puntos_max = 30", "puntos_max = 20").replace("puntos = 30}", "puntos = 20}")
     (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), factores=lower), encoding="utf-8")
-    with pytest.raises(TemplateError, match="the maxima add up to 90, not 100"):
+    with pytest.raises(TemplateError, match="the maxima add up to 90, not 100. If the bases say so"):
         load(tmp_path / "1.toml")
+
+
+def about(campo="factores", fila="", **columns) -> str:
+    return incongruence(campo=campo, fila=fila, columna="", valor="", **columns)
+
+
+def test_a_factor_that_does_not_add_up_in_the_bases_is_accepted_once_recorded(tmp_path):
+    # Quiruvilca: D announced at 30 in the bases, its scale tops at 25
+    contradictory = FACTORES.replace("puntos = 30}", "puntos = 25}")
+    text = filled(template(OBRA, BASES), factores=contradictory)
+    (tmp_path / "1.toml").write_text(text, encoding="utf-8")
+    with pytest.raises(TemplateError, match='factor D: its parts give at most 25 .* campo = "factores", fila = "D"'):
+        load(tmp_path / "1.toml")
+    (tmp_path / "1.toml").write_text(with_incongruencias(text, about(fila="D")), encoding="utf-8")
+    campos = load(tmp_path / "1.toml")["campos"]
+    assert campos["factores"]["filas"][1]["puntos_max"] == 30
+    assert campos["incongruencias"]["filas"][0]["fila"] == "D"
+
+
+def test_a_note_on_another_factor_does_not_excuse_it(tmp_path):
+    text = filled(template(OBRA, BASES), factores=FACTORES.replace("puntos = 30}", "puntos = 25}"))
+    (tmp_path / "1.toml").write_text(with_incongruencias(text, about(fila="A")), encoding="utf-8")
+    with pytest.raises(TemplateError, match="factor D: its parts give at most 25"):
+        load(tmp_path / "1.toml")
+
+
+def test_bases_without_factors_or_with_a_wrong_total_are_recorded_on_the_whole_field(tmp_path):
+    text = filled(template(OBRA, BASES), factores="")
+    text = text.replace("incongruencias = []\n", "incongruencias = []\nfactores = []\n", 1)
+    (tmp_path / "1.toml").write_text(text, encoding="utf-8")
+    with pytest.raises(TemplateError, match="the bases list no evaluation factors"):
+        load(tmp_path / "1.toml")
+    (tmp_path / "1.toml").write_text(with_incongruencias(text, about()), encoding="utf-8")
+    assert load(tmp_path / "1.toml")["campos"]["factores"] == {"filas": []}
+
+
+def test_a_certificate_level_is_written_in_the_bases_words(tmp_path):
+    other = FACTORES.replace('escala = [{nivel = "acredita", puntos = 30}]',
+                             'escala = [{nivel = "Reconocimiento del MTPE", puntos = 30}, '
+                             '{nivel = "otro tipo de certificaciones", puntos = 4}]')
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), factores=other), encoding="utf-8")
+    assert load(tmp_path / "1.toml")["campos"]["factores"]["filas"][1]["escala"][1]["nivel"] == "otro tipo de certificaciones"
 
 
 def test_a_factor_split_in_parts_repeats_its_name_and_maximum(tmp_path):
@@ -295,6 +337,8 @@ def test_incongruences_are_loaded_with_their_other_reading(tmp_path):
     ({"campo": "experiencia_requerida", "fila": "D", "columna": "ventana_anios", "valor": 25},
      "`fila` must be \"\" for the block experiencia_requerida"),
     ({"columna": "escala", "valor": [{"nivel": "acredita"}]}, "valor: escala 1: unknown columns [], missing columns ['puntos']"),
+    ({"columna": ""}, "`valor` without `columna`"),
+    ({"fila": "Z", "columna": "", "valor": ""}, "no row 'Z' in factores"),
 ])
 def test_a_wrong_other_reading_stops_the_whole_file(tmp_path, columns, message):
     text = with_incongruencias(filled(template(OBRA, BASES)), incongruence(**columns))

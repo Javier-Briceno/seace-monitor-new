@@ -145,10 +145,18 @@ def check_amounts(name: str, campos: dict) -> None:
             f"{experiencia['veces_cuantia']:g} x cuantia {cuantia['monto']:,.2f} = {expected:,.2f}")
 
 
-def check_factores(name: str, value, personal: list[dict]) -> list[dict]:
-    """The parts of the evaluation factors, each checked by its type, then checked against each other."""
-    if not isinstance(value, list) or not value or not all(isinstance(row, dict) for row in value):
+def check_factores(name: str, value, personal: list[dict]) -> tuple[list[dict], list[tuple[str, str]]]:
+    """The parts of the evaluation factors, each checked by its type, then checked against each other.
+
+    Points that do not add up may be a typo in the template or a contradiction in the bases, which
+    happens (factors announced at 10 with scales up to 5, summaries adding to 135, no factors at all).
+    So they are returned as (factor letter or "", message) and accepted only when an incongruence
+    names that factor; refusing would hide the obra.
+    """
+    if not isinstance(value, list) or not all(isinstance(row, dict) for row in value):
         raise TemplateError(f"{name}: `factores` needs one [[factores]] block per part of a factor")
+    if not value:
+        return [], [("", f"{name}: factores: the bases list no evaluation factors")]
     rows = []
     for number, row in enumerate(value, 1):
         where = f"{name}: factores {number}"
@@ -175,19 +183,31 @@ def check_factores(name: str, value, personal: list[dict]) -> list[dict]:
     for letra, parts in by_letter.items():
         if any((p["nombre"], p["puntos_max"]) != (parts[0]["nombre"], parts[0]["puntos_max"]) for p in parts):
             raise TemplateError(f"{name}: factor {letra}: every part must repeat the same `nombre` and `puntos_max`")
+    contradictions = []
+    for letra, parts in by_letter.items():
         most = sum(max(s["puntos"] for s in p["escala"]) for p in parts)
         if most != parts[0]["puntos_max"]:
-            raise TemplateError(f"{name}: factor {letra}: its parts give at most {most} points, "
-                                f"but `puntos_max` is {parts[0]['puntos_max']}")
+            contradictions.append((letra, f"{name}: factor {letra}: its parts give at most {most} points, "
+                                          f"but `puntos_max` is {parts[0]['puntos_max']}"))
     total = sum(parts[0]["puntos_max"] for parts in by_letter.values())
     if total != 100:
-        raise TemplateError(f"{name}: factores: the maxima add up to {total}, not 100")
+        contradictions.append(("", f"{name}: factores: the maxima add up to {total}, not 100"))
     cargos = {p["cargo"] for p in personal}
     for row in rows:
         if row["tipo"] == "personal_adicional" and set(row["cargos"]) - cargos:
             raise TemplateError(f"{name}: factor {row['letra']}: {sorted(set(row['cargos']) - cargos)} "
                                 f"is not a `cargo` of personal_clave")
-    return rows
+    return rows, contradictions
+
+
+def check_contradictions_recorded(contradictions: list[tuple[str, str]], incongruencias: list[dict]) -> None:
+    """Every factor whose points do not add up must be named by an incongruence, or it is a typo."""
+    named = {(r["fila"]) for r in incongruencias if r["campo"] == "factores"}
+    for letra, message in contradictions:
+        if letra not in named:
+            whom = f'fila = "{letra}"' if letra else 'fila = ""'
+            raise TemplateError(f"{message}. If the bases say so, record it as an [[incongruencias]] block "
+                                f'with campo = "factores", {whom}; otherwise fix the template')
 
 
 def check_incongruencias(name: str, value, campos: dict) -> list[dict]:
@@ -207,12 +227,34 @@ def check_incongruencias(name: str, value, campos: dict) -> list[dict]:
                 raise TemplateError(f"{where}: `valor` without `campo` and `columna`")
             rows.append(checked)
             continue
+        if not checked["columna"]:
+            # names the field or row it is about, with no other reading to compute
+            if row["valor"] != "":
+                raise TemplateError(f"{where}: `valor` without `columna`")
+            named_target(where, campos, checked["campo"], checked["fila"])
+            rows.append(checked)
+            continue
         current = reading_target(where, campos, *target)
         check_row(f"{where}: valor", ((checked["columna"], current["kind"]),), {checked["columna"]: row["valor"]})
         if any(value == row["valor"] for value in current["values"]):
             raise TemplateError(f"{where}: `valor` is the reading already used; write the other one")
         rows.append(checked)
     return rows
+
+
+def named_target(where: str, campos: dict, campo: str, fila: str) -> None:
+    """An incongruence about a whole field ("" row) or one row of it: the field and row must exist."""
+    if campo not in (*BLOCK_FIELDS, "personal_clave", "factores"):
+        raise TemplateError(f"{where}: `campo` must be one of {', '.join([*BLOCK_FIELDS, 'personal_clave', 'factores'])}"
+                            f" or \"\", got {campo!r}")
+    if not fila:
+        return
+    if campo in BLOCK_FIELDS:
+        raise TemplateError(f"{where}: `fila` must be \"\" for the block {campo}")
+    keys = ({r["cargo"] for r in campos[campo]["filas"]} if campo == "personal_clave"
+            else {k for r in campos[campo]["filas"] for k in (r["letra"], r["parte"])})
+    if fila not in keys:
+        raise TemplateError(f"{where}: no row {fila!r} in {campo}")
 
 
 def reading_target(where: str, campos: dict, campo: str, fila: str, columna: str) -> dict:
@@ -279,9 +321,11 @@ def load(path: Path) -> dict | None:
         if key in ("factores", "incongruencias"):
             continue  # checked last, against the other fields
         campos[key] = {"valor": str(field.get("valor", "")).strip(), "pagina": str(field.get("pagina", "")).strip()}
-    campos["factores"] = {"filas": check_factores(path.name, data["factores"], campos["personal_clave"]["filas"])}
+    factores, contradictions = check_factores(path.name, data["factores"], campos["personal_clave"]["filas"])
+    campos["factores"] = {"filas": factores}
     check_amounts(path.name, campos)
     campos["incongruencias"] = {"filas": check_incongruencias(path.name, data["incongruencias"], campos)}
+    check_contradictions_recorded(contradictions, campos["incongruencias"]["filas"])
     return {"nid_proceso": data["nid_proceso"], "documento": data["documento"], "campos": campos}
 
 
