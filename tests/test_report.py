@@ -112,7 +112,7 @@ def test_key_personnel_rows_get_one_csv_row_each(conn, tmp_path):
     residente = {"cargo": "Residente de obra", "cantidad": 1, "profesiones": ["Ingeniero civil", "Arquitecto"],
                  "grado": "título profesional", "colegiado": False, "meses": 24, "desde_colegiatura": True,
                  "roles": ["Residente de obra", "Inspector de obra"], "areas": [], "ambito": "subespecialidad",
-                 "ventana_anios": 25, "pagina": "56"}
+                 "ventana_anios": 25, "cita": "Residente de Obra", "pagina": "56"}
     calidad = dict(residente, cargo="Ingeniero de calidad", meses=12, roles=["Jefe", "Coordinador"], areas=["Calidad"],
                    ambito="obras en general", pagina="57")
     conn.execute("UPDATE extracciones SET campos = jsonb_set(campos, '{personal_clave}', %s)",
@@ -125,6 +125,25 @@ def test_key_personnel_rows_get_one_csv_row_each(conn, tmp_path):
                                 "la colegiatura como Residente de obra o Inspector de obra; en la especialidad y "
                                 "subespecialidad; últimos 25 años")
     assert "como Jefe o Coordinador en Calidad; en obras en general" in rows[1]["valor"]
+
+
+def test_bidder_experience_in_the_mail_and_the_csv(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    bloque = {"monto": 436482.01, "veces_cuantia": 1, "especialidad": "Edificaciones y afines",
+              "subespecialidades": ["Establecimientos o espacios deportivos"],
+              "tipologias": ["Instalaciones deportivas recreativas"], "ventana_anios": 20,
+              "cuenta_desde": "acta de recepción", "cita": "UNA VEZ LA CUANTÍA", "pagina": "49"}
+    conn.execute("UPDATE extracciones SET campos = jsonb_set(campos, '{experiencia_requerida}', %s)",
+                 [json.dumps({"bloque": bloque})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert "  Experiencia pedida: S/ 436,482.01 (1 vez la cuantía)\n" in rep.text
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        row = next(r for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Experiencia pedida")
+    assert row["página"] == "49"
+    assert row["valor"] == ("S/ 436,482.01 (1 vez la cuantía) en Edificaciones y afines: Establecimientos o espacios "
+                            "deportivos (tipología Instalaciones deportivas recreativas); últimos 20 años desde el acta "
+                            "de recepción")
 
 
 def test_every_field_has_a_short_name():

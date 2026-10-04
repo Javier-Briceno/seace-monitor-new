@@ -16,9 +16,7 @@ FIELDS = (
     ("plazo_ejecucion_dias", "Plazo de ejecución (días calendario)", "cap. III, PLAZO DE EJECUCIÓN (suele ser 3.3.12)"),
     ("modalidad_pago", "Modalidad de pago (suma alzada / precios unitarios / mixta)", "cap. III, MODALIDAD DE PAGO (suele ser 3.3.14)"),
     ("oferta_economica", "Evaluación económica (fija / limitada)", "cap. IV, EVALUACIÓN ECONÓMICA"),
-    ("experiencia_monto", "Experiencia del postor: monto facturado pedido (S/)", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
-    ("experiencia_especialidad", "Experiencia del postor: especialidad y subespecialidades", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
-    ("experiencia_ventana_anios", "Experiencia del postor: años hacia atrás", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
+    ("experiencia_requerida", "Experiencia del postor en la especialidad: monto, tipo de obra y años", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
     ("personal_clave", "Personal clave: un bloque por cargo; copia el bloque entero para cada uno", "cap. III, REQUISITOS DE CALIFICACIÓN, PERSONAL CLAVE"),
     ("equipamiento", "Equipamiento estratégico", "cap. III, REQUISITOS DE CALIFICACIÓN, EQUIPAMIENTO ESTRATÉGICO"),
     ("consorcio", "Consorcio: máximo de integrantes y porcentajes mínimos", "cap. III, REQUISITOS DE CALIFICACIÓN, PARTICIPACIÓN EN CONSORCIO"),
@@ -44,7 +42,17 @@ ROW_FIELDS = {
     "personal_clave": (
         ("cargo", str), ("cantidad", int), ("profesiones", list), ("grado", ("título profesional", "bachiller")),
         ("colegiado", bool), ("meses", int), ("desde_colegiatura", bool), ("roles", list), ("areas", OPTIONAL_LIST),
-        ("ambito", ("subespecialidad", "obras en general")), ("ventana_anios", int), ("pagina", str),
+        ("ambito", ("subespecialidad", "obras en general")), ("ventana_anios", int), ("cita", str), ("pagina", str),
+    ),
+}
+
+# Fields filled as one block of typed columns. `cita` is the bases' own sentence, so every value
+# can be checked; `veces_cuantia` keeps the rule behind `monto` so it can be recomputed.
+BLOCK_FIELDS = {
+    "experiencia_requerida": (
+        ("monto", float), ("veces_cuantia", float), ("especialidad", str), ("subespecialidades", list),
+        ("tipologias", OPTIONAL_LIST), ("ventana_anios", int),
+        ("cuenta_desde", ("acta de recepción", "conformidad o comprobante de pago")), ("cita", str), ("pagina", str),
     ),
 }
 
@@ -52,8 +60,7 @@ ROW_FIELDS = {
 NAMES = {
     "cuantia": "Cuantía", "fuente_financiamiento": "Fuente de financiamiento", "sistema_entrega": "Sistema de entrega",
     "plazo_ejecucion_dias": "Plazo", "modalidad_pago": "Modalidad de pago", "oferta_economica": "Evaluación económica",
-    "experiencia_monto": "Experiencia pedida", "experiencia_especialidad": "Especialidad de la experiencia",
-    "experiencia_ventana_anios": "Antigüedad de la experiencia", "personal_clave": "Personal clave",
+    "experiencia_requerida": "Experiencia pedida", "personal_clave": "Personal clave",
     "equipamiento": "Equipamiento", "consorcio": "Consorcio", "factores": "Factores de evaluación",
     "factores_subjetivos": "Factores subjetivos", "minimo_tecnico": "Mínimo técnico", "adelantos": "Adelantos",
     "penalidades": "Penalidades", "terreno": "Terreno", "garantias": "Garantías", "notas": "Notas",

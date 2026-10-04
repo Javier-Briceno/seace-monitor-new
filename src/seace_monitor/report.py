@@ -13,7 +13,7 @@ from .search import LIMA, normalize
 TOP = 10  # obras listed in the summary; the CSV holds all of them
 
 # The few extracted fields shown in the mail body; the extractions CSV holds all of them.
-SUMMARY_FIELDS = ("cuantia", "plazo_ejecucion_dias", "experiencia_monto", "minimo_tecnico", "factores_subjetivos")
+SUMMARY_FIELDS = ("cuantia", "plazo_ejecucion_dias", "experiencia_requerida", "minimo_tecnico", "factores_subjetivos")
 
 # Dropped from the entity's name in a block title; the nomenclatura next to it already says it.
 ENTITY_PREFIXES = ("MUNICIPALIDAD DISTRITAL DE ", "MUNICIPALIDAD PROVINCIAL DE ")
@@ -114,7 +114,9 @@ def summary(items: list[dict], now: datetime, watched: list[str],
             c = e["campos"]
             lines += ["", title(e)]
             for key in SUMMARY_FIELDS:
-                valor = c[key]["valor"].strip()
+                if key not in c:
+                    continue
+                valor = experience_amount(c[key]["bloque"]) if "bloque" in c[key] else c[key]["valor"].strip()
                 if key == "plazo_ejecucion_dias" and valor.isdigit():
                     valor += " días"
                 if valor:
@@ -158,16 +160,31 @@ def write_extractions_csv(extracted: list[dict], path: Path) -> None:
         writer.writerow(["obra", "campo", "página", "valor"])
         for e in extracted:
             for key in KEYS:
-                field = e["campos"][key]
+                field = e["campos"].get(key)
+                if field is None:  # stored before the field existed
+                    continue
                 if "filas" in field:
                     for row in field["filas"]:
                         writer.writerow([title(e), NAMES[key], row["pagina"], describe(key, row)])
+                elif "bloque" in field:
+                    writer.writerow([title(e), NAMES[key], field["bloque"]["pagina"], describe(key, field["bloque"])])
                 else:
                     writer.writerow([title(e), NAMES[key], field["pagina"], field["valor"].strip()])
 
 
+def experience_amount(block: dict) -> str:
+    veces = f"{block['veces_cuantia']:g}"
+    return f"S/ {block['monto']:,.2f} ({veces} {'vez' if veces == '1' else 'veces'} la cuantía)"
+
+
 def describe(key: str, row: dict) -> str:
-    """One row of a row field as a sentence in the bases' words."""
+    """One row or block of a structured field as a sentence in the bases' words."""
+    if key == "experiencia_requerida":
+        tipo = f"{row['especialidad']}: {' o '.join(row['subespecialidades'])}"
+        if row["tipologias"]:
+            tipo += f" (tipología {' o '.join(row['tipologias'])})"
+        return (f"{experience_amount(row)} en {tipo}; últimos {row['ventana_anios']} años desde "
+                f"{'el acta de recepción' if row['cuenta_desde'] == 'acta de recepción' else 'la conformidad o el pago'}")
     if key == "personal_clave":
         grado = row["grado"] + (" colegiado" if row["colegiado"] else "")
         desde = " desde la colegiatura" if row["desde_colegiatura"] else ""

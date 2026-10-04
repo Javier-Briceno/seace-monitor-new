@@ -5,7 +5,7 @@ import tomllib
 
 import pytest
 
-from seace_monitor.fields import KEYS, ROW_FIELDS
+from seace_monitor.fields import BLOCK_FIELDS, KEYS, ROW_FIELDS
 from seace_monitor.manual import TemplateError, import_ready, load, template, write_template
 
 OBRA = {"nid_proceso": 1, "nomenclatura": "LP-ABR-1", "entidad": "MD DE PRUEBA", "descripcion": 'OBRA "COBERTURA" DE PRUEBA'}
@@ -24,17 +24,35 @@ roles = ["Residente de obra", "Supervisor de obra"]
 areas = []
 ambito = "subespecialidad"
 ventana_anios = 25
+cita = "Residente de Obra o Supervisor de Obra"
 pagina = "56"
 """
 
+EXPERIENCIA = """[experiencia_requerida]
+monto = 436482.01
+veces_cuantia = 1
+especialidad = "Edificaciones y afines"
+subespecialidades = ["Establecimientos o espacios deportivos"]
+tipologias = []
+ventana_anios = 20
+cuenta_desde = "acta de recepción"
+cita = "un monto facturado acumulado equivalente a UNA VEZ LA CUANTÍA"
+pagina = "49"
+"""
 
-def empty_rows(text: str) -> str:
-    start = text.index("\n[[personal_clave]]") + 1
+
+def empty_block(text: str, header: str) -> str:
+    start = text.index("\n" + header) + 1
     return text[start:text.index("\n\n", start) + 1]
 
 
-def filled(text: str, rows: str = RESIDENTE, **values) -> str:
-    text = text.replace("listo = false", "listo = true").replace(empty_rows(text), rows)
+def empty_rows(text: str) -> str:
+    return empty_block(text, "[[personal_clave]]")
+
+
+def filled(text: str, rows: str = RESIDENTE, experiencia: str = EXPERIENCIA, **values) -> str:
+    text = (text.replace("listo = false", "listo = true").replace(empty_rows(text), rows)
+            .replace(empty_block(text, "[experiencia_requerida]"), experiencia))
     for key, value in values.items():
         start = text.index(f"[{key}]")
         text = text[:start] + text[start:].replace('valor = ""', f'valor = "{value}"', 1)
@@ -52,7 +70,8 @@ def test_template_is_valid_toml_with_every_field():
     data = tomllib.loads(template(OBRA, BASES))
     assert data["listo"] is False
     assert data["documento"] == "uuid-bases"  # the only candidate is filled in
-    assert all(data[k] == {"valor": "", "pagina": ""} for k in KEYS if k not in ROW_FIELDS)
+    assert all(data[k] == {"valor": "", "pagina": ""} for k in KEYS if k not in ROW_FIELDS and k not in BLOCK_FIELDS)
+    assert data["experiencia_requerida"]["monto"] == 0  # an empty block, rejected until filled
     assert len(data["personal_clave"]) == 1 and data["personal_clave"][0]["meses"] == 0  # one empty row to copy
 
 
@@ -105,6 +124,26 @@ def test_a_wrong_column_stops_the_whole_file(tmp_path, wrong, message):
     rows = "\n".join(wrong if line.startswith(column + " = ") else line for line in RESIDENTE.splitlines()) + "\n"
     (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), rows=rows), encoding="utf-8")
     with pytest.raises(TemplateError, match="personal_clave 1: " + re.escape(message)):
+        load(tmp_path / "1.toml")
+
+
+def test_bidder_experience_is_one_typed_block(tmp_path):
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES)), encoding="utf-8")
+    bloque = load(tmp_path / "1.toml")["campos"]["experiencia_requerida"]["bloque"]
+    assert bloque["monto"] == 436482.01 and bloque["veces_cuantia"] == 1 and bloque["ventana_anios"] == 20
+    assert bloque["cuenta_desde"] == "acta de recepción"
+
+
+@pytest.mark.parametrize("wrong, message", [
+    ('monto = "S/ 436,482.01"', "`monto` must be a number above 0"),
+    ('cuenta_desde = "acta"', "`cuenta_desde` must be one of acta de recepción | conformidad o comprobante de pago"),
+    ('cita = ""', "`cita` must be text"),
+])
+def test_a_wrong_experience_column_stops_the_whole_file(tmp_path, wrong, message):
+    column = wrong.split(" = ")[0]
+    block = "\n".join(wrong if line.startswith(column + " = ") else line for line in EXPERIENCIA.splitlines()) + "\n"
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), experiencia=block), encoding="utf-8")
+    with pytest.raises(TemplateError, match="experiencia_requerida: " + re.escape(message)):
         load(tmp_path / "1.toml")
 
 
