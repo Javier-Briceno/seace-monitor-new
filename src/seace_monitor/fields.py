@@ -49,6 +49,7 @@ ROW_FIELDS = {
 # Fields filled as one block of typed columns. `cita` is the bases' own sentence, so every value
 # can be checked; `veces_cuantia` keeps the rule behind `monto` so it can be recomputed.
 BLOCK_FIELDS = {
+    "cuantia": (("monto", float), ("cita", str), ("pagina", str)),
     "experiencia_requerida": (
         ("monto", float), ("veces_cuantia", float), ("especialidad", str), ("subespecialidades", list),
         ("tipologias", OPTIONAL_LIST), ("ventana_anios", int),

@@ -101,6 +101,16 @@ def check_row(where: str, columns: tuple, row: dict) -> dict:
                 [x.strip() for x in row[c]] if isinstance(row[c], list) else row[c]) for c in spec}
 
 
+def check_amounts(name: str, campos: dict) -> None:
+    """The required experience must follow from its rule, so a mistyped amount is caught on import."""
+    experiencia, cuantia = campos["experiencia_requerida"]["bloque"], campos["cuantia"]["bloque"]
+    expected = experiencia["veces_cuantia"] * cuantia["monto"]
+    if abs(experiencia["monto"] - expected) > 0.01:  # one céntimo of rounding
+        raise TemplateError(
+            f"{name}: experiencia_requerida: `monto` {experiencia['monto']:,.2f} is not `veces_cuantia` "
+            f"{experiencia['veces_cuantia']:g} x cuantia {cuantia['monto']:,.2f} = {expected:,.2f}")
+
+
 def check_rows(name: str, key: str, value) -> list[dict]:
     if not isinstance(value, list) or not value or not all(isinstance(row, dict) for row in value):
         raise TemplateError(f"{name}: `{key}` needs one [[{key}]] block per row")
@@ -131,6 +141,7 @@ def load(path: Path) -> dict | None:
             campos[key] = {"bloque": check_row(f"{path.name}: {key}", BLOCK_FIELDS[key], field)}
             continue
         campos[key] = {"valor": str(field.get("valor", "")).strip(), "pagina": str(field.get("pagina", "")).strip()}
+    check_amounts(path.name, campos)
     return {"nid_proceso": data["nid_proceso"], "documento": data["documento"], "campos": campos}
 
 

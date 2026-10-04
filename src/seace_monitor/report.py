@@ -116,7 +116,7 @@ def summary(items: list[dict], now: datetime, watched: list[str],
             for key in SUMMARY_FIELDS:
                 if key not in c:
                     continue
-                valor = experience_amount(c[key]["bloque"]) if "bloque" in c[key] else c[key]["valor"].strip()
+                valor = brief(key, c[key]["bloque"]) if "bloque" in c[key] else c[key]["valor"].strip()
                 if key == "plazo_ejecucion_dias" and valor.isdigit():
                     valor += " días"
                 if valor:
@@ -177,8 +177,17 @@ def experience_amount(block: dict) -> str:
     return f"S/ {block['monto']:,.2f} ({veces} {'vez' if veces == '1' else 'veces'} la cuantía)"
 
 
+def brief(key: str, block: dict) -> str:
+    """A block in the few words the mail body has room for."""
+    if key == "experiencia_requerida":
+        return experience_amount(block)
+    return describe(key, block)
+
+
 def describe(key: str, row: dict) -> str:
     """One row or block of a structured field as a sentence in the bases' words."""
+    if key == "cuantia":
+        return f"S/ {row['monto']:,.2f}"
     if key == "experiencia_requerida":
         tipo = f"{row['especialidad']}: {' o '.join(row['subespecialidades'])}"
         if row["tipologias"]:

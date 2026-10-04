@@ -50,9 +50,17 @@ def empty_rows(text: str) -> str:
     return empty_block(text, "[[personal_clave]]")
 
 
-def filled(text: str, rows: str = RESIDENTE, experiencia: str = EXPERIENCIA, **values) -> str:
+CUANTIA = """[cuantia]
+monto = 436482.01
+cita = "CUANTÍA DE CONTRATACIÓN (TOTAL) S/ 436,482.01"
+pagina = "21"
+"""
+
+
+def filled(text: str, rows: str = RESIDENTE, experiencia: str = EXPERIENCIA, cuantia: str = CUANTIA, **values) -> str:
     text = (text.replace("listo = false", "listo = true").replace(empty_rows(text), rows)
-            .replace(empty_block(text, "[experiencia_requerida]"), experiencia))
+            .replace(empty_block(text, "[experiencia_requerida]"), experiencia)
+            .replace(empty_block(text, "[cuantia]"), cuantia))
     for key, value in values.items():
         start = text.index(f"[{key}]")
         text = text[:start] + text[start:].replace('valor = ""', f'valor = "{value}"', 1)
@@ -145,6 +153,20 @@ def test_a_wrong_experience_column_stops_the_whole_file(tmp_path, wrong, message
     (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), experiencia=block), encoding="utf-8")
     with pytest.raises(TemplateError, match="experiencia_requerida: " + re.escape(message)):
         load(tmp_path / "1.toml")
+
+
+def test_an_experience_amount_that_does_not_follow_its_rule_is_refused(tmp_path):
+    typo = EXPERIENCIA.replace("monto = 436482.01", "monto = 463482.01")
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), experiencia=typo), encoding="utf-8")
+    with pytest.raises(TemplateError, match=re.escape(
+            "`monto` 463,482.01 is not `veces_cuantia` 1 x cuantia 436,482.01 = 436,482.01")):
+        load(tmp_path / "1.toml")
+
+
+def test_an_amount_rounded_to_the_centimo_is_accepted(tmp_path):
+    half = EXPERIENCIA.replace("monto = 436482.01", "monto = 218241.01").replace("veces_cuantia = 1", "veces_cuantia = 0.5")
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), experiencia=half), encoding="utf-8")  # 218241.005 rounded up
+    assert load(tmp_path / "1.toml")["campos"]["cuantia"]["bloque"]["monto"] == 436482.01
 
 
 def test_the_empty_row_of_the_template_is_not_accepted(tmp_path):
