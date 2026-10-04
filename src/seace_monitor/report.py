@@ -158,7 +158,24 @@ def write_extractions_csv(extracted: list[dict], path: Path) -> None:
         writer.writerow(["obra", "campo", "página", "valor"])
         for e in extracted:
             for key in KEYS:
-                writer.writerow([title(e), NAMES[key], e["campos"][key]["pagina"], e["campos"][key]["valor"].strip()])
+                field = e["campos"][key]
+                if "filas" in field:
+                    for row in field["filas"]:
+                        writer.writerow([title(e), NAMES[key], row["pagina"], describe(key, row)])
+                else:
+                    writer.writerow([title(e), NAMES[key], field["pagina"], field["valor"].strip()])
+
+
+def describe(key: str, row: dict) -> str:
+    """One row of a row field as a sentence in the bases' words."""
+    if key == "personal_clave":
+        grado = row["grado"] + (" colegiado" if row["colegiado"] else "")
+        desde = " desde la colegiatura" if row["desde_colegiatura"] else ""
+        ambito = "en la especialidad y subespecialidad" if row["ambito"] == "subespecialidad" else "en obras en general"
+        return (f"{row['cargo']} ({row['cantidad']}): {' o '.join(row['profesiones'])}, {grado}; "
+                f"{row['meses']} meses{desde} como {', '.join(row['cargos_validos'])}; {ambito}; "
+                f"últimos {row['ventana_anios']} años")
+    return "; ".join(f"{k}: {v}" for k, v in row.items() if k != "pagina")
 
 
 @dataclass

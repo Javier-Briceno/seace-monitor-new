@@ -1,18 +1,39 @@
 """Manual extraction templates; import runs against the test database."""
 
+import re
 import tomllib
 
 import pytest
 
-from seace_monitor.fields import KEYS
+from seace_monitor.fields import KEYS, ROW_FIELDS
 from seace_monitor.manual import TemplateError, import_ready, load, template, write_template
 
 OBRA = {"nid_proceso": 1, "nomenclatura": "LP-ABR-1", "entidad": "MD DE PRUEBA", "descripcion": 'OBRA "COBERTURA" DE PRUEBA'}
 BASES = [{"uuid": "uuid-bases", "nombre_archivo": "BASES.pdf", "ruta_local": "data/documentos/1/BASES.pdf"}]
 
 
-def filled(text: str, **values) -> str:
-    text = text.replace("listo = false", "listo = true")
+RESIDENTE = """[[personal_clave]]
+cargo = "Residente de obra"
+cantidad = 1
+profesiones = ["Ingeniero civil", "Arquitecto"]
+grado = "título profesional"
+colegiado = true
+meses = 24
+desde_colegiatura = true
+cargos_validos = ["Residente de obra", "Supervisor de obra"]
+ambito = "subespecialidad"
+ventana_anios = 25
+pagina = "56"
+"""
+
+
+def empty_rows(text: str) -> str:
+    start = text.index("\n[[personal_clave]]") + 1
+    return text[start:text.index("\n\n", start) + 1]
+
+
+def filled(text: str, rows: str = RESIDENTE, **values) -> str:
+    text = text.replace("listo = false", "listo = true").replace(empty_rows(text), rows)
     for key, value in values.items():
         start = text.index(f"[{key}]")
         text = text[:start] + text[start:].replace('valor = ""', f'valor = "{value}"', 1)
@@ -30,7 +51,8 @@ def test_template_is_valid_toml_with_every_field():
     data = tomllib.loads(template(OBRA, BASES))
     assert data["listo"] is False
     assert data["documento"] == "uuid-bases"  # the only candidate is filled in
-    assert all(data[k] == {"valor": "", "pagina": ""} for k in KEYS)
+    assert all(data[k] == {"valor": "", "pagina": ""} for k in KEYS if k not in ROW_FIELDS)
+    assert len(data["personal_clave"]) == 1 and data["personal_clave"][0]["meses"] == 0  # one empty row to copy
 
 
 def test_several_bases_leave_the_choice_to_the_person():
@@ -50,6 +72,35 @@ def test_filled_file_is_loaded(tmp_path):
     data = load(tmp_path / "1.toml")
     assert data["campos"]["plazo_ejecucion_dias"] == {"valor": "120", "pagina": ""}
     assert set(data["campos"]) == set(KEYS)
+
+
+def test_key_personnel_is_loaded_as_typed_rows(tmp_path):
+    seguridad = RESIDENTE.replace("Residente de obra", "Especialista en seguridad", 1).replace("meses = 24", "meses = 12")
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), rows=RESIDENTE + "\n" + seguridad), encoding="utf-8")
+    filas = load(tmp_path / "1.toml")["campos"]["personal_clave"]["filas"]
+    assert [(f["cargo"], f["meses"]) for f in filas] == [("Residente de obra", 24), ("Especialista en seguridad", 12)]
+    assert filas[0]["profesiones"] == ["Ingeniero civil", "Arquitecto"] and filas[0]["desde_colegiatura"] is True
+
+
+@pytest.mark.parametrize("wrong, message", [
+    ('meses = "24 meses"', "`meses` must be a whole number above 0, got '24 meses'"),
+    ('ambito = "general"', "`ambito` must be one of subespecialidad | obras en general"),
+    ("profesiones = []", "`profesiones` must be a list of texts"),
+    ("desde_colegiatura = 1", "`desde_colegiatura` must be true or false"),
+])
+def test_a_wrong_column_stops_the_whole_file(tmp_path, wrong, message):
+    column = wrong.split(" = ")[0]
+    rows = "\n".join(wrong if line.startswith(column + " = ") else line for line in RESIDENTE.splitlines()) + "\n"
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), rows=rows), encoding="utf-8")
+    with pytest.raises(TemplateError, match="personal_clave 1: " + re.escape(message)):
+        load(tmp_path / "1.toml")
+
+
+def test_the_empty_row_of_the_template_is_not_accepted(tmp_path):
+    text = template(OBRA, BASES)
+    (tmp_path / "1.toml").write_text(filled(text, rows=empty_rows(text)), encoding="utf-8")
+    with pytest.raises(TemplateError, match="`cargo` must be text"):
+        load(tmp_path / "1.toml")
 
 
 def test_misspelled_field_is_an_error(tmp_path):

@@ -106,6 +106,26 @@ def test_extraction_of_an_already_reported_obra_gets_its_own_section(conn, tmp_p
     assert {"obra": "MUNICIPALIDAD DE PRUEBA (LP-ABR-1)", "campo": "Plazo", "valor": "120", "página": "12"} in rows
 
 
+def test_key_personnel_rows_get_one_csv_row_each(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    residente = {"cargo": "Residente de obra", "cantidad": 1, "profesiones": ["Ingeniero civil", "Arquitecto"],
+                 "grado": "título profesional", "colegiado": False, "meses": 24, "desde_colegiatura": True,
+                 "cargos_validos": ["Residente de obra", "Inspector de obra"], "ambito": "subespecialidad",
+                 "ventana_anios": 25, "pagina": "56"}
+    calidad = dict(residente, cargo="Ingeniero de calidad", meses=12, ambito="obras en general", pagina="57")
+    conn.execute("UPDATE extracciones SET campos = jsonb_set(campos, '{personal_clave}', %s)",
+                 [json.dumps({"filas": [residente, calidad]})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        rows = [r for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Personal clave"]
+    assert [r["página"] for r in rows] == ["56", "57"]
+    assert rows[0]["valor"] == ("Residente de obra (1): Ingeniero civil o Arquitecto, título profesional; 24 meses desde "
+                                "la colegiatura como Residente de obra, Inspector de obra; en la especialidad y "
+                                "subespecialidad; últimos 25 años")
+    assert "Ingeniero de calidad (1)" in rows[1]["valor"] and "en obras en general" in rows[1]["valor"]
+
+
 def test_every_field_has_a_short_name():
     assert set(NAMES) == set(KEYS)
 

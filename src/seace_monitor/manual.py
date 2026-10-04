@@ -10,7 +10,7 @@ from pathlib import Path
 
 import psycopg
 
-from .fields import FIELDS, KEYS
+from .fields import FIELDS, KEYS, ROW_FIELDS
 from .report import title
 from .search import normalize
 
@@ -43,14 +43,62 @@ def template(obra: dict, bases: list[dict]) -> str:
         f"documento = {toml_string(bases[0]['uuid'] if len(bases) == 1 else '')}",
     ]
     for key, label, where in FIELDS:
+        comment = f"# {label}" + (f" | {where}" if where else "")
+        if key in ROW_FIELDS:
+            lines += ["", comment, f"[[{key}]]"] + [empty_column(column, kind) for column, kind in ROW_FIELDS[key]]
+            continue
         lines += [
             "",
             f"[{key}]",
-            f"# {label}" + (f" | {where}" if where else ""),
-            'valor = """"""' if key in ("personal_clave", "factores", "notas", "penalidades") else 'valor = ""',
+            comment,
+            'valor = """"""' if key in ("factores", "notas", "penalidades") else 'valor = ""',
             'pagina = ""',
         ]
     return "\n".join(lines) + "\n"
+
+
+def empty_column(column: str, kind) -> str:
+    """One column of an empty row; it fails validation until a person fills it."""
+    if kind is int:
+        return f"{column} = 0"
+    if kind is bool:
+        return f"{column} = false"
+    if kind is list:
+        return f"{column} = []"
+    if isinstance(kind, tuple):
+        return f'{column} = ""  # {" | ".join(kind)}'
+    return f'{column} = ""'
+
+
+def check_rows(name: str, key: str, value) -> list[dict]:
+    """The rows of a row field, every column present and of its kind; anything else stops the import."""
+    if not isinstance(value, list) or not value or not all(isinstance(row, dict) for row in value):
+        raise TemplateError(f"{name}: `{key}` needs one [[{key}]] block per row")
+    spec = dict(ROW_FIELDS[key])
+    rows = []
+    for number, row in enumerate(value, 1):
+        where = f"{name}: {key} {number}"
+        unknown, missing = set(row) - set(spec), set(spec) - set(row)
+        if unknown or missing:
+            raise TemplateError(f"{where}: unknown columns {sorted(unknown)}, missing columns {sorted(missing)}")
+        for column, kind in spec.items():
+            v = row[column]
+            if kind is str:
+                ok, expected = isinstance(v, str) and v.strip() != "", "text"
+            elif kind is int:
+                ok, expected = type(v) is int and v > 0, "a whole number above 0"
+            elif kind is bool:
+                ok, expected = type(v) is bool, "true or false"
+            elif kind is list:
+                ok = isinstance(v, list) and v != [] and all(isinstance(x, str) and x.strip() for x in v)
+                expected = 'a list of texts, like ["a", "b"]'
+            else:
+                ok, expected = v in kind, "one of " + " | ".join(kind)
+            if not ok:
+                raise TemplateError(f"{where}: `{column}` must be {expected}, got {v!r}")
+        rows.append({c: (row[c].strip() if isinstance(row[c], str) else
+                         [x.strip() for x in row[c]] if isinstance(row[c], list) else row[c]) for c in spec})
+    return rows
 
 
 def load(path: Path) -> dict | None:
@@ -70,6 +118,9 @@ def load(path: Path) -> dict | None:
     campos = {}
     for key in KEYS:
         field = data[key]
+        if key in ROW_FIELDS:
+            campos[key] = {"filas": check_rows(path.name, key, field)}
+            continue
         campos[key] = {"valor": str(field.get("valor", "")).strip(), "pagina": str(field.get("pagina", "")).strip()}
     return {"nid_proceso": data["nid_proceso"], "documento": data["documento"], "campos": campos}
 

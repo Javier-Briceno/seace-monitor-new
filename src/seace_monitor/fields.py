@@ -19,7 +19,7 @@ FIELDS = (
     ("experiencia_monto", "Experiencia del postor: monto facturado pedido (S/)", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
     ("experiencia_especialidad", "Experiencia del postor: especialidad y subespecialidades", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
     ("experiencia_ventana_anios", "Experiencia del postor: años hacia atrás", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
-    ("personal_clave", "Personal clave: cargo, profesión y meses, uno por línea", "cap. III, REQUISITOS DE CALIFICACIÓN, PERSONAL CLAVE"),
+    ("personal_clave", "Personal clave: un bloque por cargo; copia el bloque entero para cada uno", "cap. III, REQUISITOS DE CALIFICACIÓN, PERSONAL CLAVE"),
     ("equipamiento", "Equipamiento estratégico", "cap. III, REQUISITOS DE CALIFICACIÓN, EQUIPAMIENTO ESTRATÉGICO"),
     ("consorcio", "Consorcio: máximo de integrantes y porcentajes mínimos", "cap. III, REQUISITOS DE CALIFICACIÓN, PARTICIPACIÓN EN CONSORCIO"),
     ("factores", "Factores de evaluación con sus puntos, uno por línea", "cap. IV, FACTORES DE EVALUACIÓN"),
@@ -33,6 +33,16 @@ FIELDS = (
 )
 
 KEYS = tuple(key for key, _, _ in FIELDS)
+
+# Fields filled as rows because the verdict compares their parts one by one (see 02-verdict-design).
+# Each column has a kind: str, int, bool, list (of strings) or a tuple of the allowed values.
+ROW_FIELDS = {
+    "personal_clave": (
+        ("cargo", str), ("cantidad", int), ("profesiones", list), ("grado", ("título profesional", "bachiller")),
+        ("colegiado", bool), ("meses", int), ("desde_colegiatura", bool), ("cargos_validos", list),
+        ("ambito", ("subespecialidad", "obras en general")), ("ventana_anios", int), ("pagina", str),
+    ),
+}
 
 # Short names for readers of the report; the labels above are instructions for whoever fills a template.
 NAMES = {
