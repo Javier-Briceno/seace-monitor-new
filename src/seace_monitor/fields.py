@@ -29,7 +29,7 @@ FIELDS = (
     ("penalidades", "Penalidades: por mora y otras", "cap. III, PENALIDADES (suele ser 3.3.19 o 3.3.20)"),
     ("terreno", "Disponibilidad física del terreno", "cap. III, DISPONIBILIDAD FÍSICA DEL TERRENO (suele ser 3.3.3)"),
     ("garantias", "Garantías para firmar el contrato", "2.3 REQUISITOS PARA PERFECCIONAR EL CONTRATO"),
-    ("notas", "Notas libres", ""),
+    ("notas", "Notas libres; cada consulta a la entidad en su propia línea, empezando con 'Consulta:'", ""),
 )
 
 KEYS = tuple(key for key, _, _ in FIELDS)

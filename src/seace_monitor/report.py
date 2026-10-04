@@ -72,6 +72,11 @@ def money(value, currency) -> str:
     return f"{prefix} {value:,.0f}".replace(",", ".")
 
 
+def consultas(notas: str) -> int:
+    """Questions to ask the entity: lines of the notes that start with 'Consulta:'."""
+    return sum(1 for line in notas.splitlines() if line.strip().lower().startswith("consulta:"))
+
+
 def summary(items: list[dict], now: datetime, watched: list[str],
             extracted: list[dict] = (), problems: list[str] = ()) -> str:
     abiertas = [i for i in items if i["estado"] == "abierta"]
@@ -98,7 +103,7 @@ def summary(items: list[dict], now: datetime, watched: list[str],
         for e in extracted:
             c = e["campos"]
             brief = " | ".join(f"{label}: {c[key]['valor']}" for key, label in SUMMARY_FIELDS if c[key]["valor"])
-            lines.append(f"- {e['nomenclatura']} | {e['entidad']} | {brief}")
+            lines.append(f"- {e['nomenclatura']} | {e['entidad']} | {brief} | consultas: {consultas(c['notas']['valor'])}")
     if problems:
         lines += ["", "Problemas:"] + [f"- {p}" for p in problems]
     return "\n".join(lines) + "\n"

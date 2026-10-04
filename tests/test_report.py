@@ -104,6 +104,18 @@ def test_extraction_of_an_already_reported_obra_gets_its_own_section(conn, tmp_p
     assert row["plazo_ejecucion_dias"] == "120" and row["plazo_ejecucion_dias_pagina"] == "12"
 
 
+def test_each_extraction_shows_its_own_consultas(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=5), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1, plazo_ejecucion_dias="60",
+                   notas="\nConsulta: G dice 30 y el cuadro 15\nObra: techo\n  consulta: terreno sin acta")
+    add_extraction(conn, 2, plazo_ejecucion_dias="120", notas="Sin ISO el máximo es 73")
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    lines = [l for l in rep.text.splitlines() if l.startswith("- LP-ABR-")]
+    assert lines[0].startswith("- LP-ABR-1 ") and lines[0].endswith("| consultas: 2")
+    assert lines[1].startswith("- LP-ABR-2 ") and lines[1].endswith("| consultas: 0")
+
+
 def test_problems_are_listed(conn, tmp_path):
     rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW, problems=["1.toml: not valid TOML"])
     assert "Problemas:\n- 1.toml: not valid TOML" in rep.text
