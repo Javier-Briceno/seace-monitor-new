@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from seace_monitor.fields import KEYS
+from seace_monitor.fields import KEYS, NAMES
 from seace_monitor.report import TOP, build, pending, summary
 from seace_monitor.search import LIMA
 
@@ -98,10 +98,35 @@ def test_extraction_of_an_already_reported_obra_gets_its_own_section(conn, tmp_p
     rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
     assert rep.nids == [] and len(rep.extraction_ids) == 1
     assert "Extraídas a mano desde el último informe: 1" in rep.text
-    assert "- LP-ABR-1 | MUNICIPALIDAD DE PRUEBA | plazo: 120 | subjetivos: ninguno" in rep.text
+    assert ("MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n  Plazo: 120 días\n  Factores subjetivos: ninguno\n"
+            "  Consultas: 0\n") in rep.text
     with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
-        row = next(csv.DictReader(f, delimiter=";"))
-    assert row["plazo_ejecucion_dias"] == "120" and row["plazo_ejecucion_dias_pagina"] == "12"
+        rows = list(csv.DictReader(f, delimiter=";"))
+    assert len(rows) == len(KEYS)
+    assert {"obra": "MUNICIPALIDAD DE PRUEBA (LP-ABR-1)", "campo": "Plazo", "valor": "120", "página": "12"} in rows
+
+
+def test_every_field_has_a_short_name():
+    assert set(NAMES) == set(KEYS)
+
+
+def test_each_extraction_shows_its_own_consultas(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=5), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1, plazo_ejecucion_dias="60",
+                   notas="\nConsulta: G dice 30 y el cuadro 15\nObra: techo\n  consulta: terreno sin acta")
+    add_extraction(conn, 2, plazo_ejecucion_dias="120", notas="Sin ISO el máximo es 73")
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert "(LP-ABR-1)\n  Plazo: 60 días\n  Consultas: 2\n" in rep.text
+    assert "(LP-ABR-2)\n  Plazo: 120 días\n  Consultas: 0\n" in rep.text
+
+
+def test_block_title_drops_the_municipality_prefix(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    conn.execute("UPDATE licitaciones SET entidad = 'MUNICIPALIDAD DISTRITAL DE PIAS'")
+    add_extraction(conn, 1, cuantia="S/ 1,765,086.24")
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert "\nPIAS (LP-ABR-1)\n  Cuantía: S/ 1,765,086.24\n" in rep.text
 
 
 def test_problems_are_listed(conn, tmp_path):

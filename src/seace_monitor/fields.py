@@ -29,10 +29,21 @@ FIELDS = (
     ("penalidades", "Penalidades: por mora y otras", "cap. III, PENALIDADES (suele ser 3.3.19 o 3.3.20)"),
     ("terreno", "Disponibilidad física del terreno", "cap. III, DISPONIBILIDAD FÍSICA DEL TERRENO (suele ser 3.3.3)"),
     ("garantias", "Garantías para firmar el contrato", "2.3 REQUISITOS PARA PERFECCIONAR EL CONTRATO"),
-    ("notas", "Notas libres", ""),
+    ("notas", "Notas libres; cada consulta a la entidad en su propia línea, empezando con 'Consulta:'", ""),
 )
 
 KEYS = tuple(key for key, _, _ in FIELDS)
+
+# Short names for readers of the report; the labels above are instructions for whoever fills a template.
+NAMES = {
+    "cuantia": "Cuantía", "fuente_financiamiento": "Fuente de financiamiento", "sistema_entrega": "Sistema de entrega",
+    "plazo_ejecucion_dias": "Plazo", "modalidad_pago": "Modalidad de pago", "oferta_economica": "Evaluación económica",
+    "experiencia_monto": "Experiencia pedida", "experiencia_especialidad": "Especialidad de la experiencia",
+    "experiencia_ventana_anios": "Antigüedad de la experiencia", "personal_clave": "Personal clave",
+    "equipamiento": "Equipamiento", "consorcio": "Consorcio", "factores": "Factores de evaluación",
+    "factores_subjetivos": "Factores subjetivos", "minimo_tecnico": "Mínimo técnico", "adelantos": "Adelantos",
+    "penalidades": "Penalidades", "terreno": "Terreno", "garantias": "Garantías", "notas": "Notas",
+}
 
 EXCLUDED = {
     "1.1 base legal, 1.5 expediente": "the same in every bases",
