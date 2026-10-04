@@ -82,9 +82,12 @@ def title(extraction: dict) -> str:
     return f"{entidad} ({extraction['nomenclatura']})"
 
 
-def consultas(notas: str) -> int:
-    """Questions to ask the entity: lines of the notes that start with 'Consulta:'."""
-    return sum(1 for line in notas.splitlines() if line.strip().lower().startswith("consulta:"))
+def consultas(campos: dict) -> int:
+    """Questions to ask the entity: incongruences marked as consulta. Extractions stored before
+    incongruences were rows marked them as notes lines starting with 'Consulta:'."""
+    if "filas" in campos.get("incongruencias", {}):
+        return sum(1 for row in campos["incongruencias"]["filas"] if row["consulta"])
+    return sum(1 for line in campos["notas"]["valor"].splitlines() if line.strip().lower().startswith("consulta:"))
 
 
 def summary(items: list[dict], now: datetime, watched: list[str],
@@ -125,7 +128,7 @@ def summary(items: list[dict], now: datetime, watched: list[str],
                 judged = [f"{r['letra']}. {r['nombre']} ({r['que_se_juzga']})"
                           for r in c["factores"]["filas"] if r["tipo"] == "juicio_comite"]
                 lines.append(f"  Factores subjetivos: {'; '.join(judged) or 'ninguno'}")
-            lines.append(f"  Consultas: {consultas(c['notas']['valor'])}")
+            lines.append(f"  Consultas: {consultas(c)}")
     if problems:
         lines += ["", "Problemas:"] + [f"- {p}" for p in problems]
     return "\n".join(lines) + "\n"
@@ -169,7 +172,7 @@ def write_extractions_csv(extracted: list[dict], path: Path) -> None:
                     continue
                 if "filas" in field:
                     for row in field["filas"]:
-                        writer.writerow([title(e), NAMES[key], row["pagina"], describe(key, row)])
+                        writer.writerow([title(e), NAMES[key], row.get("pagina", row.get("paginas")), describe(key, row)])
                 elif "bloque" in field:
                     writer.writerow([title(e), NAMES[key], field["bloque"]["pagina"], describe(key, field["bloque"])])
                 else:
@@ -216,6 +219,16 @@ def describe(key: str, row: dict) -> str:
     """One row or block of a structured field as a sentence in the bases' words."""
     if key == "factores":
         return describe_factor(row)
+    if key == "incongruencias":
+        text = ("Consulta: " if row["consulta"] else "") + f"{row['descripcion']}. Lectura usada: {row['lectura_usada']}"
+        if row["campo"]:
+            valor = row["valor"]
+            if isinstance(valor, list) and valor and isinstance(valor[0], dict):  # a scale
+                valor = "; ".join(", ".join(f"{v:,.2f}" if isinstance(v, float) else str(v) for v in step.values())
+                                  for step in valor)
+            where = " ".join(p for p in (NAMES[row["campo"]], row["fila"]) if p)
+            text += f". Otra lectura: {where}, {row['columna'].replace('_', ' ')} = {valor}"
+        return text
     if key == "cuantia":
         return f"S/ {row['monto']:,.2f}"
     if key == "experiencia_requerida":

@@ -26,7 +26,8 @@ FIELDS = (
     ("penalidades", "Penalidades: por mora y otras", "cap. III, PENALIDADES (suele ser 3.3.19 o 3.3.20)"),
     ("terreno", "Disponibilidad física del terreno", "cap. III, DISPONIBILIDAD FÍSICA DEL TERRENO (suele ser 3.3.3)"),
     ("garantias", "Garantías para firmar el contrato", "2.3 REQUISITOS PARA PERFECCIONAR EL CONTRATO"),
-    ("notas", "Notas libres; cada consulta a la entidad en su propia línea, empezando con 'Consulta:'", ""),
+    ("incongruencias", "Incongruencias de las bases: un bloque [[incongruencias]] por cada una", ""),
+    ("notas", "Notas libres", ""),
 )
 
 KEYS = tuple(key for key, _, _ in FIELDS)
@@ -34,6 +35,7 @@ KEYS = tuple(key for key, _, _ in FIELDS)
 # Fields filled as rows because the verdict compares their parts one by one (see 02-verdict-design).
 # Each column has a kind: str, int, bool, list (of strings, not empty), OPTIONAL_LIST, or a tuple of the allowed values.
 OPTIONAL_LIST = "optional list"
+OPTIONAL_TEXT = "optional text"
 
 # An accepted job is a role, or a role in an area when the bases combine them ("Jefe y/o Coordinador
 # en/de: Seguridad ... y/o SSOMA"); `areas` stays empty when the bases list whole job titles.
@@ -78,6 +80,15 @@ FACTOR_TYPES = {
     "juicio_comite": ((("que_se_juzga", str),), (("nivel", str), ("puntos", int))),
 }
 
+# An incongruence of the bases. The fields above hold one consistent reading (`lectura_usada`, e.g. the
+# summary table wins); when the other reading is a different value of one column, `campo`, `fila`,
+# `columna` and `valor` say which, so the verdict can be computed both ways. `fila` is a factor letter
+# or part, a cargo of personal_clave, or "" for a block. All four stay "" when nothing can be recomputed.
+INCONGRUENCE_COLUMNS = (
+    ("descripcion", str), ("cita", str), ("paginas", str), ("lectura_usada", str), ("consulta", bool),
+    ("campo", OPTIONAL_TEXT), ("fila", OPTIONAL_TEXT), ("columna", OPTIONAL_TEXT),
+)
+
 # Short names for readers of the report; the labels above are instructions for whoever fills a template.
 NAMES = {
     "cuantia": "Cuantía", "fuente_financiamiento": "Fuente de financiamiento", "sistema_entrega": "Sistema de entrega",
@@ -85,7 +96,8 @@ NAMES = {
     "experiencia_requerida": "Experiencia pedida", "personal_clave": "Personal clave",
     "equipamiento": "Equipamiento", "consorcio": "Consorcio", "factores": "Factores de evaluación",
     "minimo_tecnico": "Mínimo técnico", "adelantos": "Adelantos",
-    "penalidades": "Penalidades", "terreno": "Terreno", "garantias": "Garantías", "notas": "Notas",
+    "penalidades": "Penalidades", "terreno": "Terreno", "garantias": "Garantías",
+    "incongruencias": "Incongruencias", "notas": "Notas",
 }
 
 EXCLUDED = {

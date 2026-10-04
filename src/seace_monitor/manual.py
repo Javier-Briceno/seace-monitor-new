@@ -11,7 +11,10 @@ from pathlib import Path
 
 import psycopg
 
-from .fields import BLOCK_FIELDS, FACTOR_COLUMNS, FACTOR_TYPES, FIELDS, KEYS, OPTIONAL_LIST, ROW_FIELDS
+from .fields import (
+    BLOCK_FIELDS, FACTOR_COLUMNS, FACTOR_TYPES, FIELDS, INCONGRUENCE_COLUMNS, KEYS, OPTIONAL_LIST, OPTIONAL_TEXT,
+    ROW_FIELDS,
+)
 from .report import title
 from .search import normalize
 
@@ -42,6 +45,9 @@ def template(obra: dict, bases: list[dict]) -> str:
         "# The bases document read. Candidates:",
         *[f"#   {b['uuid']}  {b['nombre_archivo']}  {b['ruta_local'] or '(not downloaded)'}" for b in bases],
         f"documento = {toml_string(bases[0]['uuid'] if len(bases) == 1 else '')}",
+        "",
+        "# Incongruencias de las bases: déjalo así si no hay ninguna; si hay, ver el bloque al final.",
+        "incongruencias = []",
     ]
     for key, label, where in FIELDS:
         comment = f"# {label}" + (f" | {where}" if where else "")
@@ -57,6 +63,16 @@ def template(obra: dict, bases: list[dict]) -> str:
                       for tipo, (extra, step) in FACTOR_TYPES.items()]
             lines += ["[[factores]]"] + [empty_column(c, k) for c, k in FACTOR_COLUMNS]
             lines += [f'tipo = ""  # {" | ".join(FACTOR_TYPES)}', "escala = []"]
+            continue
+        if key == "incongruencias":
+            # TOML puts a plain key before the first table, so the empty list sits at the top of the
+            # file; here only a commented block to copy.
+            lines += ["", comment,
+                      "# Los campos de arriba llevan una sola lectura (lectura_usada). Si la otra lectura es otro valor de una",
+                      "# columna, campo/fila/columna/valor dicen cuál: fila = letra o parte del factor, cargo, o \"\" en un bloque.",
+                      "# Si no se puede recalcular nada, deja campo, fila, columna y valor en \"\".",
+                      "# Para anotar una: borra `incongruencias = []` arriba y copia este bloque sin los #:",
+                      "# [[incongruencias]]"] + [f"# {empty_column(c, k)}" for c, k in INCONGRUENCE_COLUMNS] + ['# valor = ""']
             continue
         lines += [
             "",
@@ -76,6 +92,8 @@ def empty_column(column: str, kind) -> str:
         return f"{column} = false"
     if kind is list or kind == OPTIONAL_LIST:
         return f"{column} = []"
+    if kind == OPTIONAL_TEXT:
+        return f'{column} = ""'
     if isinstance(kind, tuple):
         return f'{column} = ""  # {" | ".join(kind)}'
     return f'{column} = ""'
@@ -91,6 +109,13 @@ def check_row(where: str, columns: tuple, row: dict) -> dict:
         v = row[column]
         if kind is str:
             ok, expected = isinstance(v, str) and v.strip() != "", "text"
+        elif kind == OPTIONAL_TEXT:
+            ok, expected = isinstance(v, str), 'text, or "" when it does not apply'
+        elif isinstance(kind, ESCALA):
+            ok, expected = isinstance(v, list) and v != [] and all(isinstance(s, dict) for s in v), "a list of steps"
+            if ok:
+                for i, s in enumerate(v, 1):
+                    check_row(f"{where}: {column} {i}", kind.step, s)
         elif kind is int:
             ok, expected = type(v) is int and v > 0, "a whole number above 0"
         elif kind is float:
@@ -106,7 +131,8 @@ def check_row(where: str, columns: tuple, row: dict) -> dict:
         if not ok:
             raise TemplateError(f"{where}: `{column}` must be {expected}, got {v!r}")
     return {c: (row[c].strip() if isinstance(row[c], str) else
-                [x.strip() for x in row[c]] if isinstance(row[c], list) else row[c]) for c in spec}
+                [x.strip() if isinstance(x, str) else x for x in row[c]] if isinstance(row[c], list) else row[c])
+            for c in spec}
 
 
 def check_amounts(name: str, campos: dict) -> None:
@@ -164,6 +190,63 @@ def check_factores(name: str, value, personal: list[dict]) -> list[dict]:
     return rows
 
 
+def check_incongruencias(name: str, value, campos: dict) -> list[dict]:
+    """Each incongruence, and that its other reading names a real column and a value of that column's kind."""
+    if not isinstance(value, list) or not all(isinstance(row, dict) for row in value):
+        raise TemplateError(f"{name}: `incongruencias` needs one [[incongruencias]] block each, or incongruencias = []")
+    rows = []
+    for number, row in enumerate(value, 1):
+        where = f"{name}: incongruencias {number}"
+        if "valor" not in row:
+            raise TemplateError(f"{where}: missing column `valor` (\"\" when nothing can be recomputed)")
+        checked = check_row(where, INCONGRUENCE_COLUMNS, {k: v for k, v in row.items() if k != "valor"})
+        checked["valor"] = row["valor"]
+        target = (checked["campo"], checked["fila"], checked["columna"])
+        if target == ("", "", ""):
+            if row["valor"] != "":
+                raise TemplateError(f"{where}: `valor` without `campo` and `columna`")
+            rows.append(checked)
+            continue
+        current = reading_target(where, campos, *target)
+        check_row(f"{where}: valor", ((checked["columna"], current["kind"]),), {checked["columna"]: row["valor"]})
+        if any(value == row["valor"] for value in current["values"]):
+            raise TemplateError(f"{where}: `valor` is the reading already used; write the other one")
+        rows.append(checked)
+    return rows
+
+
+def reading_target(where: str, campos: dict, campo: str, fila: str, columna: str) -> dict:
+    """The kind and current values of the column an alternative reading changes."""
+    if campo in BLOCK_FIELDS:
+        spec, rows = dict(BLOCK_FIELDS[campo]), [campos[campo]["bloque"]]
+        if fila:
+            raise TemplateError(f"{where}: `fila` must be \"\" for the block {campo}")
+    elif campo == "personal_clave":
+        spec, rows = dict(ROW_FIELDS[campo]), [r for r in campos[campo]["filas"] if r["cargo"] == fila]
+    elif campo == "factores":
+        rows = [r for r in campos[campo]["filas"] if fila in (r["letra"], r["parte"])]
+        spec = {}
+        for r in rows:
+            extra, step = FACTOR_TYPES[r["tipo"]]
+            spec.update(dict(FACTOR_COLUMNS + extra))
+            spec["escala"] = ESCALA(step)
+    else:
+        raise TemplateError(f"{where}: `campo` must be one of {', '.join([*BLOCK_FIELDS, 'personal_clave', 'factores'])}"
+                            f" or \"\", got {campo!r}")
+    if not rows:
+        raise TemplateError(f"{where}: no row {fila!r} in {campo}")
+    if columna not in spec or columna in ("cita", "pagina"):
+        raise TemplateError(f"{where}: {campo} has no column {columna!r} to read differently")
+    return {"kind": spec[columna], "values": [r[columna] for r in rows if columna in r]}
+
+
+class ESCALA:
+    """The kind of a whole scale: a list of steps, each with its type's columns."""
+
+    def __init__(self, step):
+        self.step = step
+
+
 def check_rows(name: str, key: str, value) -> list[dict]:
     if not isinstance(value, list) or not value or not all(isinstance(row, dict) for row in value):
         raise TemplateError(f"{name}: `{key}` needs one [[{key}]] block per row")
@@ -193,11 +276,12 @@ def load(path: Path) -> dict | None:
         if key in BLOCK_FIELDS:
             campos[key] = {"bloque": check_row(f"{path.name}: {key}", BLOCK_FIELDS[key], field)}
             continue
-        if key == "factores":
-            continue  # checked last, against the key personnel
+        if key in ("factores", "incongruencias"):
+            continue  # checked last, against the other fields
         campos[key] = {"valor": str(field.get("valor", "")).strip(), "pagina": str(field.get("pagina", "")).strip()}
     campos["factores"] = {"filas": check_factores(path.name, data["factores"], campos["personal_clave"]["filas"])}
     check_amounts(path.name, campos)
+    campos["incongruencias"] = {"filas": check_incongruencias(path.name, data["incongruencias"], campos)}
     return {"nid_proceso": data["nid_proceso"], "documento": data["documento"], "campos": campos}
 
 

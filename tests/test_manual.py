@@ -1,5 +1,6 @@
 """Manual extraction templates; import runs against the test database."""
 
+import json
 import re
 import tomllib
 
@@ -105,7 +106,8 @@ def test_template_is_valid_toml_with_every_field():
     data = tomllib.loads(template(OBRA, BASES))
     assert data["listo"] is False
     assert data["documento"] == "uuid-bases"  # the only candidate is filled in
-    plain = [k for k in KEYS if k not in ROW_FIELDS and k not in BLOCK_FIELDS and k != "factores"]
+    plain = [k for k in KEYS if k not in ROW_FIELDS and k not in BLOCK_FIELDS and k not in ("factores", "incongruencias")]
+    assert data["incongruencias"] == []
     assert all(data[k] == {"valor": "", "pagina": ""} for k in plain)
     assert data["factores"][0]["tipo"] == "" and data["factores"][0]["escala"] == []
     assert data["experiencia_requerida"]["monto"] == 0  # an empty block, rejected until filled
@@ -244,6 +246,68 @@ escala = [{nivel = "avanzada", puntos = 10}]
     (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), factores=split), encoding="utf-8")
     with pytest.raises(TemplateError, match="factor D: every part must repeat the same `nombre` and `puntos_max`"):
         load(tmp_path / "1.toml")
+
+
+def incongruence(**columns) -> str:
+    row = {"descripcion": "D dice 30 en el texto y 20 en el cuadro", "cita": "30 puntos", "paginas": "61, 64",
+           "lectura_usada": "el cuadro resumen", "consulta": True, "campo": "factores", "fila": "D",
+           "columna": "puntos_max", "valor": 20} | columns
+    return "[[incongruencias]]\n" + "".join(f"{k} = {toml(v)}\n" for k, v in row.items())
+
+
+def toml(v) -> str:
+    if isinstance(v, bool):
+        return str(v).lower()
+    if isinstance(v, list):
+        return "[" + ", ".join("{" + ", ".join(f"{k} = {toml(x)}" for k, x in s.items()) + "}" for s in v) + "]"
+    if isinstance(v, str) and v.startswith("["):
+        return v  # already TOML
+    return json.dumps(v, ensure_ascii=False)
+
+
+def with_incongruencias(text: str, *blocks: str) -> str:
+    return text.replace("incongruencias = []\n", "") + "\n" + "\n".join(blocks)
+
+
+def test_template_starts_without_incongruences(tmp_path):
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES)), encoding="utf-8")
+    assert load(tmp_path / "1.toml")["campos"]["incongruencias"] == {"filas": []}
+
+
+def test_incongruences_are_loaded_with_their_other_reading(tmp_path):
+    text = with_incongruencias(filled(template(OBRA, BASES)), incongruence(),
+                               incongruence(campo="", fila="", columna="", valor="", consulta=False,
+                                            descripcion="La lista de cargos termina cortada"),
+                               incongruence(campo="experiencia_requerida", fila="", columna="ventana_anios", valor=25))
+    (tmp_path / "1.toml").write_text(text, encoding="utf-8")
+    filas = load(tmp_path / "1.toml")["campos"]["incongruencias"]["filas"]
+    assert [(f["campo"], f["columna"], f["valor"]) for f in filas] == [
+        ("factores", "puntos_max", 20), ("", "", ""), ("experiencia_requerida", "ventana_anios", 25)]
+
+
+@pytest.mark.parametrize("columns, message", [
+    ({"fila": "Z"}, "no row 'Z' in factores"),
+    ({"columna": "puntaje"}, "factores has no column 'puntaje' to read differently"),
+    ({"valor": "veinte"}, "valor: `puntos_max` must be a whole number above 0, got 'veinte'"),
+    ({"valor": 30}, "`valor` is the reading already used; write the other one"),
+    ({"campo": "", "fila": "", "columna": ""}, "`valor` without `campo` and `columna`"),
+    ({"campo": "plazo"}, "`campo` must be one of cuantia, experiencia_requerida, personal_clave, factores"),
+    ({"campo": "experiencia_requerida", "fila": "D", "columna": "ventana_anios", "valor": 25},
+     "`fila` must be \"\" for the block experiencia_requerida"),
+    ({"columna": "escala", "valor": [{"nivel": "acredita"}]}, "valor: escala 1: unknown columns [], missing columns ['puntos']"),
+])
+def test_a_wrong_other_reading_stops_the_whole_file(tmp_path, columns, message):
+    text = with_incongruencias(filled(template(OBRA, BASES)), incongruence(**columns))
+    (tmp_path / "1.toml").write_text(text, encoding="utf-8")
+    with pytest.raises(TemplateError, match=re.escape(message)):
+        load(tmp_path / "1.toml")
+
+
+def test_a_scale_can_be_the_other_reading(tmp_path):
+    text = with_incongruencias(filled(template(OBRA, BASES)),
+                               incongruence(columna="escala", valor='[{nivel = "acredita", puntos = 25}]'))
+    (tmp_path / "1.toml").write_text(text, encoding="utf-8")
+    assert load(tmp_path / "1.toml")["campos"]["incongruencias"]["filas"][0]["valor"] == [{"nivel": "acredita", "puntos": 25}]
 
 
 def test_the_empty_row_of_the_template_is_not_accepted(tmp_path):

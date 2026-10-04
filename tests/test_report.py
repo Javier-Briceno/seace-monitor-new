@@ -174,6 +174,28 @@ def test_factors_in_the_csv_and_judged_ones_in_the_mail(conn, tmp_path):
     ]
 
 
+def test_consultas_count_incongruence_rows_and_the_csv_shows_the_other_reading(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    common = {"cita": "x", "paginas": "57-58, 60", "lectura_usada": "se suman (el cuadro resumen dice 10)"}
+    filas = [
+        dict(common, descripcion="E no dice si 5 + 5 se suman", consulta=True, campo="factores", fila="E",
+             columna="puntos_max", valor=5),
+        dict(common, descripcion="El terreno no dice si hay libre disponibilidad", consulta=True, campo="", fila="",
+             columna="", valor=""),
+        dict(common, descripcion="La numeración salta", consulta=False, campo="", fila="", columna="", valor=""),
+    ]
+    conn.execute("UPDATE extracciones SET campos = campos || %s", [json.dumps({"incongruencias": {"filas": filas}})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert "  Consultas: 2\n" in rep.text
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        rows = [r for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Incongruencias"]
+    assert rows[0]["página"] == "57-58, 60"
+    assert rows[0]["valor"] == ("Consulta: E no dice si 5 + 5 se suman. Lectura usada: se suman (el cuadro resumen dice 10). "
+                                "Otra lectura: Factores de evaluación E, puntos max = 5")
+    assert rows[2]["valor"].startswith("La numeración salta.")
+
+
 def test_every_field_has_a_short_name():
     assert set(NAMES) == set(KEYS)
 
