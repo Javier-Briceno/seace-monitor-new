@@ -135,28 +135,30 @@ def check_row(where: str, columns: tuple, row: dict) -> dict:
             for c in spec}
 
 
-def check_amounts(name: str, campos: dict) -> None:
-    """The required experience must follow from its rule, so a mistyped amount is caught on import."""
+def check_amounts(name: str, campos: dict) -> list[tuple[str, str, str]]:
+    """The required experience must follow from its rule, so a mistyped amount is caught on import.
+    Some bases write two different amounts themselves; that is returned as a contradiction to record."""
     experiencia, cuantia = campos["experiencia_requerida"]["bloque"], campos["cuantia"]["bloque"]
     expected = experiencia["veces_cuantia"] * cuantia["monto"]
     if abs(experiencia["monto"] - expected) > 0.01:  # one céntimo of rounding
-        raise TemplateError(
-            f"{name}: experiencia_requerida: `monto` {experiencia['monto']:,.2f} is not `veces_cuantia` "
-            f"{experiencia['veces_cuantia']:g} x cuantia {cuantia['monto']:,.2f} = {expected:,.2f}")
+        return [("experiencia_requerida", "",
+                 f"{name}: experiencia_requerida: `monto` {experiencia['monto']:,.2f} is not `veces_cuantia` "
+                 f"{experiencia['veces_cuantia']:g} x cuantia {cuantia['monto']:,.2f} = {expected:,.2f}")]
+    return []
 
 
-def check_factores(name: str, value, personal: list[dict]) -> tuple[list[dict], list[tuple[str, str]]]:
+def check_factores(name: str, value, personal: list[dict]) -> tuple[list[dict], list[tuple[str, str, str]]]:
     """The parts of the evaluation factors, each checked by its type, then checked against each other.
 
     Points that do not add up may be a typo in the template or a contradiction in the bases, which
     happens (factors announced at 10 with scales up to 5, summaries adding to 135, no factors at all).
-    So they are returned as (factor letter or "", message) and accepted only when an incongruence
+    So they are returned as ("factores", factor letter or "", message) and accepted only when an incongruence
     names that factor; refusing would hide the obra.
     """
     if not isinstance(value, list) or not all(isinstance(row, dict) for row in value):
         raise TemplateError(f"{name}: `factores` needs one [[factores]] block per part of a factor")
     if not value:
-        return [], [("", f"{name}: factores: the bases list no evaluation factors")]
+        return [], [("factores", "", f"{name}: factores: the bases list no evaluation factors")]
     rows = []
     for number, row in enumerate(value, 1):
         where = f"{name}: factores {number}"
@@ -187,11 +189,11 @@ def check_factores(name: str, value, personal: list[dict]) -> tuple[list[dict], 
     for letra, parts in by_letter.items():
         most = sum(max(s["puntos"] for s in p["escala"]) for p in parts)
         if most != parts[0]["puntos_max"]:
-            contradictions.append((letra, f"{name}: factor {letra}: its parts give at most {most} points, "
+            contradictions.append(("factores", letra, f"{name}: factor {letra}: its parts give at most {most} points, "
                                           f"but `puntos_max` is {parts[0]['puntos_max']}"))
     total = sum(parts[0]["puntos_max"] for parts in by_letter.values())
     if total != 100:
-        contradictions.append(("", f"{name}: factores: the maxima add up to {total}, not 100"))
+        contradictions.append(("factores", "", f"{name}: factores: the maxima add up to {total}, not 100"))
     cargos = {p["cargo"] for p in personal}
     for row in rows:
         if row["tipo"] == "personal_adicional" and set(row["cargos"]) - cargos:
@@ -200,14 +202,13 @@ def check_factores(name: str, value, personal: list[dict]) -> tuple[list[dict], 
     return rows, contradictions
 
 
-def check_contradictions_recorded(contradictions: list[tuple[str, str]], incongruencias: list[dict]) -> None:
-    """Every factor whose points do not add up must be named by an incongruence, or it is a typo."""
-    named = {(r["fila"]) for r in incongruencias if r["campo"] == "factores"}
-    for letra, message in contradictions:
-        if letra not in named:
-            whom = f'fila = "{letra}"' if letra else 'fila = ""'
+def check_contradictions_recorded(contradictions: list[tuple[str, str, str]], incongruencias: list[dict]) -> None:
+    """Every value that does not add up must be named by an incongruence on its field and row, or it is a typo."""
+    named = {(r["campo"], r["fila"]) for r in incongruencias}
+    for campo, fila, message in contradictions:
+        if (campo, fila) not in named:
             raise TemplateError(f"{message}. If the bases say so, record it as an [[incongruencias]] block "
-                                f'with campo = "factores", {whom}; otherwise fix the template')
+                                f'with campo = "{campo}", fila = "{fila}"; otherwise fix the template')
 
 
 def check_incongruencias(name: str, value, campos: dict) -> list[dict]:
@@ -323,7 +324,7 @@ def load(path: Path) -> dict | None:
         campos[key] = {"valor": str(field.get("valor", "")).strip(), "pagina": str(field.get("pagina", "")).strip()}
     factores, contradictions = check_factores(path.name, data["factores"], campos["personal_clave"]["filas"])
     campos["factores"] = {"filas": factores}
-    check_amounts(path.name, campos)
+    contradictions += check_amounts(path.name, campos)
     campos["incongruencias"] = {"filas": check_incongruencias(path.name, data["incongruencias"], campos)}
     check_contradictions_recorded(contradictions, campos["incongruencias"]["filas"])
     return {"nid_proceso": data["nid_proceso"], "documento": data["documento"], "campos": campos}

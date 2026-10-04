@@ -194,6 +194,18 @@ def test_an_experience_amount_that_does_not_follow_its_rule_is_refused(tmp_path)
         load(tmp_path / "1.toml")
 
 
+def test_an_amount_the_bases_write_differently_is_accepted_once_recorded(tmp_path):
+    # San José: cuantía 134,129.45 on p. 21, required experience 134,129.44 on p. 48
+    differs = EXPERIENCIA.replace("monto = 436482.01", "monto = 436482.00")
+    text = filled(template(OBRA, BASES), experiencia=differs)
+    (tmp_path / "1.toml").write_text(text, encoding="utf-8")
+    with pytest.raises(TemplateError, match='campo = "experiencia_requerida", fila = ""; otherwise fix the template'):
+        load(tmp_path / "1.toml")
+    recorded = with_incongruencias(text, about(campo="experiencia_requerida", descripcion="La experiencia dice 0.01 menos que la cuantía"))
+    (tmp_path / "1.toml").write_text(recorded, encoding="utf-8")
+    assert load(tmp_path / "1.toml")["campos"]["experiencia_requerida"]["bloque"]["monto"] == 436482.00
+
+
 def test_an_amount_rounded_to_the_centimo_is_accepted(tmp_path):
     half = EXPERIENCIA.replace("monto = 436482.01", "monto = 218241.01").replace("veces_cuantia = 1", "veces_cuantia = 0.5")
     (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES), experiencia=half), encoding="utf-8")  # 218241.005 rounded up
