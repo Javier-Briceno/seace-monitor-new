@@ -13,8 +13,12 @@ from .search import LIMA, normalize
 TOP = 10  # obras listed in the summary; the CSV holds all of them
 
 # The few extracted fields shown in the mail body; the extractions CSV holds all of them.
-SUMMARY_FIELDS = (("plazo_ejecucion_dias", "plazo"), ("experiencia_monto", "experiencia"),
-                  ("factores_subjetivos", "subjetivos"), ("minimo_tecnico", "mínimo"))
+SUMMARY_FIELDS = (("cuantia", "Cuantía"), ("plazo_ejecucion_dias", "Plazo"),
+                  ("experiencia_monto", "Experiencia pedida"), ("minimo_tecnico", "Mínimo técnico"),
+                  ("factores_subjetivos", "Factores subjetivos"))
+
+# Dropped from the entity's name in a block title; the nomenclatura next to it already says it.
+ENTITY_PREFIXES = ("MUNICIPALIDAD DISTRITAL DE ", "MUNICIPALIDAD PROVINCIAL DE ")
 
 CSV_COLUMNS = (
     "nid_proceso", "nomenclatura", "entidad", "departamentos", "ubicacion", "valor_referencial", "moneda",
@@ -102,8 +106,17 @@ def summary(items: list[dict], now: datetime, watched: list[str],
         lines += ["", f"Extraídas a mano desde el último informe: {len(extracted)} (todos los campos en el CSV de extracciones)"]
         for e in extracted:
             c = e["campos"]
-            brief = " | ".join(f"{label}: {c[key]['valor']}" for key, label in SUMMARY_FIELDS if c[key]["valor"])
-            lines.append(f"- {e['nomenclatura']} | {e['entidad']} | {brief} | consultas: {consultas(c['notas']['valor'])}")
+            entidad = e["entidad"].upper()
+            for prefix in ENTITY_PREFIXES:
+                entidad = entidad.removeprefix(prefix)
+            lines += ["", f"{entidad} ({e['nomenclatura']})"]
+            for key, label in SUMMARY_FIELDS:
+                valor = c[key]["valor"].strip()
+                if key == "plazo_ejecucion_dias" and valor.isdigit():
+                    valor += " días"
+                if valor:
+                    lines.append(f"  {label}: {valor}")
+            lines.append(f"  Consultas: {consultas(c['notas']['valor'])}")
     if problems:
         lines += ["", "Problemas:"] + [f"- {p}" for p in problems]
     return "\n".join(lines) + "\n"
