@@ -13,7 +13,7 @@ from .search import LIMA, normalize
 TOP = 10  # obras listed in the summary; the CSV holds all of them
 
 # The few extracted fields shown in the mail body; the extractions CSV holds all of them.
-SUMMARY_FIELDS = ("cuantia", "plazo_ejecucion_dias", "experiencia_monto", "minimo_tecnico", "factores_subjetivos")
+SUMMARY_FIELDS = ("cuantia", "plazo_ejecucion_dias", "experiencia_requerida", "minimo_tecnico")
 
 # Dropped from the entity's name in a block title; the nomenclatura next to it already says it.
 ENTITY_PREFIXES = ("MUNICIPALIDAD DISTRITAL DE ", "MUNICIPALIDAD PROVINCIAL DE ")
@@ -82,9 +82,12 @@ def title(extraction: dict) -> str:
     return f"{entidad} ({extraction['nomenclatura']})"
 
 
-def consultas(notas: str) -> int:
-    """Questions to ask the entity: lines of the notes that start with 'Consulta:'."""
-    return sum(1 for line in notas.splitlines() if line.strip().lower().startswith("consulta:"))
+def consultas(campos: dict) -> int:
+    """Questions to ask the entity: incongruences marked as consulta. Extractions stored before
+    incongruences were rows marked them as notes lines starting with 'Consulta:'."""
+    if "filas" in campos.get("incongruencias", {}):
+        return sum(1 for row in campos["incongruencias"]["filas"] if row["consulta"])
+    return sum(1 for line in campos["notas"]["valor"].splitlines() if line.strip().lower().startswith("consulta:"))
 
 
 def summary(items: list[dict], now: datetime, watched: list[str],
@@ -114,12 +117,18 @@ def summary(items: list[dict], now: datetime, watched: list[str],
             c = e["campos"]
             lines += ["", title(e)]
             for key in SUMMARY_FIELDS:
-                valor = c[key]["valor"].strip()
+                if key not in c:
+                    continue
+                valor = brief(key, c[key]["bloque"]) if "bloque" in c[key] else c[key]["valor"].strip()
                 if key == "plazo_ejecucion_dias" and valor.isdigit():
                     valor += " días"
                 if valor:
                     lines.append(f"  {NAMES[key]}: {valor}")
-            lines.append(f"  Consultas: {consultas(c['notas']['valor'])}")
+            if "filas" in c.get("factores", {}):
+                judged = [f"{r['letra']}. {r['nombre']} ({r['que_se_juzga']})"
+                          for r in c["factores"]["filas"] if r["tipo"] == "juicio_comite"]
+                lines.append(f"  Factores subjetivos: {'; '.join(judged) or 'ninguno'}")
+            lines.append(f"  Consultas: {consultas(c)}")
     if problems:
         lines += ["", "Problemas:"] + [f"- {p}" for p in problems]
     return "\n".join(lines) + "\n"
@@ -158,7 +167,84 @@ def write_extractions_csv(extracted: list[dict], path: Path) -> None:
         writer.writerow(["obra", "campo", "página", "valor"])
         for e in extracted:
             for key in KEYS:
-                writer.writerow([title(e), NAMES[key], e["campos"][key]["pagina"], e["campos"][key]["valor"].strip()])
+                field = e["campos"].get(key)
+                if field is None:  # stored before the field existed
+                    continue
+                if "filas" in field:
+                    for row in field["filas"]:
+                        writer.writerow([title(e), NAMES[key], row.get("pagina", row.get("paginas")), describe(key, row)])
+                elif "bloque" in field:
+                    writer.writerow([title(e), NAMES[key], field["bloque"]["pagina"], describe(key, field["bloque"])])
+                else:
+                    writer.writerow([title(e), NAMES[key], field["pagina"], field["valor"].strip()])
+
+
+def experience_amount(block: dict) -> str:
+    veces = f"{block['veces_cuantia']:g}"
+    return f"S/ {block['monto']:,.2f} ({veces} {'vez' if veces == '1' else 'veces'} la cuantía)"
+
+
+def describe_factor(row: dict) -> str:
+    """One part of a factor in the bases' words; the internal type name never shows."""
+    head = f"{row['letra']}. {row['nombre']}" + (f", {row['parte']}" if row["parte"] != row["letra"] else "")
+    head += f" (máx. {row['puntos_max']})"
+    escala = row["escala"]
+    tipo = row["tipo"]
+    if tipo == "personal_adicional":
+        anios = f"{row['anios_extra']} año{'s' if row['anios_extra'] > 1 else ''}"
+        body = (f"{' o '.join(row['cargos'])} con {anios} más de lo pedido; "
+                + "; ".join(f"{s['pct_minimo']:g} % o más del personal evaluado → {s['puntos']}" for s in escala))
+    elif tipo == "experiencia_adicional":
+        desde = "el acta de recepción" if row["cuenta_desde"] == "acta de recepción" else "la conformidad o el pago"
+        body = ("; ".join(f"{'más de' if s['estricto'] else 'desde'} S/ {s['monto_minimo']:,.2f} → {s['puntos']}"
+                          for s in escala) + f" (últimos {row['ventana_anios']} años desde {desde})")
+    else:
+        what = {"certificacion_empresa": row.get("certificado", "") + (
+                    f", alcance pedido: {row['alcance_pedido']}" if row.get("alcance_pedido", "ninguno") != "ninguno" else ""),
+                "capacitacion_personal": f"{row.get('tema', '')} del {row.get('cargo', '')}",
+                "herramienta": row.get("herramienta", ""),
+                "juicio_comite": f"lo juzga el comité: {row.get('que_se_juzga', '')}"}[tipo]
+        body = what + "; " + "; ".join(f"{s['nivel']} → {s['puntos']}" for s in escala)
+    return f"{head}: {body}"
+
+
+def brief(key: str, block: dict) -> str:
+    """A block in the few words the mail body has room for."""
+    if key == "experiencia_requerida":
+        return experience_amount(block)
+    return describe(key, block)
+
+
+def describe(key: str, row: dict) -> str:
+    """One row or block of a structured field as a sentence in the bases' words."""
+    if key == "factores":
+        return describe_factor(row)
+    if key == "incongruencias":
+        text = ("Consulta: " if row["consulta"] else "") + f"{row['descripcion']}. Lectura usada: {row['lectura_usada']}"
+        if row["campo"]:
+            valor = row["valor"]
+            if isinstance(valor, list) and valor and isinstance(valor[0], dict):  # a scale
+                valor = "; ".join(", ".join(f"{v:,.2f}" if isinstance(v, float) else str(v) for v in step.values())
+                                  for step in valor)
+            where = " ".join(p for p in (NAMES[row["campo"]], row["fila"]) if p)
+            text += f". Otra lectura: {where}, {row['columna'].replace('_', ' ')} = {valor}"
+        return text
+    if key == "cuantia":
+        return f"S/ {row['monto']:,.2f}"
+    if key == "experiencia_requerida":
+        tipo = f"{row['especialidad']}: {' o '.join(row['subespecialidades'])}"
+        if row["tipologias"]:
+            tipo += f" (tipología {' o '.join(row['tipologias'])})"
+        return (f"{experience_amount(row)} en {tipo}; últimos {row['ventana_anios']} años desde "
+                f"{'el acta de recepción' if row['cuenta_desde'] == 'acta de recepción' else 'la conformidad o el pago'}")
+    if key == "personal_clave":
+        grado = row["grado"] + (" colegiado" if row["colegiado"] else "")
+        desde = " desde la colegiatura" if row["desde_colegiatura"] else ""
+        ambito = "en la especialidad y subespecialidad" if row["ambito"] == "subespecialidad" else "en obras en general"
+        como = " o ".join(row["roles"]) + (" en " + " o ".join(row["areas"]) if row["areas"] else "")
+        return (f"{row['cargo']} ({row['cantidad']}): {' o '.join(row['profesiones'])}, {grado}; "
+                f"{row['meses']} meses{desde} como {como}; {ambito}; últimos {row['ventana_anios']} años")
+    return "; ".join(f"{k}: {v}" for k, v in row.items() if k != "pagina")
 
 
 @dataclass

@@ -16,33 +16,90 @@ FIELDS = (
     ("plazo_ejecucion_dias", "Plazo de ejecución (días calendario)", "cap. III, PLAZO DE EJECUCIÓN (suele ser 3.3.12)"),
     ("modalidad_pago", "Modalidad de pago (suma alzada / precios unitarios / mixta)", "cap. III, MODALIDAD DE PAGO (suele ser 3.3.14)"),
     ("oferta_economica", "Evaluación económica (fija / limitada)", "cap. IV, EVALUACIÓN ECONÓMICA"),
-    ("experiencia_monto", "Experiencia del postor: monto facturado pedido (S/)", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
-    ("experiencia_especialidad", "Experiencia del postor: especialidad y subespecialidades", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
-    ("experiencia_ventana_anios", "Experiencia del postor: años hacia atrás", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
-    ("personal_clave", "Personal clave: cargo, profesión y meses, uno por línea", "cap. III, REQUISITOS DE CALIFICACIÓN, PERSONAL CLAVE"),
+    ("experiencia_requerida", "Experiencia del postor en la especialidad: monto, tipo de obra y años", "cap. III, REQUISITOS DE CALIFICACIÓN, EXPERIENCIA DEL POSTOR"),
+    ("personal_clave", "Personal clave: un bloque por cargo; copia el bloque entero para cada uno", "cap. III, REQUISITOS DE CALIFICACIÓN, PERSONAL CLAVE"),
     ("equipamiento", "Equipamiento estratégico", "cap. III, REQUISITOS DE CALIFICACIÓN, EQUIPAMIENTO ESTRATÉGICO"),
     ("consorcio", "Consorcio: máximo de integrantes y porcentajes mínimos", "cap. III, REQUISITOS DE CALIFICACIÓN, PARTICIPACIÓN EN CONSORCIO"),
-    ("factores", "Factores de evaluación con sus puntos, uno por línea", "cap. IV, FACTORES DE EVALUACIÓN"),
-    ("factores_subjetivos", "Factores que el evaluador juzga por contenido (mejora al requerimiento, plan, metodología); o 'ninguno'", "cap. IV, FACTORES DE EVALUACIÓN"),
+    ("factores", "Factores de evaluación: un bloque por parte de cada factor; las columnas extra dependen del tipo (ver abajo)", "cap. IV, FACTORES DE EVALUACIÓN y CUADRO RESUMEN"),
     ("minimo_tecnico", "Puntaje técnico mínimo", "cap. IV, EVALUACIÓN TÉCNICA"),
     ("adelantos", "Adelantos: directo y de materiales (%)", "cap. III, ADELANTOS (suele ser 3.3.15)"),
     ("penalidades", "Penalidades: por mora y otras", "cap. III, PENALIDADES (suele ser 3.3.19 o 3.3.20)"),
     ("terreno", "Disponibilidad física del terreno", "cap. III, DISPONIBILIDAD FÍSICA DEL TERRENO (suele ser 3.3.3)"),
     ("garantias", "Garantías para firmar el contrato", "2.3 REQUISITOS PARA PERFECCIONAR EL CONTRATO"),
-    ("notas", "Notas libres; cada consulta a la entidad en su propia línea, empezando con 'Consulta:'", ""),
+    ("incongruencias", "Incongruencias de las bases: un bloque [[incongruencias]] por cada una", ""),
+    ("notas", "Notas libres", ""),
 )
 
 KEYS = tuple(key for key, _, _ in FIELDS)
+
+# Fields filled as rows because the verdict compares their parts one by one (see 02-verdict-design).
+# Each column has a kind: str, int, bool, list (of strings, not empty), OPTIONAL_LIST, or a tuple of the allowed values.
+OPTIONAL_LIST = "optional list"
+OPTIONAL_TEXT = "optional text"
+
+# An accepted job is a role, or a role in an area when the bases combine them ("Jefe y/o Coordinador
+# en/de: Seguridad ... y/o SSOMA"); `areas` stays empty when the bases list whole job titles.
+ROW_FIELDS = {
+    "personal_clave": (
+        ("cargo", str), ("cantidad", int), ("profesiones", list), ("grado", ("título profesional", "bachiller")),
+        ("colegiado", bool), ("meses", int), ("desde_colegiatura", bool), ("roles", list), ("areas", OPTIONAL_LIST),
+        ("ambito", ("subespecialidad", "obras en general")), ("ventana_anios", int), ("cita", str), ("pagina", str),
+    ),
+}
+
+# Fields filled as one block of typed columns. `cita` is the bases' own sentence, so every value
+# can be checked; `veces_cuantia` keeps the rule behind `monto` so it can be recomputed.
+CUENTA_DESDE = ("acta de recepción", "conformidad o comprobante de pago")
+
+BLOCK_FIELDS = {
+    "cuantia": (("monto", float), ("cita", str), ("pagina", str)),
+    "experiencia_requerida": (
+        ("monto", float), ("veces_cuantia", float), ("especialidad", str), ("subespecialidades", list),
+        ("tipologias", OPTIONAL_LIST), ("ventana_anios", int), ("cuenta_desde", CUENTA_DESDE), ("cita", str),
+        ("pagina", str),
+    ),
+}
+
+# Evaluation factors, one row per part of a factor ("K" = k.1 ISO 45001 + k.3 software). A factor's rows
+# repeat its letter, name and maximum from the summary table. Each type adds its own columns and the
+# columns of each step of its `escala`; internal names, never shown to the reader.
+FACTOR_COLUMNS = (("letra", str), ("nombre", str), ("parte", str), ("puntos_max", int), ("cita", str), ("pagina", str))
+
+# type: (extra columns, columns of each escala step)
+FACTOR_TYPES = {
+    # share of the evaluated positions that exceed the required months by anios_extra; the highest step met counts
+    "personal_adicional": ((("cargos", list), ("anios_extra", int)), (("pct_minimo", float), ("puntos", int))),
+    # amount of additional experience; `estricto` when the bases say "más de" instead of "desde"
+    "experiencia_adicional": ((("ventana_anios", int), ("cuenta_desde", CUENTA_DESDE)),
+                              (("monto_minimo", float), ("estricto", bool), ("puntos", int))),
+    # `nivel` in the bases' words: they also score "otro tipo de certificaciones", certifications by count, etc.
+    "certificacion_empresa": ((("certificado", str), ("alcance_pedido", str)), (("nivel", str), ("puntos", int))),
+    "capacitacion_personal": ((("cargo", str), ("tema", str)), (("nivel", str), ("puntos", int))),
+    "herramienta": ((("herramienta", str),), (("nivel", str), ("puntos", int))),
+    # judged by the committee on content (Ishikawa, plan, methodology): never scored by a rule
+    "juicio_comite": ((("que_se_juzga", str),), (("nivel", str), ("puntos", int))),
+}
+
+# An incongruence of the bases. The fields above hold one consistent reading (`lectura_usada`, e.g. the
+# summary table wins); when the other reading is a different value of one column, `campo`, `fila`,
+# `columna` and `valor` say which, so the verdict can be computed both ways. `fila` is a factor letter
+# or part, a cargo of personal_clave, or "" for a block. All four stay "" when nothing can be recomputed;
+# `campo` (and `fila`) without `columna` says what the incongruence is about, e.g. a factor whose points
+# do not add up in the bases, which the import requires to be recorded this way.
+INCONGRUENCE_COLUMNS = (
+    ("descripcion", str), ("cita", str), ("paginas", str), ("lectura_usada", str), ("consulta", bool),
+    ("campo", OPTIONAL_TEXT), ("fila", OPTIONAL_TEXT), ("columna", OPTIONAL_TEXT),
+)
 
 # Short names for readers of the report; the labels above are instructions for whoever fills a template.
 NAMES = {
     "cuantia": "Cuantía", "fuente_financiamiento": "Fuente de financiamiento", "sistema_entrega": "Sistema de entrega",
     "plazo_ejecucion_dias": "Plazo", "modalidad_pago": "Modalidad de pago", "oferta_economica": "Evaluación económica",
-    "experiencia_monto": "Experiencia pedida", "experiencia_especialidad": "Especialidad de la experiencia",
-    "experiencia_ventana_anios": "Antigüedad de la experiencia", "personal_clave": "Personal clave",
+    "experiencia_requerida": "Experiencia pedida", "personal_clave": "Personal clave",
     "equipamiento": "Equipamiento", "consorcio": "Consorcio", "factores": "Factores de evaluación",
-    "factores_subjetivos": "Factores subjetivos", "minimo_tecnico": "Mínimo técnico", "adelantos": "Adelantos",
-    "penalidades": "Penalidades", "terreno": "Terreno", "garantias": "Garantías", "notas": "Notas",
+    "minimo_tecnico": "Mínimo técnico", "adelantos": "Adelantos",
+    "penalidades": "Penalidades", "terreno": "Terreno", "garantias": "Garantías",
+    "incongruencias": "Incongruencias", "notas": "Notas",
 }
 
 EXCLUDED = {

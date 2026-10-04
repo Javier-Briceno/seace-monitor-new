@@ -98,12 +98,102 @@ def test_extraction_of_an_already_reported_obra_gets_its_own_section(conn, tmp_p
     rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
     assert rep.nids == [] and len(rep.extraction_ids) == 1
     assert "Extraídas a mano desde el último informe: 1" in rep.text
-    assert ("MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n  Plazo: 120 días\n  Factores subjetivos: ninguno\n"
-            "  Consultas: 0\n") in rep.text
+    assert "MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n  Plazo: 120 días\n  Consultas: 0\n" in rep.text
     with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f, delimiter=";"))
     assert len(rows) == len(KEYS)
     assert {"obra": "MUNICIPALIDAD DE PRUEBA (LP-ABR-1)", "campo": "Plazo", "valor": "120", "página": "12"} in rows
+
+
+def test_key_personnel_rows_get_one_csv_row_each(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    residente = {"cargo": "Residente de obra", "cantidad": 1, "profesiones": ["Ingeniero civil", "Arquitecto"],
+                 "grado": "título profesional", "colegiado": False, "meses": 24, "desde_colegiatura": True,
+                 "roles": ["Residente de obra", "Inspector de obra"], "areas": [], "ambito": "subespecialidad",
+                 "ventana_anios": 25, "cita": "Residente de Obra", "pagina": "56"}
+    calidad = dict(residente, cargo="Ingeniero de calidad", meses=12, roles=["Jefe", "Coordinador"], areas=["Calidad"],
+                   ambito="obras en general", pagina="57")
+    conn.execute("UPDATE extracciones SET campos = jsonb_set(campos, '{personal_clave}', %s)",
+                 [json.dumps({"filas": [residente, calidad]})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        rows = [r for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Personal clave"]
+    assert [r["página"] for r in rows] == ["56", "57"]
+    assert rows[0]["valor"] == ("Residente de obra (1): Ingeniero civil o Arquitecto, título profesional; 24 meses desde "
+                                "la colegiatura como Residente de obra o Inspector de obra; en la especialidad y "
+                                "subespecialidad; últimos 25 años")
+    assert "como Jefe o Coordinador en Calidad; en obras en general" in rows[1]["valor"]
+
+
+def test_bidder_experience_in_the_mail_and_the_csv(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    bloque = {"monto": 436482.01, "veces_cuantia": 1, "especialidad": "Edificaciones y afines",
+              "subespecialidades": ["Establecimientos o espacios deportivos"],
+              "tipologias": ["Instalaciones deportivas recreativas"], "ventana_anios": 20,
+              "cuenta_desde": "acta de recepción", "cita": "UNA VEZ LA CUANTÍA", "pagina": "49"}
+    conn.execute("UPDATE extracciones SET campos = jsonb_set(campos, '{experiencia_requerida}', %s)",
+                 [json.dumps({"bloque": bloque})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert "  Experiencia pedida: S/ 436,482.01 (1 vez la cuantía)\n" in rep.text
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        row = next(r for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Experiencia pedida")
+    assert row["página"] == "49"
+    assert row["valor"] == ("S/ 436,482.01 (1 vez la cuantía) en Edificaciones y afines: Establecimientos o espacios "
+                            "deportivos (tipología Instalaciones deportivas recreativas); últimos 20 años desde el acta "
+                            "de recepción")
+
+
+def test_factors_in_the_csv_and_judged_ones_in_the_mail(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    common = {"nombre": "Gestión de calidad", "letra": "E", "puntos_max": 10, "cita": "x", "pagina": "57"}
+    filas = [
+        dict(common, parte="e.1", tipo="herramienta", herramienta="Software de gestión de proyectos",
+             escala=[{"nivel": "avanzada", "puntos": 5}]),
+        dict(common, parte="e.2", tipo="juicio_comite", que_se_juzga="Ishikawa, Pareto y plan de calidad",
+             escala=[{"nivel": "procedimientos documentados", "puntos": 5}]),
+        {"letra": "G", "nombre": "Experiencia adicional del postor en la especialidad", "parte": "G", "puntos_max": 15,
+         "cita": "x", "pagina": "59", "tipo": "experiencia_adicional", "ventana_anios": 25,
+         "cuenta_desde": "conformidad o comprobante de pago",
+         "escala": [{"monto_minimo": 1309446.03, "estricto": False, "puntos": 15},
+                    {"monto_minimo": 436482.01, "estricto": True, "puntos": 5}]},
+    ]
+    conn.execute("UPDATE extracciones SET campos = jsonb_set(campos, '{factores}', %s)", [json.dumps({"filas": filas})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert "  Factores subjetivos: E. Gestión de calidad (Ishikawa, Pareto y plan de calidad)\n" in rep.text
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        rows = [r["valor"] for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Factores de evaluación"]
+    assert rows == [
+        "E. Gestión de calidad, e.1 (máx. 10): Software de gestión de proyectos; avanzada → 5",
+        "E. Gestión de calidad, e.2 (máx. 10): lo juzga el comité: Ishikawa, Pareto y plan de calidad; "
+        "procedimientos documentados → 5",
+        "G. Experiencia adicional del postor en la especialidad (máx. 15): desde S/ 1,309,446.03 → 15; "
+        "más de S/ 436,482.01 → 5 (últimos 25 años desde la conformidad o el pago)",
+    ]
+
+
+def test_consultas_count_incongruence_rows_and_the_csv_shows_the_other_reading(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    common = {"cita": "x", "paginas": "57-58, 60", "lectura_usada": "se suman (el cuadro resumen dice 10)"}
+    filas = [
+        dict(common, descripcion="E no dice si 5 + 5 se suman", consulta=True, campo="factores", fila="E",
+             columna="puntos_max", valor=5),
+        dict(common, descripcion="El terreno no dice si hay libre disponibilidad", consulta=True, campo="", fila="",
+             columna="", valor=""),
+        dict(common, descripcion="La numeración salta", consulta=False, campo="", fila="", columna="", valor=""),
+    ]
+    conn.execute("UPDATE extracciones SET campos = campos || %s", [json.dumps({"incongruencias": {"filas": filas}})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert "  Consultas: 2\n" in rep.text
+    with open(rep.files[1], encoding="utf-8-sig", newline="") as f:
+        rows = [r for r in csv.DictReader(f, delimiter=";") if r["campo"] == "Incongruencias"]
+    assert rows[0]["página"] == "57-58, 60"
+    assert rows[0]["valor"] == ("Consulta: E no dice si 5 + 5 se suman. Lectura usada: se suman (el cuadro resumen dice 10). "
+                                "Otra lectura: Factores de evaluación E, puntos max = 5")
+    assert rows[2]["valor"].startswith("La numeración salta.")
 
 
 def test_every_field_has_a_short_name():
