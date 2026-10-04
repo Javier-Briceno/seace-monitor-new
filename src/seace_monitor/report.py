@@ -154,10 +154,11 @@ def write_extractions_csv(extracted: list[dict], path: Path) -> None:
     # One row per field, so an obra reads top to bottom on a phone instead of scrolling sideways.
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f, delimiter=";")
-        writer.writerow(["obra", "campo", "valor", "página"])
+        # Page before value: long values push anything after them out of sight.
+        writer.writerow(["obra", "campo", "página", "valor"])
         for e in extracted:
             for key in KEYS:
-                writer.writerow([title(e), NAMES[key], e["campos"][key]["valor"].strip(), e["campos"][key]["pagina"]])
+                writer.writerow([title(e), NAMES[key], e["campos"][key]["pagina"], e["campos"][key]["valor"].strip()])
 
 
 @dataclass
