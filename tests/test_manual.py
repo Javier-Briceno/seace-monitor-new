@@ -75,6 +75,13 @@ def test_import_once_then_only_corrections(conn, tmp_path):
     assert conn.execute("SELECT count(*) FROM extracciones").fetchone()[0] == 1
 
 
+def test_a_rejected_template_names_its_obra(conn, tmp_path):
+    add_obra(conn)
+    (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES)).replace("[cuantia]", "[cuantias]"), encoding="utf-8")
+    done, errors = import_ready(conn, tmp_path)
+    assert done == [] and errors[0].startswith("MD (LP-ABR-1): plantilla no importada: 1.toml: unknown fields")
+
+
 def test_document_of_another_obra_is_refused(conn, tmp_path):
     add_obra(conn, uuid="uuid-other")
     (tmp_path / "1.toml").write_text(filled(template(OBRA, BASES)), encoding="utf-8")

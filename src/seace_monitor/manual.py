@@ -11,6 +11,7 @@ from pathlib import Path
 import psycopg
 
 from .fields import FIELDS, KEYS
+from .report import title
 from .search import normalize
 
 VERSION = "manual"
@@ -73,6 +74,16 @@ def load(path: Path) -> dict | None:
     return {"nid_proceso": data["nid_proceso"], "documento": data["documento"], "campos": campos}
 
 
+def obra_name(conn: psycopg.Connection, path: Path) -> str:
+    """The obra a template belongs to, as the report names it, so a rejected file does not hide its obra."""
+    if path.stem.isdigit():
+        row = conn.execute("SELECT nomenclatura, entidad FROM licitaciones WHERE nid_proceso = %s",
+                           [int(path.stem)]).fetchone()
+        if row:
+            return title({"nomenclatura": row[0], "entidad": row[1]})
+    return path.name
+
+
 def import_ready(conn: psycopg.Connection, folder: Path) -> tuple[list[str], list[str]]:
     """Import every file marked listo; return (imported or updated files, errors).
 
@@ -84,7 +95,7 @@ def import_ready(conn: psycopg.Connection, folder: Path) -> tuple[list[str], lis
         try:
             filled = load(path)
         except TemplateError as error:
-            errors.append(str(error))
+            errors.append(f"{obra_name(conn, path)}: plantilla no importada: {error}")
             continue
         if filled is None:
             continue
