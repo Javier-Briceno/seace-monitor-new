@@ -13,7 +13,7 @@ MAX_ATTEMPTS = 3
 COLUMNS = (
     "nid_proceso", "nomenclatura", "entidad", "objeto", "descripcion",
     "fecha_publicacion", "valor_referencial", "moneda", "cui", "reiniciado_desde",
-    "departamentos", "ubicacion_fuente",
+    "departamentos", "ubicacion_fuente", "departamento_busqueda",
 )
 
 INSERT = f"""

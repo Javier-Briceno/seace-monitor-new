@@ -7,7 +7,7 @@ import pytest
 from seace_monitor import config
 from seace_monitor import search as search_module
 from seace_monitor.search import (
-    FORM, LIMA, RESULT_CAP, TABLE, Query, SearchError, SearchResult, make_session, page_fields, parse_form,
+    ALL_DEPARTAMENTOS, FORM, LIMA, RESULT_CAP, TABLE, Query, SearchError, SearchResult, make_session, page_fields, parse_form,
     parse_results, parse_rows, search, search_fields, search_pages,
 )
 
@@ -161,15 +161,16 @@ class FakeSession:
         return FakeResponse(self.pages.pop(0))
 
 
-def first_page(form, total):
+def first_page(form, total, query):
     page = parse_results(read("search_page1.xml"))
+    search_module.mark_search(page.rows, query)
     return SearchResult(page.rows, total, form, "vs", page.columns)
 
 
-def pages_of(monkeypatch, form, total, later):
-    monkeypatch.setattr(search_module, "search", lambda query, session: first_page(form, total))
+def pages_of(monkeypatch, form, total, later, query=Query(objeto="Obra")):
+    monkeypatch.setattr(search_module, "search", lambda query, session: first_page(form, total, query))
     session = FakeSession(later)
-    return session, search_pages(Query(objeto="Obra"), session)
+    return session, search_pages(query, session)
 
 
 def test_every_page_is_read_until_the_total(monkeypatch, form):
@@ -197,3 +198,13 @@ def test_an_empty_page_before_the_total_stops_the_search(monkeypatch, form):
     _, pages = pages_of(monkeypatch, form, 30, [empty])
     with pytest.raises(SearchError, match="15 different rows of 30"):
         list(pages)
+
+
+def test_every_row_says_which_departamento_was_searched(monkeypatch, form):
+    _, pages = pages_of(monkeypatch, form, 30, [read("search_page2.xml")], Query(objeto="Obra", departamento="ANCASH"))
+    assert {r["departamento_busqueda"] for page in pages for r in page.rows} == {"ANCASH"}
+
+
+def test_search_without_departamento_is_marked_as_all(monkeypatch, form):
+    _, pages = pages_of(monkeypatch, form, 30, [read("search_page2.xml")])
+    assert {r["departamento_busqueda"] for page in pages for r in page.rows} == {ALL_DEPARTAMENTOS}

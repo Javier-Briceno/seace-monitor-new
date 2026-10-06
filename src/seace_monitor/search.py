@@ -22,6 +22,8 @@ TABLE = f"{FORM}:dtProcesos"
 PAGE_SIZE = 15
 # The buscador never reports more than this; a total this high means the list was cut.
 RESULT_CAP = 499
+# Stored as the search departamento of rows found without a departamento filter.
+ALL_DEPARTAMENTOS = "TODOS"
 AJAX_HEADERS = {"Faces-Request": "partial/ajax", "X-Requested-With": "XMLHttpRequest"}
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -262,7 +264,13 @@ def search(query: Query, session: requests.Session | None = None) -> SearchResul
         raise access_error(session, error) or SearchError(f"search failed: {error}") from error
     result = parse_results(response.text)
     result.form = form
+    mark_search(result.rows, query)
     return result
+
+
+def mark_search(rows: list[dict], query: Query) -> None:
+    for row in rows:
+        row["departamento_busqueda"] = query.departamento or ALL_DEPARTAMENTOS
 
 
 def page_fields(form: Form, viewstate: str, first: int) -> dict[str, str]:
@@ -310,6 +318,7 @@ def search_pages(query: Query, session: requests.Session | None = None) -> Itera
         rows = parse_rows(response.text, page.columns)
         if not rows:
             break
+        mark_search(rows, query)
         page = SearchResult(rows, page.total, page.form, parse_viewstate(response.text) or page.viewstate, page.columns)
         seen += [r["nid_proceso"] for r in rows]
         yield page
