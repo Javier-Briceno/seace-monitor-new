@@ -4,6 +4,7 @@ from datetime import datetime
 
 import psycopg
 
+from .archives import ARCHIVE_SUFFIXES
 from .ficha import has_bases
 
 # After this many failures an item stays in error and is only reported.
@@ -64,9 +65,10 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
             )
         for d in documents:
             inserted = conn.execute(
-                """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, publicado_en)
-                   VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (uuid) DO NOTHING RETURNING id""",
-                [nid, d["uuid"], d["etapa"], d["tipo"], d["nombre_archivo"], d["publicado_en"]],
+                """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, publicado_en, estado)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING id""",
+                [nid, d["uuid"], d["etapa"], d["tipo"], d["nombre_archivo"], d["publicado_en"],
+                 "pending" if d["uuid"] else "sin_enlace"],
             ).fetchone()
             new += inserted is not None
         if has_bases(documents):
@@ -117,6 +119,41 @@ def document_failed(conn: psycopg.Connection, doc_id: int, error: str) -> None:
             [error, MAX_ATTEMPTS, doc_id],
         )
 
+
+
+def archives_to_unpack(conn: psycopg.Connection, nids: list[int] | None = None) -> list[dict]:
+    """Downloaded ZIP, RAR and 7z documents not unpacked yet; None means of every obra."""
+    sql = ("SELECT id, ruta_local FROM documentos"
+           " WHERE estado = 'done' AND contenido_estado IS NULL AND lower(ruta_local) LIKE ANY(%s)")
+    params = [[f"%{s}" for s in sorted(ARCHIVE_SUFFIXES)]]
+    if nids is not None:
+        sql += " AND nid_proceso = ANY(%s)"
+        params.append(nids)
+    rows = conn.execute(sql + " ORDER BY id", params).fetchall()
+    return [dict(zip(("id", "ruta_local"), r)) for r in rows]
+
+
+def contents_done(conn: psycopg.Connection, doc_id: int, files: list[dict]) -> None:
+    """Replace what is stored of this archive's contents, so unpacking it again is safe."""
+    with conn.transaction():
+        conn.execute("DELETE FROM documento_contenido WHERE documento_id = %s", [doc_id])
+        with conn.cursor() as cur:
+            cur.executemany(
+                """INSERT INTO documento_contenido (documento_id, ruta, tamano_bytes, dentro_de, error)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                [(doc_id, f["ruta"], f["tamano_bytes"], f["dentro_de"], f["error"]) for f in files],
+            )
+        conn.execute(
+            "UPDATE documentos SET contenido_estado = 'done', contenido_error = NULL WHERE id = %s", [doc_id]
+        )
+
+
+def contents_failed(conn: psycopg.Connection, doc_id: int, error: str) -> None:
+    # Not retried: a broken or protected archive stays broken until it is downloaded again.
+    with conn.transaction():
+        conn.execute(
+            "UPDATE documentos SET contenido_estado = 'error', contenido_error = %s WHERE id = %s", [error, doc_id]
+        )
 
 def mark_reported(conn: psycopg.Connection, nids: list[int]) -> None:
     """Call only after the report was accepted by the mail server: a crash before

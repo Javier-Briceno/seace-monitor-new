@@ -2,22 +2,25 @@
 
     python -m seace_monitor [--config config.toml] [--no-mail]
     python -m seace_monitor --plantilla <nid_proceso>
+    python -m seace_monitor --desempaquetar
 """
 
 import argparse
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 from . import config, db, mail, manual, report
+from .archives import ArchiveError, MachineError, unpack
 from .download import DocumentError, download
 from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
 from .search import LIMA, AccessError, SearchError, make_session, search
 from .store import (
-    document_done, document_failed, ficha_failed, fichas_to_read, mark_extractions_reported, mark_reported,
-    pending_documents,
-    save_ficha, save_new_licitaciones,
+    archives_to_unpack, contents_done, contents_failed, document_done, document_failed, ficha_failed,
+    fichas_to_read, mark_extractions_reported, mark_reported, pending_documents, save_ficha,
+    save_new_licitaciones,
 )
 
 PAUSE = 1  # seconds between requests to SEACE
@@ -73,11 +76,32 @@ def run_downloads(conn, session, root, nids) -> None:
         print(f"  done    {path} ({size / 1e6:.1f} MB)")
 
 
+def run_unpacking(conn, nids=None) -> None:
+    """Unpack the downloaded archives of these obras that are not unpacked yet; None means every obra."""
+    pending = archives_to_unpack(conn, nids)
+    print(f"archives to unpack: {len(pending)}")
+    for document in pending:
+        path = Path(document["ruta_local"])
+        try:
+            files = unpack(path)
+        except MachineError as error:
+            # The archives are fine, so nothing is marked and a later run unpacks them.
+            print(f"unpacking stopped, nothing marked: {error}")
+            return
+        except ArchiveError as error:
+            contents_failed(conn, document["id"], str(error))
+            print(f"  failed  {path.name}: {error}")
+            continue
+        contents_done(conn, document["id"], files)
+        print(f"  unpacked {path} ({len(files)} files)")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="seace_monitor")
     parser.add_argument("--config", default="config.toml")
     parser.add_argument("--no-mail", action="store_true", help="write the report but do not send it or mark anything")
     parser.add_argument("--plantilla", type=int, metavar="NID_PROCESO", help="write the manual extraction template of one obra and exit")
+    parser.add_argument("--desempaquetar", action="store_true", help="unpack every downloaded archive not unpacked yet and exit")
     args = parser.parse_args()
 
     cfg = config.load(args.config)
@@ -94,6 +118,9 @@ def main() -> int:
             print(error, file=sys.stderr)
             return 1
         return 0
+    if args.desempaquetar:
+        run_unpacking(conn)
+        return 0
     try:
         for query in config.queries(cfg):
             run_search(conn, session, query)
@@ -102,6 +129,7 @@ def main() -> int:
         candidates = [i["nid_proceso"] for i in report.pending(
             conn, config.watched(cfg), config.download_dir(cfg), datetime.now(LIMA))]
         run_downloads(conn, session, config.download_dir(cfg), candidates)
+        run_unpacking(conn, candidates)
     except AccessError as error:
         print(f"stopped, SEACE unreachable; no attempts were counted: {error}", file=sys.stderr)
         return 1

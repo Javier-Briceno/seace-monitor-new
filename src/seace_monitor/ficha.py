@@ -59,10 +59,9 @@ def parse_documents(page: str) -> list[dict]:
     documents = []
     for raw in re.findall(r"<tr[^>]*data-ri[^>]*>(.*?)</tr>", table, re.S):
         cells = re.findall(r"<td[^>]*>(.*?)</td>", raw, re.S)
+        # A row without link is kept: the entity listed it, but there is nothing to download.
         link = DOWNLOAD_LINK.search(cells[index["archivo"]])
-        if not link:
-            raise FichaError(f"document without download link: {cell_text(cells[index['tipo']])}")
-        uuid, _, nombre = link.groups()
+        uuid, _, nombre = link.groups() if link else (None, None, cell_text(cells[index["archivo"]]))
         fecha = cell_text(cells[index["publicado_en"]])
         documents.append({
             "uuid": uuid,
@@ -95,4 +94,5 @@ def parse_deadline(page: str) -> datetime | None:
 
 
 def has_bases(documents: list[dict]) -> bool:
-    return any("bases" in normalize(d["tipo"]) for d in documents)
+    """A bases without download link does not count, so its ficha is read again."""
+    return any("bases" in normalize(d["tipo"]) and d["uuid"] for d in documents)
