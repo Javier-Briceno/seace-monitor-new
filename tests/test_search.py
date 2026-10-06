@@ -208,3 +208,41 @@ def test_every_row_says_which_departamento_was_searched(monkeypatch, form):
 def test_search_without_departamento_is_marked_as_all(monkeypatch, form):
     _, pages = pages_of(monkeypatch, form, 30, [read("search_page2.xml")])
     assert {r["departamento_busqueda"] for page in pages for r in page.rows} == {ALL_DEPARTAMENTOS}
+
+
+def test_rows_outside_the_dates_stop_the_search(monkeypatch, form):
+    query = Query(objeto="Obra", desde=date(2026, 1, 1), hasta=date(2026, 1, 31))
+    _, pages = pages_of(monkeypatch, form, 30, [], query)
+    with pytest.raises(SearchError, match="answered an earlier search"):
+        next(pages)
+
+
+def test_rows_within_the_dates_pass(monkeypatch, form):
+    query = Query(objeto="Obra", desde=date(2026, 9, 1), hasta=date(2026, 10, 31))
+    _, pages = pages_of(monkeypatch, form, 30, [read("search_page2.xml")], query)
+    assert sum(len(page.rows) for page in pages) == 30
+
+
+class SearchSession:
+    """Serves the buscador page and one results page; records the cookies each request saw."""
+
+    def __init__(self):
+        import requests
+        self.cookies = requests.cookies.RequestsCookieJar()
+        self.cookies.set("JSESSIONID", "from-the-last-search")
+        self.seen = []
+
+    def get(self, url, timeout):
+        self.seen.append(dict(self.cookies))
+        response = FakeResponse(read("buscador.html"))
+        return response
+
+    def post(self, url, data, headers, timeout):
+        self.seen.append(dict(self.cookies))
+        return FakeResponse(read("search_page1.xml"))
+
+
+def test_every_search_starts_a_new_portal_session():
+    session = SearchSession()
+    search(Query(objeto="Obra"), session)
+    assert session.seen[0] == {}

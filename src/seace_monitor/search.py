@@ -247,6 +247,9 @@ def make_session(proxy: str | None = None) -> requests.Session:
 def search(query: Query, session: requests.Session | None = None) -> SearchResult:
     """First results page for one query; search_pages reads all of them."""
     session = session or make_session()
+    # A second search in the same portal session gets the first search's rows back
+    # (seen 2026-10-06), so every search starts a new one.
+    session.cookies.clear()
     try:
         page = session.get(PAGE, timeout=60)
         page.raise_for_status()
@@ -303,6 +306,7 @@ def search_pages(query: Query, session: requests.Session | None = None) -> Itera
     page = search(query, session)
     if page.total >= RESULT_CAP:
         raise SearchError(f"the portal stops at {RESULT_CAP} results; split the date range of {query}")
+    check_dates(page.rows, query)
     seen = [r["nid_proceso"] for r in page.rows]
     yield page
     while len(seen) < page.total:
@@ -319,12 +323,23 @@ def search_pages(query: Query, session: requests.Session | None = None) -> Itera
         if not rows:
             break
         mark_search(rows, query)
+        check_dates(rows, query)
         page = SearchResult(rows, page.total, page.form, parse_viewstate(response.text) or page.viewstate, page.columns)
         seen += [r["nid_proceso"] for r in rows]
         yield page
     # A row published while paging shifts the list: one row comes twice and another is skipped.
     if len(set(seen)) != page.total:
         raise SearchError(f"read {len(set(seen))} different rows of {page.total} for {query}; run again")
+
+
+def check_dates(rows: list[dict], query: Query) -> None:
+    """Rows published outside the query's dates mean the portal answered another search."""
+    outside = [r for r in rows
+               if (query.desde and r["fecha_publicacion"].date() < query.desde)
+               or (query.hasta and r["fecha_publicacion"].date() > query.hasta)]
+    if outside:
+        raise SearchError(f"{len(outside)} rows published outside {query.desde}..{query.hasta}; "
+                          f"the portal answered an earlier search")
 
 
 def access_error(session: requests.Session, error: requests.RequestException) -> AccessError | None:
