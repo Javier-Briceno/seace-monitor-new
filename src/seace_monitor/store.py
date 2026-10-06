@@ -13,7 +13,7 @@ MAX_ATTEMPTS = 3
 COLUMNS = (
     "nid_proceso", "nomenclatura", "entidad", "objeto", "descripcion",
     "fecha_publicacion", "valor_referencial", "moneda", "cui", "reiniciado_desde",
-    "departamentos", "ubicacion_fuente",
+    "departamentos", "ubicacion_fuente", "departamento_busqueda",
 )
 
 INSERT = f"""
@@ -28,8 +28,8 @@ def save_new_licitaciones(conn: psycopg.Connection, rows: list[dict]) -> list[in
     """Insert rows whose nid_proceso is not stored yet; return those nid_proceso.
 
     Known rows are left as they are: a later step that re-reads known
-    licitaciones will record their changes in historial instead of overwriting. All rows of one search
-    are written in one transaction, so a failing row stores none of them.
+    licitaciones will record their changes in historial instead of overwriting. All rows passed
+    in (one results page) are written in one transaction, so a failing row stores none of them.
     """
     new = []
     with conn.transaction():
@@ -49,15 +49,19 @@ def fichas_to_read(conn: psycopg.Connection, nids: list[int]) -> set[int]:
     return {r[0] for r in rows}
 
 
-def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadline: datetime | None = None) -> int:
-    """Store a ficha's documents and offer deadline; return how many documents were new.
+def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadline: datetime | None = None,
+               estados: list[str] | None = None) -> int:
+    """Store a ficha's documents, offer deadline and item estados; return how many documents were new.
 
     The ficha counts as read only once it lists a bases. Until then it stays
     pending without spending attempts, since entities often publish it later.
     A stored deadline is never overwritten: a postponement is a change for historial.
+    The estados are replaced by each reading.
     """
     new = 0
     with conn.transaction():
+        if estados:
+            conn.execute("UPDATE licitaciones SET estado_items = %s WHERE nid_proceso = %s", [estados, nid])
         if deadline:
             conn.execute(
                 "UPDATE licitaciones SET fecha_limite_ofertas = COALESCE(fecha_limite_ofertas, %s) WHERE nid_proceso = %s",

@@ -9,6 +9,7 @@ import html
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -17,6 +18,13 @@ import requests
 BASE = "https://prod2.seace.gob.pe"
 PAGE = BASE + "/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml"
 FORM = "tbBuscador:idFormBuscarProceso"
+TABLE = f"{FORM}:dtProcesos"
+PAGE_SIZE = 15
+# The buscador never reports more than this; a total this high means the list was cut.
+RESULT_CAP = 499
+# Stored as the search departamento of rows found without a departamento filter.
+ALL_DEPARTAMENTOS = "TODOS"
+AJAX_HEADERS = {"Faces-Request": "partial/ajax", "X-Requested-With": "XMLHttpRequest"}
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"
@@ -77,9 +85,11 @@ class Form:
 class SearchResult:
     rows: list[dict]
     total: int
-    # Needed to open fichas: they only work within the session of this search.
+    # Needed to open fichas: they only work within the session of this search,
+    # and only for rows of the page loaded last.
     form: Form | None = None
     viewstate: str | None = None
+    columns: dict[str, int] = field(default_factory=dict)
 
 
 def normalize(text: str) -> str:
@@ -184,6 +194,7 @@ def parse_amount(text: str | None, nid: int) -> Decimal | None:
 
 
 def parse_results(xml: str) -> SearchResult:
+    """The first results page: total, column layout and rows."""
     total = re.search(r"del total (\d+)", xml)
     if not total:
         raise SearchError("result count not found in the response")
@@ -194,7 +205,16 @@ def parse_results(xml: str) -> SearchResult:
         if header not in headers:
             raise SearchError(f"column {header!r} missing; the results table changed")
         index[key] = headers.index(header)
+    return SearchResult(parse_rows(xml, index), int(total.group(1)), viewstate=parse_viewstate(xml), columns=index)
 
+
+def parse_viewstate(xml: str) -> str | None:
+    viewstate = re.search(r'ViewState[^"]*"><!\[CDATA\[([^\]]+)\]\]>', xml)
+    return viewstate.group(1) if viewstate else None
+
+
+def parse_rows(xml: str, index: dict[str, int]) -> list[dict]:
+    """Rows of any results page; later pages carry no header, so the layout comes from the first."""
     rows = []
     for raw in re.split(r'(?=<tr data-ri=")', xml)[1:]:
         cells = [cell_text(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", raw, re.S)]
@@ -210,8 +230,7 @@ def parse_results(xml: str) -> SearchResult:
         button = re.search(r"addSubmitParam\('[^']+',\{([^}]*ptoRetorno[^}]*)\}", raw)
         row["ficha_params"] = dict(re.findall(r"'([^']+)':'([^']*)'", button.group(1))) if button else None
         rows.append(row)
-    viewstate = re.search(r'ViewState[^"]*"><!\[CDATA\[([^\]]+)\]\]>', xml)
-    return SearchResult(rows, int(total.group(1)), viewstate=viewstate.group(1) if viewstate else None)
+    return rows
 
 
 def make_session(proxy: str | None = None) -> requests.Session:
@@ -226,8 +245,11 @@ def make_session(proxy: str | None = None) -> requests.Session:
 
 
 def search(query: Query, session: requests.Session | None = None) -> SearchResult:
-    """First results page for one query."""
+    """First results page for one query; search_pages reads all of them."""
     session = session or make_session()
+    # A second search in the same portal session gets the first search's rows back
+    # (seen 2026-10-06), so every search starts a new one.
+    session.cookies.clear()
     try:
         page = session.get(PAGE, timeout=60)
         page.raise_for_status()
@@ -236,7 +258,7 @@ def search(query: Query, session: requests.Session | None = None) -> SearchResul
         response = session.post(
             BASE + form.action,
             data=search_fields(form, query),
-            headers={"Faces-Request": "partial/ajax", "X-Requested-With": "XMLHttpRequest"},
+            headers=AJAX_HEADERS,
             timeout=60,
         )
         response.raise_for_status()
@@ -245,7 +267,79 @@ def search(query: Query, session: requests.Session | None = None) -> SearchResul
         raise access_error(session, error) or SearchError(f"search failed: {error}") from error
     result = parse_results(response.text)
     result.form = form
+    mark_search(result.rows, query)
     return result
+
+
+def mark_search(rows: list[dict], query: Query) -> None:
+    for row in rows:
+        row["departamento_busqueda"] = query.departamento or ALL_DEPARTAMENTOS
+
+
+def page_fields(form: Form, viewstate: str, first: int) -> dict[str, str]:
+    fields = dict(form.fields)
+    fields.update({
+        "javax.faces.ViewState": viewstate,
+        FORM: FORM,
+        "javax.faces.partial.ajax": "true",
+        "javax.faces.source": TABLE,
+        "javax.faces.partial.execute": TABLE,
+        "javax.faces.partial.render": TABLE,
+        "javax.faces.behavior.event": "page",
+        "javax.faces.partial.event": "page",
+        f"{TABLE}_pagination": "true",
+        f"{TABLE}_first": str(first),
+        f"{TABLE}_rows": str(PAGE_SIZE),
+        f"{TABLE}_encodeFeature": "true",
+    })
+    return fields
+
+
+def search_pages(query: Query, session: requests.Session | None = None) -> Iterator[SearchResult]:
+    """Every results page of one query, in order.
+
+    Open a page's fichas before asking for the next page: the portal only opens
+    fichas of the page it served last. Stops with a SearchError when the list is
+    cut at the cap or when the rows read do not add up to the total.
+    """
+    session = session or make_session()
+    page = search(query, session)
+    if page.total >= RESULT_CAP:
+        raise SearchError(f"the portal stops at {RESULT_CAP} results; split the date range of {query}")
+    check_dates(page.rows, query)
+    seen = [r["nid_proceso"] for r in page.rows]
+    yield page
+    while len(seen) < page.total:
+        try:
+            response = session.post(
+                BASE + page.form.action, data=page_fields(page.form, page.viewstate, len(seen)),
+                headers=AJAX_HEADERS, timeout=60,
+            )
+            response.raise_for_status()
+            response.encoding = "utf-8"
+        except requests.RequestException as error:
+            raise access_error(session, error) or SearchError(f"results page failed: {error}") from error
+        rows = parse_rows(response.text, page.columns)
+        if not rows:
+            break
+        mark_search(rows, query)
+        check_dates(rows, query)
+        page = SearchResult(rows, page.total, page.form, parse_viewstate(response.text) or page.viewstate, page.columns)
+        seen += [r["nid_proceso"] for r in rows]
+        yield page
+    # A row published while paging shifts the list: one row comes twice and another is skipped.
+    if len(set(seen)) != page.total:
+        raise SearchError(f"read {len(set(seen))} different rows of {page.total} for {query}; run again")
+
+
+def check_dates(rows: list[dict], query: Query) -> None:
+    """Rows published outside the query's dates mean the portal answered another search."""
+    outside = [r for r in rows
+               if (query.desde and r["fecha_publicacion"].date() < query.desde)
+               or (query.hasta and r["fecha_publicacion"].date() > query.hasta)]
+    if outside:
+        raise SearchError(f"{len(outside)} rows published outside {query.desde}..{query.hasta}; "
+                          f"the portal answered an earlier search")
 
 
 def access_error(session: requests.Session, error: requests.RequestException) -> AccessError | None:

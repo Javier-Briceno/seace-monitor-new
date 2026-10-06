@@ -24,6 +24,7 @@ def rows():
     rows = parse_results((FIXTURES / "search_page1.xml").read_text(encoding="utf-8")).rows
     for row in rows:
         row["departamentos"], row["ubicacion_fuente"] = locate(row["descripcion"])
+        row["departamento_busqueda"] = "LA LIBERTAD"
     return rows
 
 
@@ -70,6 +71,11 @@ def test_departamentos_stored_as_list(conn, rows):
     assert stored == (rows[0]["departamentos"], rows[0]["ubicacion_fuente"])
 
 
+
+def test_search_departamento_is_stored(conn, rows):
+    save_new_licitaciones(conn, rows[:1])
+    assert conn.execute("SELECT departamento_busqueda FROM licitaciones").fetchone() == ("LA LIBERTAD",)
+
 def ficha_state(conn, nid):
     return conn.execute(
         "SELECT ficha_estado, ficha_intentos FROM licitaciones WHERE nid_proceso = %s", [nid]
@@ -113,6 +119,15 @@ def test_failed_ficha_is_retried_until_the_limit(conn, rows):
     assert ficha_state(conn, nid) == ("error", MAX_ATTEMPTS)
     assert fichas_to_read(conn, [nid]) == set()
 
+
+
+def test_item_estados_are_replaced_by_each_reading(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    save_ficha(conn, nid, documents, estados=["Adjudicado", "Desierto"])
+    stored = conn.execute("SELECT estado_items FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()
+    assert stored == (["Adjudicado", "Desierto"],)
 
 def test_document_states(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])

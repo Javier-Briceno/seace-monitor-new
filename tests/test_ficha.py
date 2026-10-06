@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from seace_monitor.ficha import FichaError, has_bases, parse_deadline, parse_documents
+from seace_monitor.ficha import FichaError, has_bases, parse_deadline, parse_documents, parse_estados
 from seace_monitor.search import LIMA
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -81,3 +81,19 @@ def test_no_offer_stage_gives_none():
 def test_missing_cronograma_is_an_error():
     with pytest.raises(FichaError):
         parse_deadline("<html></html>")
+
+
+def test_estado_of_the_item():
+    assert parse_estados(read("ficha_two_documents.html")) == ["Convocado"]
+
+
+def test_each_item_keeps_its_own_estado():
+    page = read("ficha_two_documents.html")
+    item = re.search(r'<td><span style="font-weight:bold;">Estado:</span></td>\s*<td>Convocado</td>', page).group(0)
+    two = page.replace(item, item + item.replace("Convocado", "Retrotra&iacute;do por resoluci&oacute;n"))
+    assert parse_estados(two) == ["Convocado", "Retrotraído por resolución"]
+
+
+def test_ficha_without_item_estado_is_an_error():
+    with pytest.raises(FichaError, match="estado"):
+        parse_estados("<html>session expired</html>")
