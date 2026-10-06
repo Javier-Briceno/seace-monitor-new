@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config, db, mail, manual, report
-from .archives import ArchiveError, seven_zip, unpack
+from .archives import ArchiveError, MachineError, unpack
 from .download import DocumentError, download
 from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
@@ -78,18 +78,16 @@ def run_downloads(conn, session, root, nids) -> None:
 
 def run_unpacking(conn, nids=None) -> None:
     """Unpack the downloaded archives of these obras that are not unpacked yet; None means every obra."""
-    try:
-        seven_zip()
-    except ArchiveError as error:
-        # Nothing is marked, so the archives are unpacked on the first run with 7-Zip.
-        print(f"archives not unpacked: {error}")
-        return
     pending = archives_to_unpack(conn, nids)
     print(f"archives to unpack: {len(pending)}")
     for document in pending:
         path = Path(document["ruta_local"])
         try:
             files = unpack(path)
+        except MachineError as error:
+            # The archives are fine, so nothing is marked and a later run unpacks them.
+            print(f"unpacking stopped, nothing marked: {error}")
+            return
         except ArchiveError as error:
             contents_failed(conn, document["id"], str(error))
             print(f"  failed  {path.name}: {error}")

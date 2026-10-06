@@ -14,9 +14,17 @@ MAX_DEPTH = 3
 MAX_UNPACKED_BYTES = 5 * 1024**3
 SEVEN_ZIP_DEFAULT = Path(r"C:\Program Files\7-Zip\7z.exe")
 
+# Room left free on the disk, so unpacking never fills it to the last byte.
+FREE_MARGIN_BYTES = 1024**3
+SEVEN_ZIP_OUT_OF_MEMORY = 8
+
 
 class ArchiveError(Exception):
-    pass
+    """The archive itself is broken or protected."""
+
+
+class MachineError(Exception):
+    """The computer, not the archive, stopped the unpacking."""
 
 
 def seven_zip() -> str:
@@ -25,7 +33,7 @@ def seven_zip() -> str:
         return found
     if SEVEN_ZIP_DEFAULT.exists():
         return str(SEVEN_ZIP_DEFAULT)
-    raise ArchiveError("7-Zip not found; install it or put 7z on the PATH")
+    raise MachineError("7-Zip not found; install it or put 7z on the PATH")
 
 
 def is_archive(path: Path) -> bool:
@@ -42,6 +50,8 @@ def run(args: list[str]) -> str:
         [seven_zip(), *args, "-pX", "-y", "-sccUTF-8"],
         capture_output=True, encoding="utf-8", errors="replace",
     )
+    if result.returncode == SEVEN_ZIP_OUT_OF_MEMORY:
+        raise MachineError("7-Zip ran out of memory")
     if result.returncode != 0:
         lines = [l for l in (result.stderr + result.stdout).splitlines() if "ERROR" in l or "Wrong password" in l]
         raise ArchiveError(lines[0].strip() if lines else f"7-Zip exited with {result.returncode}")
@@ -51,6 +61,10 @@ def run(args: list[str]) -> str:
 def unpacked_size(archive: Path) -> int:
     listing = run(["l", "-slt", str(archive)])
     return sum(int(l.split("=", 1)[1]) for l in listing.splitlines() if l.startswith("Size = ") and l[7:].strip())
+
+
+def free_bytes(folder: Path) -> int:
+    return shutil.disk_usage(folder).free
 
 
 def unpack(archive: Path, depth: int = 1) -> list[dict]:
@@ -63,10 +77,19 @@ def unpack(archive: Path, depth: int = 1) -> list[dict]:
     size = unpacked_size(archive)
     if size > MAX_UNPACKED_BYTES:
         raise ArchiveError(f"unpacks to {size / 1e9:.1f} GB, more than the limit")
+    free = free_bytes(archive.parent)
+    if size > free - FREE_MARGIN_BYTES:
+        raise MachineError(f"needs {size / 1e9:.1f} GB, the disk has {free / 1e9:.1f} GB free")
     target = unpacked_folder(archive)
     if target.exists():
         shutil.rmtree(target)
-    run(["x", str(archive), f"-o{target}"])
+    try:
+        run(["x", str(archive), f"-o{target}"])
+    except ArchiveError:
+        # Something else may have filled the disk meanwhile; then the archive is not to blame.
+        if free_bytes(archive.parent) < FREE_MARGIN_BYTES:
+            raise MachineError("the disk filled up while unpacking") from None
+        raise
 
     root = target.resolve()
     files = []
