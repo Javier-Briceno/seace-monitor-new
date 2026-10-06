@@ -73,3 +73,25 @@ def test_password_protected_archive_is_an_error(tmp_path):
     pack(archive, source, "-psecreto")
     with pytest.raises(ArchiveError):
         unpack(archive)
+
+
+def test_monitor_unpacks_a_downloaded_archive_and_stores_its_files(conn, tmp_path):
+    from seace_monitor.__main__ import run_unpacking
+    from seace_monitor.store import archives_to_unpack
+
+    good = make_zip(tmp_path / "BASES.zip", {"bases.pdf": b"%PDF"})
+    broken = tmp_path / "ANEXOS.rar"
+    broken.write_bytes(b"not a rar")
+    conn.execute("INSERT INTO licitaciones (nid_proceso, nomenclatura, entidad, objeto, descripcion) VALUES (1, 'LP-1', 'E', 'Obra', 'D')")
+    ids = [conn.execute(
+        "INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, estado, ruta_local)"
+        " VALUES (1, %s, 'Convocatoria', 'Bases', %s, 'done', %s) RETURNING id",
+        [path.name, path.name, str(path)],
+    ).fetchone()[0] for path in (good, broken)]
+
+    run_unpacking(conn, [1])
+
+    assert conn.execute("SELECT documento_id, ruta FROM documento_contenido").fetchall() == [(ids[0], "bases.pdf")]
+    states = conn.execute("SELECT contenido_estado FROM documentos ORDER BY id").fetchall()
+    assert states == [("done",), ("error",)]
+    assert archives_to_unpack(conn) == []
