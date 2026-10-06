@@ -28,8 +28,8 @@ def save_new_licitaciones(conn: psycopg.Connection, rows: list[dict]) -> list[in
     """Insert rows whose nid_proceso is not stored yet; return those nid_proceso.
 
     Known rows are left as they are: a later step that re-reads known
-    licitaciones will record their changes in historial instead of overwriting. All rows of one search
-    are written in one transaction, so a failing row stores none of them.
+    licitaciones will record their changes in historial instead of overwriting. All rows passed
+    in (one results page) are written in one transaction, so a failing row stores none of them.
     """
     new = []
     with conn.transaction():

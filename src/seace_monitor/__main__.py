@@ -16,7 +16,7 @@ from .archives import ArchiveError, MachineError, unpack
 from .download import DocumentError, download
 from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
 from .locate import locate
-from .search import LIMA, AccessError, SearchError, make_session, search
+from .search import LIMA, AccessError, SearchError, make_session, search_pages
 from .store import (
     archives_to_unpack, contents_done, contents_failed, document_done, document_failed, ficha_failed,
     fichas_to_read, mark_extractions_reported, mark_reported, pending_documents, save_ficha,
@@ -28,17 +28,23 @@ PAUSE = 1  # seconds between requests to SEACE
 
 def run_search(conn, session, query) -> None:
     print(f"{query.objeto} / {query.departamento} / {query.desde} to {query.hasta}")
-    result = search(query, session)
-    print(f"  portal total {result.total}, rows on this page {len(result.rows)}")
-    if result.total > len(result.rows):
-        print(f"  warning: only the first page is read, {result.total - len(result.rows)} rows not collected")
-    for row in result.rows:
-        row["departamentos"], row["ubicacion_fuente"] = locate(row["descripcion"])
-    new = set(save_new_licitaciones(conn, result.rows))
-    print(f"  new: {len(new)}, already stored: {len(result.rows) - len(new)}")
+    total_new = total_rows = 0
+    for number, result in enumerate(search_pages(query, session), 1):
+        if number == 1:
+            print(f"  portal total {result.total}")
+        for row in result.rows:
+            row["departamentos"], row["ubicacion_fuente"] = locate(row["descripcion"])
+        new = set(save_new_licitaciones(conn, result.rows))
+        total_new += len(new)
+        total_rows += len(result.rows)
+        print(f"  page {number}: {len(result.rows)} rows, new: {len(new)}")
+        read_fichas(conn, session, result, new)
+    print(f"  new: {total_new}, already stored: {total_rows - total_new}")
 
-    # Fichas only open within this search's session, so every row still
-    # missing its bases is read now, not only the new ones.
+
+def read_fichas(conn, session, result, new) -> None:
+    # Fichas only open within this search's session and for the page loaded
+    # last, so every row of this page still missing its bases is read now.
     to_read = fichas_to_read(conn, [r["nid_proceso"] for r in result.rows])
     for row in result.rows:
         nid = row["nid_proceso"]
