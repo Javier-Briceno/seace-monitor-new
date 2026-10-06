@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 from seace_monitor import config
+from seace_monitor import search as search_module
 from seace_monitor.search import (
-    FORM, LIMA, Query, SearchError, make_session, parse_form, parse_results, search, search_fields,
+    FORM, LIMA, RESULT_CAP, TABLE, Query, SearchError, SearchResult, make_session, page_fields, parse_form,
+    parse_results, parse_rows, search, search_fields, search_pages,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -120,3 +122,78 @@ def test_dead_proxy_fails_instead_of_going_direct():
     # Port 9 on localhost has nothing listening, like a stopped VPN container.
     with pytest.raises(SearchError, match="VPN proxy"):
         search(Query(objeto="Obra"), make_session("http://127.0.0.1:9"))
+
+
+def test_later_page_rows_use_the_first_page_layout():
+    first = parse_results(read("search_page1.xml"))
+    rows = parse_rows(read("search_page2.xml"), first.columns)
+    assert len(rows) == 15
+    assert rows[0]["nid_proceso"] == 1252893
+    assert rows[0]["nomenclatura"] == "LP-ABR-11-2026-MPV/COM-1"
+    assert rows[0]["valor_referencial"] == Decimal("4529980.34")
+    assert all(r["ficha_params"] for r in rows)
+
+
+def test_page_request_asks_for_the_next_offset(form):
+    fields = page_fields(form, "vs", 30)
+    assert fields[f"{TABLE}_first"] == "30"
+    assert fields[f"{TABLE}_rows"] == "15"
+    assert fields["javax.faces.ViewState"] == "vs"
+
+
+class FakeResponse:
+    def __init__(self, text):
+        self.text = text
+
+    def raise_for_status(self):
+        pass
+
+
+class FakeSession:
+    """Answers every page request with the next prepared page."""
+
+    def __init__(self, pages):
+        self.pages = list(pages)
+        self.offsets = []
+
+    def post(self, url, data, headers, timeout):
+        self.offsets.append(data[f"{TABLE}_first"])
+        return FakeResponse(self.pages.pop(0))
+
+
+def first_page(form, total):
+    page = parse_results(read("search_page1.xml"))
+    return SearchResult(page.rows, total, form, "vs", page.columns)
+
+
+def pages_of(monkeypatch, form, total, later):
+    monkeypatch.setattr(search_module, "search", lambda query, session: first_page(form, total))
+    session = FakeSession(later)
+    return session, search_pages(Query(objeto="Obra"), session)
+
+
+def test_every_page_is_read_until_the_total(monkeypatch, form):
+    session, pages = pages_of(monkeypatch, form, 30, [read("search_page2.xml")])
+    rows = [r["nid_proceso"] for page in pages for r in page.rows]
+    assert len(rows) == len(set(rows)) == 30
+    assert session.offsets == ["15"]
+
+
+def test_a_cut_list_stops_the_search(monkeypatch, form):
+    _, pages = pages_of(monkeypatch, form, RESULT_CAP, [])
+    with pytest.raises(SearchError, match="stops at 499"):
+        next(pages)
+
+
+def test_rows_read_twice_while_paging_stop_the_search(monkeypatch, form):
+    # The same page twice is what a list shifted by new publications looks like.
+    _, pages = pages_of(monkeypatch, form, 30, [read("search_page1.xml")])
+    with pytest.raises(SearchError, match="15 different rows of 30"):
+        list(pages)
+
+
+def test_an_empty_page_before_the_total_stops_the_search(monkeypatch, form):
+    empty = '<?xml version="1.0"?><partial-response><changes></changes></partial-response>'
+    _, pages = pages_of(monkeypatch, form, 30, [empty])
+    with pytest.raises(SearchError, match="15 different rows of 30"):
+        list(pages)
