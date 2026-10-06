@@ -14,7 +14,7 @@ from pathlib import Path
 from . import config, db, mail, manual, report
 from .archives import ArchiveError, MachineError, unpack
 from .download import DocumentError, download
-from .ficha import FichaError, open_ficha, parse_deadline, parse_documents
+from .ficha import FichaError, open_ficha, parse_deadline, parse_documents, parse_estados
 from .locate import locate
 from .search import LIMA, AccessError, SearchError, make_session, search_pages
 from .store import (
@@ -58,13 +58,14 @@ def read_fichas(conn, session, result, new) -> None:
             page = open_ficha(session, result, row)
             documents = parse_documents(page)
             deadline = parse_deadline(page)
+            estados = parse_estados(page)
         except FichaError as error:
             ficha_failed(conn, nid, str(error))
             print(f"{line}  ficha failed: {error}")
             continue
-        added = save_ficha(conn, nid, documents, deadline)
-        print(f"{line}  documents: {len(documents)} ({added} new), offers until {deadline:%d/%m %H:%M}" if deadline
-              else f"{line}  documents: {len(documents)} ({added} new), no offer deadline in the cronograma")
+        added = save_ficha(conn, nid, documents, deadline, estados)
+        until = f"offers until {deadline:%d/%m %H:%M}" if deadline else "no offer deadline in the cronograma"
+        print(f"{line}  documents: {len(documents)} ({added} new), {until}, {'/'.join(estados)}")
 
 
 def run_downloads(conn, session, root, nids) -> None:

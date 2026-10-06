@@ -120,6 +120,15 @@ def test_failed_ficha_is_retried_until_the_limit(conn, rows):
     assert fichas_to_read(conn, [nid]) == set()
 
 
+
+def test_item_estados_are_replaced_by_each_reading(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    save_ficha(conn, nid, documents, estados=["Adjudicado", "Desierto"])
+    stored = conn.execute("SELECT estado_items FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()
+    assert stored == (["Adjudicado", "Desierto"],)
+
 def test_document_states(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     save_ficha(conn, rows[0]["nid_proceso"], documents)

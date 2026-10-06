@@ -18,6 +18,7 @@ COLUMNS = {
     "archivo": "archivo",
     "publicado_en": "fecha y hora de publicacion",
 }
+ITEM_ESTADO = re.compile(r"Estado:</span></td>\s*<td>(.*?)</td>", re.S)
 DOWNLOAD_LINK = re.compile(r"descargaDocGeneral\('([^']+)','([^']+)','([^']+)'\)")
 
 
@@ -91,6 +92,14 @@ def parse_deadline(page: str) -> datetime | None:
             end += " 23:59"
         return datetime.strptime(end, "%d/%m/%Y %H:%M").replace(tzinfo=LIMA)
     return None
+
+
+def parse_estados(page: str) -> list[str]:
+    """Estado of each item, in the order the ficha lists the items."""
+    estados = [cell_text(e) for e in ITEM_ESTADO.findall(page)]
+    if not estados or not all(estados):
+        raise FichaError("item estado missing from the ficha")
+    return estados
 
 
 def has_bases(documents: list[dict]) -> bool:

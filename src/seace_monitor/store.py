@@ -49,15 +49,19 @@ def fichas_to_read(conn: psycopg.Connection, nids: list[int]) -> set[int]:
     return {r[0] for r in rows}
 
 
-def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadline: datetime | None = None) -> int:
-    """Store a ficha's documents and offer deadline; return how many documents were new.
+def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadline: datetime | None = None,
+               estados: list[str] | None = None) -> int:
+    """Store a ficha's documents, offer deadline and item estados; return how many documents were new.
 
     The ficha counts as read only once it lists a bases. Until then it stays
     pending without spending attempts, since entities often publish it later.
     A stored deadline is never overwritten: a postponement is a change for historial.
+    The estados are replaced by each reading.
     """
     new = 0
     with conn.transaction():
+        if estados:
+            conn.execute("UPDATE licitaciones SET estado_items = %s WHERE nid_proceso = %s", [estados, nid])
         if deadline:
             conn.execute(
                 "UPDATE licitaciones SET fecha_limite_ofertas = COALESCE(fecha_limite_ofertas, %s) WHERE nid_proceso = %s",
