@@ -64,9 +64,10 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
             )
         for d in documents:
             inserted = conn.execute(
-                """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, publicado_en)
-                   VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (uuid) DO NOTHING RETURNING id""",
-                [nid, d["uuid"], d["etapa"], d["tipo"], d["nombre_archivo"], d["publicado_en"]],
+                """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, publicado_en, estado)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING id""",
+                [nid, d["uuid"], d["etapa"], d["tipo"], d["nombre_archivo"], d["publicado_en"],
+                 "pending" if d["uuid"] else "sin_enlace"],
             ).fetchone()
             new += inserted is not None
         if has_bases(documents):

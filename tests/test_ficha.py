@@ -32,6 +32,21 @@ def test_archive_is_listed_like_any_document():
     assert bases["nombre_archivo"] == "BASES.rar"
 
 
+def without_link(page: str) -> str:
+    return re.sub(r"<a id=\"tbFicha:dtDocumentos:0:j_idt397\".*?</a></a>", "BASES.rar", page, flags=re.S)
+
+
+def test_document_without_link_is_kept_without_uuid():
+    [bases] = parse_documents(without_link(read("ficha_rar.html")))
+    assert bases["uuid"] is None
+    assert bases["tipo"] == "Bases Administrativas"
+    assert bases["nombre_archivo"] == "BASES.rar"
+
+
+def test_bases_without_link_do_not_count():
+    assert not has_bases(parse_documents(without_link(read("ficha_rar.html"))))
+
+
 def test_empty_table_gives_no_documents():
     page = re.sub(r"<tr[^>]*data-ri.*?</tr>", "", read("ficha_rar.html"), flags=re.S)
     assert parse_documents(page) == []
@@ -39,7 +54,7 @@ def test_empty_table_gives_no_documents():
 
 def test_bases_detected_by_document_type():
     assert has_bases(parse_documents(read("ficha_two_documents.html")))
-    assert not has_bases([{"tipo": "Informe que sustenta la declaratoria de Desierto"}])
+    assert not has_bases([{"tipo": "Informe que sustenta la declaratoria de Desierto", "uuid": "x"}])
 
 
 def test_page_without_document_table_is_an_error():

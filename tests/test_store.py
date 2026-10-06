@@ -126,6 +126,17 @@ def test_document_states(conn, rows, documents):
     assert conn.execute("SELECT estado FROM documentos ORDER BY id").fetchall() == [("done",), ("error",)]
 
 
+def test_document_without_link_is_stored_once_and_never_downloaded(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    linkless = [{**d, "uuid": None} for d in documents]
+    assert save_ficha(conn, nid, linkless) == 2
+    assert save_ficha(conn, nid, linkless) == 0
+    assert pending_documents(conn, [nid]) == []
+    assert ficha_state(conn, nid) == ("pending", 0)
+    assert conn.execute("SELECT estado FROM documentos").fetchall() == [("sin_enlace",), ("sin_enlace",)]
+
+
 def test_pending_documents_only_of_the_obras_asked_for(conn, rows, documents):
     save_new_licitaciones(conn, rows[:2])
     wanted, other = rows[0]["nid_proceso"], rows[1]["nid_proceso"]

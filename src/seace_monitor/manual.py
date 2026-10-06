@@ -388,7 +388,8 @@ def write_template(conn: psycopg.Connection, nid: int, folder: Path) -> Path:
     bases = [
         {"uuid": u, "nombre_archivo": n, "ruta_local": r}
         for u, n, r, tipo in conn.execute(
-            "SELECT uuid, nombre_archivo, ruta_local, tipo FROM documentos WHERE nid_proceso = %s ORDER BY id", [nid]
+            "SELECT uuid, nombre_archivo, ruta_local, tipo FROM documentos WHERE nid_proceso = %s AND uuid IS NOT NULL ORDER BY id",
+            [nid],
         ).fetchall()
         if "bases" in normalize(tipo)
     ]
