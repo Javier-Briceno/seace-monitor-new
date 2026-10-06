@@ -12,8 +12,8 @@ from seace_monitor.locate import locate
 from seace_monitor.search import LIMA, parse_results
 from seace_monitor.ficha import parse_documents
 from seace_monitor.store import (
-    MAX_ATTEMPTS, document_done, document_failed, ficha_failed, fichas_to_read,
-    pending_documents, save_ficha, save_new_licitaciones,
+    MAX_ATTEMPTS, archives_to_unpack, contents_done, contents_failed, document_done, document_failed,
+    ficha_failed, fichas_to_read, pending_documents, save_ficha, save_new_licitaciones,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -145,6 +145,42 @@ def test_pending_documents_only_of_the_obras_asked_for(conn, rows, documents):
     assert {d["nid_proceso"] for d in pending_documents(conn, [wanted])} == {wanted}
     assert pending_documents(conn, []) == []
 
+
+
+def downloaded(conn, rows, documents, *paths):
+    save_new_licitaciones(conn, rows[:1])
+    save_ficha(conn, rows[0]["nid_proceso"], documents)
+    ids = [d["id"] for d in pending_documents(conn, [rows[0]["nid_proceso"]])]
+    for doc_id, path in zip(ids, paths):
+        document_done(conn, doc_id, path, 10)
+    return ids
+
+
+def test_only_downloaded_archives_are_unpacked(conn, rows, documents):
+    archive, _ = downloaded(conn, rows, documents, "data/BASES.RAR", "data/bases.pdf")
+    assert archives_to_unpack(conn) == [{"id": archive, "ruta_local": "data/BASES.RAR"}]
+    assert archives_to_unpack(conn, [rows[0]["nid_proceso"]]) == archives_to_unpack(conn)
+    assert archives_to_unpack(conn, [rows[1]["nid_proceso"]]) == []
+
+
+def test_unpacked_archive_is_not_unpacked_again(conn, rows, documents):
+    archive, _ = downloaded(conn, rows, documents, "data/BASES.zip")
+    files = [
+        {"ruta": "bases.pdf", "tamano_bytes": 9, "dentro_de": "", "error": None},
+        {"ruta": "planos.zip", "tamano_bytes": 5, "dentro_de": "", "error": "Wrong password"},
+    ]
+    contents_done(conn, archive, files)
+    contents_done(conn, archive, files[:1])
+    assert archives_to_unpack(conn) == []
+    assert conn.execute("SELECT ruta, dentro_de FROM documento_contenido").fetchall() == [("bases.pdf", "")]
+
+
+def test_broken_archive_keeps_its_error_and_is_not_retried(conn, rows, documents):
+    archive, _ = downloaded(conn, rows, documents, "data/BASES.7z")
+    contents_failed(conn, archive, "Wrong password")
+    assert archives_to_unpack(conn) == []
+    assert conn.execute("SELECT contenido_estado, contenido_error FROM documentos WHERE id = %s",
+                        [archive]).fetchone() == ("error", "Wrong password")
 
 def test_writes_survive_the_connection(test_dbname, rows, documents):
     """A read before a write must not leave the write uncommitted."""
