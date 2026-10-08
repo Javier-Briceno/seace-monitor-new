@@ -6,6 +6,7 @@ import psycopg
 
 from .archives import ARCHIVE_SUFFIXES
 from .ficha import has_bases
+from .track import closes
 
 # After this many failures an item stays in error and is only reported.
 MAX_ATTEMPTS = 3
@@ -56,7 +57,7 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
     The ficha counts as read only once it lists a bases. Until then it stays
     pending without spending attempts, since entities often publish it later.
     A stored deadline is never overwritten: a postponement is a change for historial.
-    The estados are replaced by each reading.
+    The estados are replaced by each reading. An open obra is closed when track.closes says so.
     """
     new = 0
     with conn.transaction():
@@ -78,6 +79,12 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
         if has_bases(documents):
             conn.execute(
                 "UPDATE licitaciones SET ficha_estado = 'done', ficha_ultimo_error = NULL WHERE nid_proceso = %s",
+                [nid],
+            )
+        if closes(estados, documents):
+            conn.execute(
+                """UPDATE licitaciones SET seguimiento = 'cerrada', seguimiento_hasta = now()
+                   WHERE nid_proceso = %s AND seguimiento = 'abierta'""",
                 [nid],
             )
     return new

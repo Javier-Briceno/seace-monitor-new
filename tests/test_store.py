@@ -129,6 +129,45 @@ def test_item_estados_are_replaced_by_each_reading(conn, rows, documents):
     stored = conn.execute("SELECT estado_items FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()
     assert stored == (["Adjudicado", "Desierto"],)
 
+
+def tracking(conn, nid):
+    return conn.execute(
+        "SELECT seguimiento, seguimiento_hasta IS NOT NULL FROM licitaciones WHERE nid_proceso = %s", [nid]
+    ).fetchone()
+
+
+def test_new_obra_is_tracked(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    assert tracking(conn, nid) == ("abierta", False)
+
+
+def test_obra_closes_when_no_item_is_convocado(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado", "Desierto"])
+    assert tracking(conn, nid) == ("abierta", False)
+    save_ficha(conn, nid, documents, estados=["Adjudicado", "Desierto"])
+    assert tracking(conn, nid) == ("cerrada", True)
+
+
+def test_obra_closes_when_offers_are_published(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    offers = {**documents[0], "uuid": "offers", "tipo": "Documentos de Presentación de Propuestas"}
+    save_ficha(conn, nid, documents + [offers], estados=["Convocado"])
+    assert tracking(conn, nid) == ("cerrada", True)
+
+
+def test_closed_obra_does_not_reopen(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Nulo"])
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    assert tracking(conn, nid) == ("cerrada", True)
+
+
 def test_document_states(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     save_ficha(conn, rows[0]["nid_proceso"], documents)
