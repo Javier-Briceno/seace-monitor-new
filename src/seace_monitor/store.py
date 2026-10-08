@@ -6,6 +6,7 @@ import psycopg
 
 from .archives import ARCHIVE_SUFFIXES
 from .ficha import has_bases
+from .search import LIMA
 from .track import closes
 
 # After this many failures an item stays in error and is only reported.
@@ -56,18 +57,24 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
 
     The ficha counts as read only once it lists a bases. Until then it stays
     pending without spending attempts, since entities often publish it later.
-    A stored deadline is never overwritten: a postponement is a change for historial.
-    The estados are replaced by each reading. An open obra is closed when track.closes says so.
+    The licitación keeps the current values. Once a ficha has been read, every later
+    difference (estados, deadline, a new document, the obra closing) also becomes a historial row.
     """
     new = 0
     with conn.transaction():
-        if estados:
+        stored_estados, stored_deadline = conn.execute(
+            "SELECT estado_items, fecha_limite_ofertas FROM licitaciones WHERE nid_proceso = %s", [nid]
+        ).fetchone()
+        read_before = stored_estados is not None
+        changes = []
+        if estados and estados != stored_estados:
+            if read_before:
+                changes.append(("estado_items", " / ".join(stored_estados), " / ".join(estados)))
             conn.execute("UPDATE licitaciones SET estado_items = %s WHERE nid_proceso = %s", [estados, nid])
-        if deadline:
-            conn.execute(
-                "UPDATE licitaciones SET fecha_limite_ofertas = COALESCE(fecha_limite_ofertas, %s) WHERE nid_proceso = %s",
-                [deadline, nid],
-            )
+        if deadline and deadline != stored_deadline:
+            if stored_deadline:
+                changes.append(("fecha_limite_ofertas", lima_text(stored_deadline), lima_text(deadline)))
+            conn.execute("UPDATE licitaciones SET fecha_limite_ofertas = %s WHERE nid_proceso = %s", [deadline, nid])
         for d in documents:
             inserted = conn.execute(
                 """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, publicado_en, estado)
@@ -76,18 +83,39 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
                  "pending" if d["uuid"] else "sin_enlace"],
             ).fetchone()
             new += inserted is not None
+            if inserted and read_before:
+                changes.append(("documento", None, f"{d['tipo']}: {d['nombre_archivo']}"))
         if has_bases(documents):
             conn.execute(
                 "UPDATE licitaciones SET ficha_estado = 'done', ficha_ultimo_error = NULL WHERE nid_proceso = %s",
                 [nid],
             )
         if closes(estados, documents):
-            conn.execute(
+            closed = conn.execute(
                 """UPDATE licitaciones SET seguimiento = 'cerrada', seguimiento_hasta = now()
-                   WHERE nid_proceso = %s AND seguimiento = 'abierta'""",
+                   WHERE nid_proceso = %s AND seguimiento = 'abierta' RETURNING 1""",
                 [nid],
-            )
+            ).fetchone()
+            if closed and read_before:
+                changes.append(("seguimiento", "abierta", "cerrada"))
+        record_changes(conn, nid, changes)
     return new
+
+
+def lima_text(moment: datetime) -> str:
+    return moment.astimezone(LIMA).strftime("%d/%m/%Y %H:%M")
+
+
+def record_changes(conn: psycopg.Connection, nid: int, changes: list[tuple[str, str | None, str | None]]) -> None:
+    """Write (campo, valor_anterior, valor_nuevo) rows to historial and note when the obra last changed."""
+    if not changes:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO historial (nid_proceso, campo, valor_anterior, valor_nuevo) VALUES (%s, %s, %s, %s)",
+            [(nid, *change) for change in changes],
+        )
+    conn.execute("UPDATE licitaciones SET ultimo_cambio_en = now() WHERE nid_proceso = %s", [nid])
 
 
 def ficha_failed(conn: psycopg.Connection, nid: int, error: str) -> None:

@@ -253,11 +253,60 @@ def test_writes_survive_the_connection(test_dbname, rows, documents):
             cleanup.execute("DELETE FROM licitaciones WHERE nid_proceso = %s", [nid])
 
 
-def test_deadline_is_stored_once_and_never_overwritten(conn, rows, documents):
+def history(conn, nid):
+    return conn.execute(
+        "SELECT campo, valor_anterior, valor_nuevo FROM historial WHERE nid_proceso = %s ORDER BY id", [nid]
+    ).fetchall()
+
+
+def last_change(conn, nid):
+    return conn.execute("SELECT ultimo_cambio_en FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()[0]
+
+
+def test_postponed_deadline_keeps_the_old_one_in_historial(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     nid = rows[0]["nid_proceso"]
-    first = datetime(2026, 10, 9, 23, 59, tzinfo=LIMA)
-    save_ficha(conn, nid, documents, first)
-    save_ficha(conn, nid, documents, datetime(2026, 10, 20, 23, 59, tzinfo=LIMA))
+    later = datetime(2026, 10, 20, 23, 59, tzinfo=LIMA)
+    save_ficha(conn, nid, documents, datetime(2026, 10, 9, 23, 59, tzinfo=LIMA), ["Convocado"])
+    save_ficha(conn, nid, documents, later, ["Convocado"])
     stored = conn.execute("SELECT fecha_limite_ofertas FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()[0]
-    assert stored == first
+    assert stored == later
+    assert history(conn, nid) == [("fecha_limite_ofertas", "09/10/2026 23:59", "20/10/2026 23:59")]
+    assert last_change(conn, nid) is not None
+
+
+def test_first_reading_is_not_a_change(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, datetime(2026, 10, 9, 23, 59, tzinfo=LIMA), ["Convocado"])
+    assert history(conn, nid) == []
+    assert last_change(conn, nid) is None
+
+
+def test_same_ficha_again_is_not_a_change(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    deadline = datetime(2026, 10, 9, 23, 59, tzinfo=LIMA)
+    save_ficha(conn, nid, documents, deadline, ["Convocado"])
+    save_ficha(conn, nid, documents, deadline, ["Convocado"])
+    assert history(conn, nid) == []
+
+
+def test_estado_change_and_closing_go_to_historial(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado", "Convocado"])
+    save_ficha(conn, nid, documents, estados=["Adjudicado", "Desierto"])
+    assert history(conn, nid) == [
+        ("estado_items", "Convocado / Convocado", "Adjudicado / Desierto"),
+        ("seguimiento", "abierta", "cerrada"),
+    ]
+
+
+def test_new_document_goes_to_historial(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    integradas = {**documents[0], "uuid": "integradas", "tipo": "Bases Integradas", "nombre_archivo": "bi.pdf"}
+    assert save_ficha(conn, nid, documents + [integradas], estados=["Convocado"]) == 1
+    assert history(conn, nid) == [("documento", None, "Bases Integradas: bi.pdf")]
