@@ -272,6 +272,11 @@ def mark_reported(conn: psycopg.Connection, nids: list[int]) -> None:
         conn.execute("UPDATE licitaciones SET informado_en = now() WHERE nid_proceso = ANY(%s)", [nids])
 
 
+def mark_changes_reported(conn: psycopg.Connection, ids: list[int]) -> None:
+    with conn.transaction():
+        conn.execute("UPDATE historial SET informado_en = now() WHERE id = ANY(%s)", [ids])
+
+
 def mark_extractions_reported(conn: psycopg.Connection, ids: list[int]) -> None:
     with conn.transaction():
         conn.execute("UPDATE extracciones SET informado_en = now() WHERE id = ANY(%s)", [ids])

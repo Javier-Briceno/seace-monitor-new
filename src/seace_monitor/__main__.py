@@ -19,7 +19,7 @@ from .locate import locate
 from .search import LIMA, AccessError, SearchError, make_session, search_split
 from .store import (
     archives_to_unpack, contents_done, contents_failed, document_done, document_failed, ficha_failed,
-    fichas_to_read, link_restarts, mark_extractions_reported, mark_reported, mark_stalled, open_since,
+    fichas_to_read, link_restarts, mark_changes_reported, mark_extractions_reported, mark_reported, mark_stalled, open_since,
     pending_documents, save_ficha, save_new_licitaciones, tracked,
 )
 
@@ -168,7 +168,9 @@ def main() -> int:
         return 1
     mark_reported(conn, rep.nids)
     mark_extractions_reported(conn, rep.extraction_ids)
-    print(f"sent to {', '.join(to)}; {len(rep.nids)} obras and {len(rep.extraction_ids)} extractions marked as reported")
+    mark_changes_reported(conn, rep.change_ids)
+    print(f"sent to {', '.join(to)}; {len(rep.nids)} obras, {len(rep.extraction_ids)} extractions and "
+          f"{len(rep.change_ids)} changes marked as reported")
     return 0
 
 
