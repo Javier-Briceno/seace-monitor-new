@@ -42,6 +42,42 @@ def save_new_licitaciones(conn: psycopg.Connection, rows: list[dict]) -> list[in
     return new
 
 
+def link_restarts(conn: psycopg.Connection) -> list[tuple[int, int]]:
+    """Link each obra not linked yet to the latest earlier one with the same entidad and nomenclatura.
+
+    The nomenclatura alone repeats across entidades. A higher nid_proceso is a later
+    publication, so the earlier obra is the one with the highest lower nid. It stops being
+    tracked if it still was. Returns the (earlier, later) pairs linked now.
+    """
+    pairs = conn.execute(
+        """SELECT o.nid_proceso, o.estado_items, n.nid_proceso, n.reiniciado_desde
+           FROM licitaciones n
+           JOIN LATERAL (
+               SELECT nid_proceso, estado_items FROM licitaciones o
+               WHERE o.entidad = n.entidad AND o.nomenclatura = n.nomenclatura AND o.nid_proceso < n.nid_proceso
+                 -- an earlier obra already restarted by another one is not linked twice
+                 AND NOT EXISTS (SELECT 1 FROM licitaciones x WHERE x.reinicio_de = o.nid_proceso)
+               ORDER BY o.nid_proceso DESC LIMIT 1
+           ) o ON true
+           WHERE n.reinicio_de IS NULL
+           ORDER BY n.nid_proceso"""
+    ).fetchall()
+    for old, estados, new, desde in pairs:
+        with conn.transaction():
+            conn.execute("UPDATE licitaciones SET reinicio_de = %s WHERE nid_proceso = %s", [old, new])
+            stage = f" desde {desde}" if desde else ""
+            estado = " / ".join(estados) if estados else "sin leer"
+            record_changes(conn, new, [("reinicio", None, f"reiniciada{stage}; antes nid {old}, estado {estado}")])
+            stopped = conn.execute(
+                """UPDATE licitaciones SET seguimiento = 'reiniciada', seguimiento_hasta = now()
+                   WHERE nid_proceso = %s AND seguimiento = 'abierta' RETURNING 1""",
+                [old],
+            ).fetchone()
+            if stopped:
+                record_changes(conn, old, [("seguimiento", "abierta", "reiniciada")])
+    return [(old, new) for old, _, new, _ in pairs]
+
+
 def fichas_to_read(conn: psycopg.Connection, nids: list[int]) -> set[int]:
     """Of these licitaciones, the ones whose document list is still missing."""
     rows = conn.execute(

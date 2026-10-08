@@ -13,7 +13,7 @@ from seace_monitor.search import LIMA, parse_results
 from seace_monitor.ficha import parse_documents
 from seace_monitor.store import (
     MAX_ATTEMPTS, archives_to_unpack, contents_done, contents_failed, document_done, document_failed,
-    ficha_failed, fichas_to_read, pending_documents, save_ficha, save_new_licitaciones,
+    ficha_failed, fichas_to_read, link_restarts, pending_documents, save_ficha, save_new_licitaciones,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -301,6 +301,65 @@ def test_estado_change_and_closing_go_to_historial(conn, rows, documents):
         ("estado_items", "Convocado / Convocado", "Adjudicado / Desierto"),
         ("seguimiento", "abierta", "cerrada"),
     ]
+
+
+def restart_of(rows, base, nid, **changes):
+    return {**base, "nid_proceso": nid, **changes}
+
+
+def links(conn):
+    return conn.execute(
+        "SELECT nid_proceso, reinicio_de, seguimiento FROM licitaciones ORDER BY nid_proceso"
+    ).fetchall()
+
+
+def test_restart_links_to_the_earlier_obra_and_stops_tracking_it(conn, rows, documents):
+    old = rows[0]
+    save_new_licitaciones(conn, [old])
+    save_ficha(conn, old["nid_proceso"], documents, estados=["Convocado"])
+    new = restart_of(rows, old, old["nid_proceso"] + 1000, reiniciado_desde="Registro de puntaje técnico")
+    save_new_licitaciones(conn, [new])
+    assert link_restarts(conn) == [(old["nid_proceso"], new["nid_proceso"])]
+    assert links(conn) == [(old["nid_proceso"], None, "reiniciada"), (new["nid_proceso"], old["nid_proceso"], "abierta")]
+    assert history(conn, new["nid_proceso"]) == [
+        ("reinicio", None, f"reiniciada desde Registro de puntaje técnico; antes nid {old['nid_proceso']}, estado Convocado")
+    ]
+    assert history(conn, old["nid_proceso"]) == [("seguimiento", "abierta", "reiniciada")]
+    assert link_restarts(conn) == []
+
+
+def test_closed_earlier_obra_stays_closed(conn, rows, documents):
+    old = rows[0]
+    save_new_licitaciones(conn, [old])
+    save_ficha(conn, old["nid_proceso"], documents, estados=["Nulo"])
+    save_new_licitaciones(conn, [restart_of(rows, old, old["nid_proceso"] + 1000)])
+    link_restarts(conn)
+    assert links(conn)[0] == (old["nid_proceso"], None, "cerrada")
+    assert history(conn, old["nid_proceso"]) == []
+
+
+def test_chain_of_restarts_links_each_to_the_one_before(conn, rows):
+    a = rows[0]
+    b, c = (restart_of(rows, a, a["nid_proceso"] + k) for k in (1000, 2000))
+    save_new_licitaciones(conn, [a, b, c])
+    link_restarts(conn)
+    assert [l[:2] for l in links(conn)] == [(a["nid_proceso"], None), (b["nid_proceso"], a["nid_proceso"]),
+                                            (c["nid_proceso"], b["nid_proceso"])]
+
+
+def test_same_nomenclatura_of_another_entidad_is_not_a_restart(conn, rows):
+    a = rows[0]
+    save_new_licitaciones(conn, [a, restart_of(rows, a, a["nid_proceso"] + 1000, entidad="OTRA ENTIDAD")])
+    assert link_restarts(conn) == []
+
+
+def test_obra_found_late_does_not_link_an_obra_twice(conn, rows):
+    a = rows[0]
+    b, c = (restart_of(rows, a, a["nid_proceso"] + k) for k in (1000, 2000))
+    save_new_licitaciones(conn, [a, c])
+    link_restarts(conn)
+    save_new_licitaciones(conn, [b])
+    assert link_restarts(conn) == []
 
 
 def test_new_document_goes_to_historial(conn, rows, documents):
