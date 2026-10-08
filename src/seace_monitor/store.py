@@ -108,12 +108,20 @@ def tracked(conn: psycopg.Connection) -> list[int]:
 
 
 def mark_stalled(conn: psycopg.Connection, now: datetime, days: int = STALLED_DAYS) -> list[int]:
-    """Stop tracking obras without any change for this many days; until a first change, since publication."""
+    """Stop tracking obras whose last movement is older than this many days.
+
+    The monitor has only seen part of each obra's life, so SEACE's own dates count too:
+    the last movement is the newest of the publication, the offer deadline, the newest
+    document and the last change the monitor saw. An offer deadline still ahead never stalls.
+    """
     with conn.transaction():
         nids = [r[0] for r in conn.execute(
-            """UPDATE licitaciones SET seguimiento = 'parada', seguimiento_hasta = %s
-               WHERE seguimiento = 'abierta' AND COALESCE(ultimo_cambio_en, fecha_publicacion) < %s
-               RETURNING nid_proceso""",
+            """UPDATE licitaciones l SET seguimiento = 'parada', seguimiento_hasta = %s
+               WHERE l.seguimiento = 'abierta' AND GREATEST(
+                   l.ultimo_cambio_en, l.fecha_publicacion, l.fecha_limite_ofertas,
+                   (SELECT max(d.publicado_en) FROM documentos d WHERE d.nid_proceso = l.nid_proceso)
+               ) < %s
+               RETURNING l.nid_proceso""",
             [now, now - timedelta(days=days)],
         ).fetchall()]
         for nid in nids:

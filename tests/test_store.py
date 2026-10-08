@@ -391,18 +391,45 @@ def test_search_range_starts_at_the_oldest_tracked_obra(conn, rows, documents):
     assert open_since(conn) == {"LA LIBERTAD": still["fecha_publicacion"].date()}
 
 
-def test_obra_without_change_for_60_days_stops_being_tracked(conn, rows, documents):
-    save_new_licitaciones(conn, rows[:2])
-    a, b = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
-    published = rows[0]["fecha_publicacion"]
-    save_ficha(conn, b, documents, datetime(2026, 10, 9, 23, 59, tzinfo=LIMA), ["Convocado"])
-    save_ficha(conn, b, documents, datetime(2026, 10, 20, 23, 59, tzinfo=LIMA), ["Convocado"])  # a change today
-    later = max(published, rows[1]["fecha_publicacion"]) + timedelta(days=STALLED_DAYS, minutes=1)
-    assert mark_stalled(conn, later) == [a]
-    assert tracking(conn, a) == ("parada", True)
-    assert history(conn, a) == [("seguimiento", "abierta", "parada")]
-    assert tracking(conn, b) == ("abierta", False)
-    assert mark_stalled(conn, later) == []
+PUBLISHED = datetime(2026, 6, 1, 10, 0, tzinfo=LIMA)
+STALL_CHECK = PUBLISHED + timedelta(days=STALLED_DAYS + 30)
+
+
+def obra_dated(conn, rows, documents, deadline, document_dates):
+    """One tracked obra published on PUBLISHED, with this deadline and documents published on these dates."""
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    conn.execute("UPDATE licitaciones SET fecha_publicacion = %s WHERE nid_proceso = %s", [PUBLISHED, nid])
+    dated = [{**d, "uuid": f"{d['uuid']}-{i}", "publicado_en": when} for i, (d, when) in
+             enumerate(zip(documents * len(document_dates), document_dates))]
+    save_ficha(conn, nid, dated, deadline, ["Convocado"])
+    return nid
+
+
+def test_obra_without_movement_for_60_days_stops_being_tracked(conn, rows, documents):
+    nid = obra_dated(conn, rows, documents, PUBLISHED + timedelta(days=10), [PUBLISHED])
+    assert mark_stalled(conn, STALL_CHECK) == [nid]
+    assert tracking(conn, nid) == ("parada", True)
+    assert history(conn, nid) == [("seguimiento", "abierta", "parada")]
+    assert mark_stalled(conn, STALL_CHECK) == []
+
+
+def test_offer_deadline_still_ahead_never_stalls(conn, rows, documents):
+    obra_dated(conn, rows, documents, STALL_CHECK + timedelta(days=5), [PUBLISHED])
+    assert mark_stalled(conn, STALL_CHECK) == []
+
+
+def test_recent_document_keeps_the_obra_tracked(conn, rows, documents):
+    obra_dated(conn, rows, documents, PUBLISHED + timedelta(days=10),
+               [PUBLISHED, STALL_CHECK - timedelta(days=STALLED_DAYS - 1)])
+    assert mark_stalled(conn, STALL_CHECK) == []
+
+
+def test_change_seen_by_the_monitor_keeps_the_obra_tracked(conn, rows, documents):
+    nid = obra_dated(conn, rows, documents, PUBLISHED + timedelta(days=10), [PUBLISHED])
+    conn.execute("UPDATE licitaciones SET ultimo_cambio_en = %s WHERE nid_proceso = %s",
+                 [STALL_CHECK - timedelta(days=1), nid])
+    assert mark_stalled(conn, STALL_CHECK) == []
 
 
 def test_new_document_goes_to_historial(conn, rows, documents):
