@@ -1,4 +1,4 @@
-"""Search SEACE, store new licitaciones, list and download their documents, write the daily report.
+"""Search SEACE, store new licitaciones, re-read the tracked ones, download their documents, write the daily report.
 
     python -m seace_monitor [--config config.toml] [--no-mail]
     python -m seace_monitor --plantilla <nid_proceso>
@@ -16,42 +16,48 @@ from .archives import ArchiveError, MachineError, unpack
 from .download import DocumentError, download
 from .ficha import FichaError, open_ficha, parse_deadline, parse_documents, parse_estados
 from .locate import locate
-from .search import LIMA, AccessError, SearchError, make_session, search_pages
+from .search import LIMA, AccessError, SearchError, make_session, search_split
 from .store import (
     archives_to_unpack, contents_done, contents_failed, document_done, document_failed, ficha_failed,
-    fichas_to_read, mark_extractions_reported, mark_reported, pending_documents, save_ficha,
-    save_new_licitaciones,
+    fichas_to_read, link_restarts, mark_extractions_reported, mark_reported, mark_stalled, open_since,
+    pending_documents, save_ficha, save_new_licitaciones, tracked,
 )
 
 PAUSE = 1  # seconds between requests to SEACE
 
 
 def run_search(conn, session, query) -> None:
+    """Store new obras and read the fichas of new and still tracked ones.
+
+    The range reaches back to the oldest tracked obra, so a long range is split
+    where the portal would cut the list.
+    """
     print(f"{query.objeto} / {query.departamento} / {query.desde} to {query.hasta}")
     total_new = total_rows = 0
-    for number, result in enumerate(search_pages(query, session), 1):
-        if number == 1:
-            print(f"  portal total {result.total}")
+    for number, result in enumerate(search_split(query, session), 1):
         for row in result.rows:
             row["departamentos"], row["ubicacion_fuente"] = locate(row["descripcion"])
         new = set(save_new_licitaciones(conn, result.rows))
+        for old, restart in link_restarts(conn):
+            print(f"  restart: {restart} restarts {old}")
         total_new += len(new)
         total_rows += len(result.rows)
-        print(f"  page {number}: {len(result.rows)} rows, new: {len(new)}")
+        print(f"  page {number}: {len(result.rows)} rows of {result.total}, new: {len(new)}")
         read_fichas(conn, session, result, new)
     print(f"  new: {total_new}, already stored: {total_rows - total_new}")
 
 
 def read_fichas(conn, session, result, new) -> None:
     # Fichas only open within this search's session and for the page loaded
-    # last, so every row of this page still missing its bases is read now.
+    # last, so every row of this page still missing its bases or still tracked is read now.
     to_read = fichas_to_read(conn, [r["nid_proceso"] for r in result.rows])
     for row in result.rows:
         nid = row["nid_proceso"]
         mark = "new" if nid in new else "   "
         line = f"  {mark} {nid}  {row['nomenclatura']}  {'/'.join(row['departamentos']) or '?'}"
         if nid not in to_read:
-            print(line)
+            if nid in new:
+                print(line)
             continue
         time.sleep(PAUSE)
         try:
@@ -70,7 +76,7 @@ def read_fichas(conn, session, result, new) -> None:
 
 def run_downloads(conn, session, root, nids) -> None:
     pending = pending_documents(conn, nids)
-    print(f"downloads pending for {len(nids)} obras of the report: {len(pending)}")
+    print(f"downloads pending for {len(nids)} obras of the report or tracked: {len(pending)}")
     for document in pending:
         time.sleep(PAUSE)
         try:
@@ -129,12 +135,16 @@ def main() -> int:
         run_unpacking(conn)
         return 0
     try:
-        for query in config.queries(cfg):
+        for query in config.queries(cfg, open_since=open_since(conn)):
             run_search(conn, session, query)
-        # Only the obras that go into today's report; documents of older obras
-        # are fetched by the step that needs them.
+        # Only after every search went through: an obra skipped by a failed search may have changed.
+        for nid in mark_stalled(conn, datetime.now(LIMA)):
+            print(f"stalled, no longer tracked: {nid}")
+        # The obras of today's report and the tracked ones, whose new documents
+        # (bases integradas, absolución) are needed; closed obras are left alone.
         candidates = [i["nid_proceso"] for i in report.pending(
             conn, config.watched(cfg), config.download_dir(cfg), datetime.now(LIMA))]
+        candidates = sorted(set(candidates) | set(tracked(conn)))
         run_downloads(conn, session, config.download_dir(cfg), candidates)
         run_unpacking(conn, candidates)
     except AccessError as error:

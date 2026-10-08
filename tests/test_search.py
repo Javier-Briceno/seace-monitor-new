@@ -94,6 +94,23 @@ def test_config_builds_one_query_per_departamento():
     assert queries[0].version_seace is None
 
 
+def test_tracked_obras_stretch_the_range_of_their_departamento():
+    cfg = {"search": {"objeto": "Obra", "departamentos": ["LA LIBERTAD"], "dias": 3}}
+    queries = config.queries(cfg, today=date(2026, 10, 8), open_since={
+        "La Libertad": date(2026, 6, 1), "ANCASH": date(2026, 5, 4), "TODOS": date(2026, 9, 1),
+    })
+    assert [(q.departamento, q.desde) for q in queries] == [
+        ("LA LIBERTAD", date(2026, 6, 1)), ("ANCASH", date(2026, 5, 4)), (None, date(2026, 9, 1)),
+    ]
+    assert {q.hasta for q in queries} == {date(2026, 10, 8)}
+
+
+def test_tracked_obra_newer_than_the_window_does_not_shorten_it():
+    cfg = {"search": {"objeto": "Obra", "departamentos": ["LA LIBERTAD"], "dias": 3}}
+    queries = config.queries(cfg, today=date(2026, 10, 8), open_since={"LA LIBERTAD": date(2026, 10, 7)})
+    assert queries[0].desde == date(2026, 10, 5)
+
+
 def test_dashes_mean_no_amount():
     rows = parse_results(read("search_page1.xml")).rows
     assert rows[10]["valor_referencial"] is None
@@ -184,6 +201,39 @@ def test_a_cut_list_stops_the_search(monkeypatch, form):
     _, pages = pages_of(monkeypatch, form, RESULT_CAP, [])
     with pytest.raises(SearchError, match="stops at 499"):
         next(pages)
+
+
+def test_a_cut_list_is_split_into_halves_until_it_fits(monkeypatch):
+    ranges = []
+
+    def fake_pages(query, session):
+        ranges.append((query.desde, query.hasta))
+        if (query.hasta - query.desde).days > 10:
+            raise search_module.CapError("cut")
+        yield SearchResult([{"nid_proceso": query.desde.toordinal()}], 1)
+
+    monkeypatch.setattr(search_module, "search_pages", fake_pages)
+    query = Query(objeto="Obra", desde=date(2026, 9, 1), hasta=date(2026, 9, 30))
+    pages = list(search_module.search_split(query, object()))
+    assert ranges == [
+        (date(2026, 9, 1), date(2026, 9, 30)),
+        (date(2026, 9, 1), date(2026, 9, 15)), (date(2026, 9, 1), date(2026, 9, 8)), (date(2026, 9, 9), date(2026, 9, 15)),
+        (date(2026, 9, 16), date(2026, 9, 30)), (date(2026, 9, 16), date(2026, 9, 23)), (date(2026, 9, 24), date(2026, 9, 30)),
+    ]
+    # Every day of the range is searched exactly once.
+    covered = [d for page in pages for d in [date.fromordinal(page.rows[0]["nid_proceso"])]]
+    assert covered == [date(2026, 9, 1), date(2026, 9, 9), date(2026, 9, 16), date(2026, 9, 24)]
+
+
+def test_a_single_day_over_the_cap_still_stops(monkeypatch):
+    def fake_pages(query, session):
+        raise search_module.CapError("cut")
+        yield
+
+    monkeypatch.setattr(search_module, "search_pages", fake_pages)
+    day = date(2026, 9, 1)
+    with pytest.raises(search_module.CapError):
+        list(search_module.search_split(Query(objeto="Obra", desde=day, hasta=day), object()))
 
 
 def test_rows_read_twice_while_paging_stop_the_search(monkeypatch, form):

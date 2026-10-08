@@ -1,6 +1,6 @@
 """Read and write pipeline state in Postgres."""
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import psycopg
 
@@ -11,6 +11,9 @@ from .track import closes
 
 # After this many failures an item stays in error and is only reported.
 MAX_ATTEMPTS = 3
+
+# An obra without any change for this long is stalled and no longer tracked.
+STALLED_DAYS = 60
 
 COLUMNS = (
     "nid_proceso", "nomenclatura", "entidad", "objeto", "descripcion",
@@ -79,12 +82,43 @@ def link_restarts(conn: psycopg.Connection) -> list[tuple[int, int]]:
 
 
 def fichas_to_read(conn: psycopg.Connection, nids: list[int]) -> set[int]:
-    """Of these licitaciones, the ones whose document list is still missing."""
+    """Of these licitaciones, the ones whose document list is still missing or that are still tracked."""
     rows = conn.execute(
-        "SELECT nid_proceso FROM licitaciones WHERE nid_proceso = ANY(%s) AND ficha_estado = 'pending'",
+        """SELECT nid_proceso FROM licitaciones WHERE nid_proceso = ANY(%s)
+           AND (ficha_estado = 'pending' OR (ficha_estado = 'done' AND seguimiento = 'abierta'))""",
         [nids],
     ).fetchall()
     return {r[0] for r in rows}
+
+
+def open_since(conn: psycopg.Connection) -> dict[str, date]:
+    """Per search departamento, the publication date (Lima) of the oldest obra still tracked."""
+    rows = conn.execute(
+        """SELECT departamento_busqueda, min(fecha_publicacion) FROM licitaciones
+           WHERE seguimiento = 'abierta' AND departamento_busqueda IS NOT NULL AND fecha_publicacion IS NOT NULL
+           GROUP BY 1"""
+    ).fetchall()
+    return {d: since.astimezone(LIMA).date() for d, since in rows}
+
+
+def tracked(conn: psycopg.Connection) -> list[int]:
+    return [r[0] for r in conn.execute(
+        "SELECT nid_proceso FROM licitaciones WHERE seguimiento = 'abierta' ORDER BY nid_proceso"
+    ).fetchall()]
+
+
+def mark_stalled(conn: psycopg.Connection, now: datetime, days: int = STALLED_DAYS) -> list[int]:
+    """Stop tracking obras without any change for this many days; until a first change, since publication."""
+    with conn.transaction():
+        nids = [r[0] for r in conn.execute(
+            """UPDATE licitaciones SET seguimiento = 'parada', seguimiento_hasta = %s
+               WHERE seguimiento = 'abierta' AND COALESCE(ultimo_cambio_en, fecha_publicacion) < %s
+               RETURNING nid_proceso""",
+            [now, now - timedelta(days=days)],
+        ).fetchall()]
+        for nid in nids:
+            record_changes(conn, nid, [("seguimiento", "abierta", "parada")])
+    return sorted(nids)
 
 
 def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadline: datetime | None = None,
@@ -155,12 +189,13 @@ def record_changes(conn: psycopg.Connection, nid: int, changes: list[tuple[str, 
 
 
 def ficha_failed(conn: psycopg.Connection, nid: int, error: str) -> None:
+    """Count a failed first reading. A tracked ficha read before is simply read again on the next run."""
     with conn.transaction():
         conn.execute(
             """UPDATE licitaciones
                SET ficha_intentos = ficha_intentos + 1, ficha_ultimo_error = %s,
                    ficha_estado = CASE WHEN ficha_intentos + 1 >= %s THEN 'error' ELSE 'pending' END
-               WHERE nid_proceso = %s""",
+               WHERE nid_proceso = %s AND ficha_estado = 'pending'""",
             [error, MAX_ATTEMPTS, nid],
         )
 

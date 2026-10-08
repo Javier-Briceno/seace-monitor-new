@@ -1,6 +1,6 @@
 """Runs against a test database in the Docker Postgres (see conftest.py)."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -12,8 +12,9 @@ from seace_monitor.locate import locate
 from seace_monitor.search import LIMA, parse_results
 from seace_monitor.ficha import parse_documents
 from seace_monitor.store import (
-    MAX_ATTEMPTS, archives_to_unpack, contents_done, contents_failed, document_done, document_failed,
-    ficha_failed, fichas_to_read, link_restarts, pending_documents, save_ficha, save_new_licitaciones,
+    MAX_ATTEMPTS, STALLED_DAYS, archives_to_unpack, contents_done, contents_failed, document_done, document_failed,
+    ficha_failed, fichas_to_read, link_restarts, mark_stalled, open_since, pending_documents, save_ficha,
+    save_new_licitaciones, tracked,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -93,13 +94,14 @@ def test_new_rows_need_their_ficha(conn, rows):
     assert fichas_to_read(conn, nids) == set(nids)
 
 
-def test_ficha_with_bases_is_done_and_not_read_again(conn, rows, documents):
+def test_ficha_with_bases_is_done_and_read_again_only_while_tracked(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     nid = rows[0]["nid_proceso"]
-    assert save_ficha(conn, nid, documents) == 2
+    assert save_ficha(conn, nid, documents, estados=["Convocado"]) == 2
     assert ficha_state(conn, nid) == ("done", 0)
+    assert fichas_to_read(conn, [nid]) == {nid}
+    assert save_ficha(conn, nid, documents, estados=["Desierto"]) == 0
     assert fichas_to_read(conn, [nid]) == set()
-    assert save_ficha(conn, nid, documents) == 0
 
 
 def test_ficha_without_bases_stays_pending_without_spending_attempts(conn, rows, documents):
@@ -360,6 +362,47 @@ def test_obra_found_late_does_not_link_an_obra_twice(conn, rows):
     link_restarts(conn)
     save_new_licitaciones(conn, [b])
     assert link_restarts(conn) == []
+
+
+def test_tracked_obras_are_read_again_and_closed_ones_are_not(conn, rows, documents):
+    a, b = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    save_new_licitaciones(conn, rows[:2])
+    save_ficha(conn, a, documents, estados=["Convocado"])
+    save_ficha(conn, b, documents, estados=["Contratado"])
+    assert fichas_to_read(conn, [a, b]) == {a}
+    assert tracked(conn) == [a]
+
+
+def test_failed_re_reading_keeps_the_ficha_done(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    for _ in range(MAX_ATTEMPTS):
+        ficha_failed(conn, nid, "timeout")
+    assert ficha_state(conn, nid) == ("done", 0)
+    assert fichas_to_read(conn, [nid]) == {nid}
+
+
+def test_search_range_starts_at_the_oldest_tracked_obra(conn, rows, documents):
+    save_new_licitaciones(conn, rows)
+    oldest = min(rows, key=lambda r: r["fecha_publicacion"])
+    save_ficha(conn, oldest["nid_proceso"], documents, estados=["Nulo"])
+    still = min((r for r in rows if r is not oldest), key=lambda r: r["fecha_publicacion"])
+    assert open_since(conn) == {"LA LIBERTAD": still["fecha_publicacion"].date()}
+
+
+def test_obra_without_change_for_60_days_stops_being_tracked(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:2])
+    a, b = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    published = rows[0]["fecha_publicacion"]
+    save_ficha(conn, b, documents, datetime(2026, 10, 9, 23, 59, tzinfo=LIMA), ["Convocado"])
+    save_ficha(conn, b, documents, datetime(2026, 10, 20, 23, 59, tzinfo=LIMA), ["Convocado"])  # a change today
+    later = max(published, rows[1]["fecha_publicacion"]) + timedelta(days=STALLED_DAYS, minutes=1)
+    assert mark_stalled(conn, later) == [a]
+    assert tracking(conn, a) == ("parada", True)
+    assert history(conn, a) == [("seguimiento", "abierta", "parada")]
+    assert tracking(conn, b) == ("abierta", False)
+    assert mark_stalled(conn, later) == []
 
 
 def test_new_document_goes_to_historial(conn, rows, documents):
