@@ -1,5 +1,6 @@
 """Read and write pipeline state in Postgres."""
 
+import json
 from datetime import date, datetime, timedelta
 
 import psycopg
@@ -271,6 +272,39 @@ def contents_failed(conn: psycopg.Connection, doc_id: int, error: str) -> None:
     with conn.transaction():
         conn.execute(
             "UPDATE documentos SET contenido_estado = 'error', contenido_error = %s WHERE id = %s", [error, doc_id]
+        )
+
+
+def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | None = None) -> list[dict]:
+    """Downloaded bases of these obras without an extraction of this version; None means of every obra.
+
+    An archive waits until it has been unpacked (or found broken); `contents` are its files.
+    """
+    sql = """SELECT d.id, d.nid_proceso, d.ruta_local, l.valor_referencial,
+                    COALESCE(array_agg(c.ruta ORDER BY c.id) FILTER (WHERE c.ruta IS NOT NULL AND c.error IS NULL), '{}')
+             FROM documentos d JOIN licitaciones l USING (nid_proceso)
+             LEFT JOIN documento_contenido c ON c.documento_id = d.id
+             WHERE d.estado = 'done' AND d.tipo ILIKE 'bases%%'
+               AND (lower(d.ruta_local) NOT LIKE ALL(%s) OR d.contenido_estado IS NOT NULL)
+               AND NOT EXISTS (SELECT 1 FROM extracciones e WHERE e.documento_id = d.id AND e.version_extractor = %s)"""
+    params = [[f"%{s}" for s in sorted(ARCHIVE_SUFFIXES)], version]
+    if nids is not None:
+        sql += " AND d.nid_proceso = ANY(%s)"
+        params.append(nids)
+    rows = conn.execute(sql + " GROUP BY d.id, l.valor_referencial ORDER BY d.id", params).fetchall()
+    return [dict(zip(("id", "nid_proceso", "ruta_local", "valor_referencial", "contents"), r)) for r in rows]
+
+
+def save_extraction(conn: psycopg.Connection, doc_id: int, version: str, campos: dict, motivo: str | None) -> None:
+    """One extraction per document and version; extracting again replaces it and reports it again."""
+    with conn.transaction():
+        conn.execute(
+            """INSERT INTO extracciones (documento_id, version_extractor, campos, motivo_no_legible, estado)
+               VALUES (%s, %s, %s, %s, 'done')
+               ON CONFLICT (documento_id, version_extractor) DO UPDATE
+                   SET campos = EXCLUDED.campos, motivo_no_legible = EXCLUDED.motivo_no_legible,
+                       informado_en = NULL, creado_en = now()""",
+            [doc_id, version, json.dumps(campos, ensure_ascii=False), motivo],
         )
 
 def mark_reported(conn: psycopg.Connection, nids: list[int]) -> None:

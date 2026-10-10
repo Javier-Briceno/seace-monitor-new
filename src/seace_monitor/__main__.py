@@ -12,16 +12,17 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-from . import config, db, mail, manual, report
+from . import config, cuantia, db, mail, manual, report
 from .archives import ArchiveError, MachineError, unpack
+from .bases_text import ToolMissing, bases_files
 from .download import DocumentError, download
 from .ficha import FichaError, StaleTable, open_ficha, parse_deadline, parse_estados, read_documents
 from .locate import locate
 from .search import LIMA, AccessError, Query, SearchError, make_session, search_pages, search_split
 from .store import (
-    archives_to_unpack, contents_done, contents_failed, document_done, document_failed, ficha_failed,
+    archives_to_unpack, bases_to_extract, contents_done, contents_failed, document_done, document_failed, ficha_failed,
     fichas_to_read, link_restarts, mark_changes_reported, mark_extractions_reported, mark_reported, mark_stalled, open_since,
-    pending_documents, save_ficha, save_new_licitaciones, tracked,
+    pending_documents, save_extraction, save_ficha, save_new_licitaciones, tracked,
 )
 
 PAUSE = 1  # seconds between requests to SEACE
@@ -160,12 +161,29 @@ def run_unpacking(conn, nids=None) -> None:
         print(f"  unpacked {path} ({len(files)} files)")
 
 
+def run_extraction(conn, nids=None) -> None:
+    """Read section 1.4 of the downloaded bases of these obras not read yet; None means every obra."""
+    pending = bases_to_extract(conn, cuantia.VERSION, nids)
+    print(f"bases to read: {len(pending)}")
+    for document in pending:
+        try:
+            result = cuantia.read_files(bases_files(document["ruta_local"], document["contents"]),
+                                        document["valor_referencial"])
+        except ToolMissing as error:
+            print(f"reading stopped, nothing marked: {error}")
+            return
+        save_extraction(conn, document["id"], cuantia.VERSION, result, result["revisar"])
+        warnings = ", ".join(w["aviso"] for w in result["avisos"])
+        print(f"  {document['nid_proceso']}  {result['revisar'] or result['cuantia']}  {warnings}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="seace_monitor")
     parser.add_argument("--config", default="config.toml")
     parser.add_argument("--no-mail", action="store_true", help="write the report but do not send it or mark anything")
     parser.add_argument("--plantilla", type=int, metavar="NID_PROCESO", help="write the manual extraction template of one obra and exit")
     parser.add_argument("--desempaquetar", action="store_true", help="unpack every downloaded archive not unpacked yet and exit")
+    parser.add_argument("--extraer", action="store_true", help="read section 1.4 of every downloaded bases not read yet and exit")
     args = parser.parse_args()
 
     cfg = config.load(args.config)
@@ -185,6 +203,9 @@ def main() -> int:
     if args.desempaquetar:
         run_unpacking(conn)
         return 0
+    if args.extraer:
+        run_extraction(conn)
+        return 0
     try:
         alone = []
         for query in config.queries(cfg, open_since=open_since(conn)):
@@ -200,6 +221,7 @@ def main() -> int:
         candidates = sorted(set(candidates) | set(tracked(conn)))
         run_downloads(conn, session, config.download_dir(cfg), candidates)
         run_unpacking(conn, candidates)
+        run_extraction(conn, candidates)
     except AccessError as error:
         print(f"stopped, SEACE unreachable; no attempts were counted: {error}", file=sys.stderr)
         return 1

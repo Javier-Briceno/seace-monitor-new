@@ -105,6 +105,14 @@ def test_extraction_of_an_already_reported_obra_gets_its_own_section(conn, tmp_p
     assert {"obra": "MUNICIPALIDAD DE PRUEBA (LP-ABR-1)", "campo": "Plazo", "valor": "120", "página": "12"} in rows
 
 
+def test_automatic_reading_is_not_listed_as_a_manual_extraction(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
+    add_extraction(conn, 1)
+    conn.execute("UPDATE extracciones SET version_extractor = 'cuantia-1', campos = %s", [json.dumps({"cuantia": "1.00"})])
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert rep.extraction_ids == [] and "Extraídas a mano" not in rep.text
+
+
 def test_key_personnel_rows_get_one_csv_row_each(conn, tmp_path):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=2))
     add_extraction(conn, 1)

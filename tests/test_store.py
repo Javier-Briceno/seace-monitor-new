@@ -12,9 +12,9 @@ from seace_monitor.locate import locate
 from seace_monitor.search import LIMA, parse_results
 from seace_monitor.ficha import parse_documents
 from seace_monitor.store import (
-    MAX_ATTEMPTS, STALLED_DAYS, archives_to_unpack, contents_done, contents_failed, document_done, document_failed,
-    ficha_failed, fichas_to_read, link_restarts, mark_stalled, open_since, pending_documents, save_ficha,
-    save_new_licitaciones, tracked,
+    MAX_ATTEMPTS, STALLED_DAYS, archives_to_unpack, bases_to_extract, contents_done, contents_failed, document_done,
+    document_failed, ficha_failed, fichas_to_read, link_restarts, mark_stalled, open_since, pending_documents,
+    save_extraction, save_ficha, save_new_licitaciones, tracked,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -225,6 +225,32 @@ def test_only_downloaded_archives_are_unpacked(conn, rows, documents):
     assert archives_to_unpack(conn) == [{"id": archive, "ruta_local": "data/BASES.RAR"}]
     assert archives_to_unpack(conn, [rows[0]["nid_proceso"]]) == archives_to_unpack(conn)
     assert archives_to_unpack(conn, [rows[1]["nid_proceso"]]) == []
+
+
+def test_downloaded_bases_wait_for_extraction_and_other_documents_do_not(conn, rows, documents):
+    informe, bases = downloaded(conn, rows, documents, "data/informe.pdf", "data/bases.pdf")
+    [pending] = bases_to_extract(conn, "cuantia-1")
+    assert (pending["id"], pending["ruta_local"], pending["contents"]) == (bases, "data/bases.pdf", [])
+    assert pending["valor_referencial"] == rows[0]["valor_referencial"]
+    assert bases_to_extract(conn, "cuantia-1", [rows[1]["nid_proceso"]]) == []
+
+
+def test_archived_bases_wait_until_unpacked(conn, rows, documents):
+    _, bases = downloaded(conn, rows, documents, "data/informe.pdf", "data/BASES.rar")
+    assert bases_to_extract(conn, "cuantia-1") == []
+    contents_done(conn, bases, [{"ruta": "bases.pdf", "tamano_bytes": 9, "dentro_de": "", "error": None},
+                                {"ruta": "planos.zip", "tamano_bytes": 5, "dentro_de": "", "error": "Wrong password"}])
+    assert [p["contents"] for p in bases_to_extract(conn, "cuantia-1")] == [["bases.pdf"]]
+
+
+def test_extracted_bases_are_not_extracted_again_by_the_same_version(conn, rows, documents):
+    _, bases = downloaded(conn, rows, documents, "data/informe.pdf", "data/bases.pdf")
+    save_extraction(conn, bases, "cuantia-1", {"cuantia": "1.00"}, None)
+    assert bases_to_extract(conn, "cuantia-1") == []
+    assert [p["id"] for p in bases_to_extract(conn, "cuantia-2")] == [bases]
+    save_extraction(conn, bases, "cuantia-1", {"cuantia": None}, "escaneado")
+    assert conn.execute("SELECT campos, motivo_no_legible FROM extracciones").fetchall() == [
+        ({"cuantia": None}, "escaneado")]
 
 
 def test_unpacked_archive_is_not_unpacked_again(conn, rows, documents):
