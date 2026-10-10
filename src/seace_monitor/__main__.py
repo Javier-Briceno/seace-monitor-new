@@ -8,15 +8,16 @@
 import argparse
 import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
 from . import config, db, mail, manual, report
 from .archives import ArchiveError, MachineError, unpack
 from .download import DocumentError, download
-from .ficha import FichaError, open_ficha, parse_deadline, parse_estados, read_documents
+from .ficha import FichaError, StaleTable, open_ficha, parse_deadline, parse_estados, read_documents
 from .locate import locate
-from .search import LIMA, AccessError, SearchError, make_session, search_split
+from .search import LIMA, AccessError, Query, SearchError, make_session, search_pages, search_split
 from .store import (
     archives_to_unpack, contents_done, contents_failed, document_done, document_failed, ficha_failed,
     fichas_to_read, link_restarts, mark_changes_reported, mark_extractions_reported, mark_reported, mark_stalled, open_since,
@@ -26,14 +27,16 @@ from .store import (
 PAUSE = 1  # seconds between requests to SEACE
 
 
-def run_search(conn, session, query) -> None:
+def run_search(conn, session, query) -> list[tuple[int, Query]]:
     """Store new obras and read the fichas of new and still tracked ones.
 
     The range reaches back to the oldest tracked obra, so a long range is split
-    where the portal would cut the list.
+    where the portal would cut the list. Returns the fichas that need a session
+    of their own, with the query that found them.
     """
     print(f"{query.objeto} / {query.departamento} / {query.desde} to {query.hasta}")
     total_new = total_rows = 0
+    alone = []
     for number, result in enumerate(search_split(query, session), 1):
         for row in result.rows:
             row["departamentos"], row["ubicacion_fuente"] = locate(row["descripcion"])
@@ -43,14 +46,17 @@ def run_search(conn, session, query) -> None:
         total_new += len(new)
         total_rows += len(result.rows)
         print(f"  page {number}: {len(result.rows)} rows of {result.total}, new: {len(new)}")
-        read_fichas(conn, session, result, new)
+        alone += [(nid, query) for nid in read_fichas(conn, session, result, new)]
     print(f"  new: {total_new}, already stored: {total_rows - total_new}")
+    return alone
 
 
-def read_fichas(conn, session, result, new) -> None:
+def read_fichas(conn, session, result, new) -> list[int]:
+    """Read the fichas of this results page; return those that need a session of their own."""
     # Fichas only open within this search's session and for the page loaded
     # last, so every row of this page still missing its bases or still tracked is read now.
     to_read = fichas_to_read(conn, [r["nid_proceso"] for r in result.rows])
+    alone = []
     for row in result.rows:
         nid = row["nid_proceso"]
         mark = "new" if nid in new else "   "
@@ -60,18 +66,63 @@ def read_fichas(conn, session, result, new) -> None:
                 print(line)
             continue
         time.sleep(PAUSE)
+        if not read_ficha(conn, session, result, row, line):
+            alone.append(nid)
+    return alone
+
+
+def read_ficha(conn, session, result, row, line) -> bool:
+    """Read and store one ficha. False when its document table must be read in a session of its own."""
+    nid = row["nid_proceso"]
+    try:
+        page = open_ficha(session, result, row)
+        documents = read_documents(session, page)
+        deadline = parse_deadline(page)
+        estados = parse_estados(page)
+    except StaleTable:
+        print(f"{line}  documents on several pages; read again in a new session")
+        return False
+    except FichaError as error:
+        ficha_failed(conn, nid, str(error))
+        print(f"{line}  ficha failed: {error}")
+        return True
+    added = save_ficha(conn, nid, documents, deadline, estados)
+    until = f"offers until {deadline:%d/%m %H:%M}" if deadline else "no offer deadline in the cronograma"
+    print(f"{line}  documents: {len(documents)} ({added} new), {until}, {'/'.join(estados)}")
+    return True
+
+
+def read_alone(conn, proxy, alone) -> None:
+    """Fichas whose document table runs over several pages, each opened first in a new session.
+
+    The portal can answer a ficha's page requests with the table of a ficha paged
+    earlier in the same session; the first ficha of a session gets its own table.
+    """
+    if alone:
+        print(f"fichas read in a session of their own: {len(alone)}")
+    for nid, query in alone:
+        day = conn.execute(
+            "SELECT (fecha_publicacion AT TIME ZONE 'America/Lima')::date FROM licitaciones WHERE nid_proceso = %s",
+            [nid],
+        ).fetchone()[0]
+        line = f"  alone {nid}"
+        session = make_session(proxy)
         try:
-            page = open_ficha(session, result, row)
-            documents = read_documents(session, page)
-            deadline = parse_deadline(page)
-            estados = parse_estados(page)
-        except FichaError as error:
-            ficha_failed(conn, nid, str(error))
-            print(f"{line}  ficha failed: {error}")
+            result = next((r for r in search_pages(replace(query, desde=day, hasta=day), session)
+                           if any(row["nid_proceso"] == nid for row in r.rows)), None)
+        except AccessError:
+            raise
+        except SearchError as error:
+            print(f"{line}  search failed: {error}")
             continue
-        added = save_ficha(conn, nid, documents, deadline, estados)
-        until = f"offers until {deadline:%d/%m %H:%M}" if deadline else "no offer deadline in the cronograma"
-        print(f"{line}  documents: {len(documents)} ({added} new), {until}, {'/'.join(estados)}")
+        if result is None:
+            ficha_failed(conn, nid, f"not found in the search of its publication day {day}")
+            print(f"{line}  not found in the search of {day}")
+            continue
+        row = next(row for row in result.rows if row["nid_proceso"] == nid)
+        time.sleep(PAUSE)
+        if not read_ficha(conn, session, result, row, line):
+            ficha_failed(conn, nid, "document table of another ficha, also in a new session")
 
 
 def run_downloads(conn, session, root, nids) -> None:
@@ -135,8 +186,10 @@ def main() -> int:
         run_unpacking(conn)
         return 0
     try:
+        alone = []
         for query in config.queries(cfg, open_since=open_since(conn)):
-            run_search(conn, session, query)
+            alone += run_search(conn, session, query)
+        read_alone(conn, proxy, alone)
         # Only after every search went through: an obra skipped by a failed search may have changed.
         for nid in mark_stalled(conn, datetime.now(LIMA)):
             print(f"stalled, no longer tracked: {nid}")
