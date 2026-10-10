@@ -202,6 +202,14 @@ def test_pending_documents_only_of_the_obras_asked_for(conn, rows, documents):
     assert pending_documents(conn, []) == []
 
 
+def test_restart_listing_the_same_files_gets_its_own_documents(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:2])
+    old, restart = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    save_ficha(conn, old, documents)
+    assert save_ficha(conn, restart, documents) == len(documents)
+    assert {d["nid_proceso"] for d in pending_documents(conn, [old, restart])} == {old, restart}
+    assert save_ficha(conn, restart, documents) == 0
+
 
 def downloaded(conn, rows, documents, *paths):
     save_new_licitaciones(conn, rows[:1])
