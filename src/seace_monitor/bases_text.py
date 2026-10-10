@@ -4,6 +4,7 @@ PDF text comes from Poppler's pdftotext in layout mode: a table keeps its rows a
 while the raw order can put a table before the title of its section.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -35,10 +36,18 @@ def pdftotext() -> str:
     return found
 
 
+def tool_path(path: Path) -> str:
+    """Files unpacked from nested archives pass Windows' 260-character limit; pdftotext opens them
+    only with the extended-length prefix."""
+    if os.name == "nt":
+        return "\\\\?\\" + str(path.resolve())
+    return str(path)
+
+
 def pdf_text(path: Path) -> str:
     """Pages are separated by form feeds."""
     try:
-        done = subprocess.run([pdftotext(), "-enc", "UTF-8", "-layout", "-l", str(LAST_PAGE), str(path), "-"],
+        done = subprocess.run([pdftotext(), "-enc", "UTF-8", "-layout", "-l", str(LAST_PAGE), tool_path(path), "-"],
                               capture_output=True, timeout=180)
     except subprocess.TimeoutExpired as error:
         raise TextError(f"pdftotext took longer than {error.timeout} s") from error

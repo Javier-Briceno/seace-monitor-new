@@ -23,6 +23,15 @@ def test_layout_keeps_a_table_row_together():
     assert page_of(text, text.index("2,869,568.98")) == 2
 
 
+def test_file_past_the_windows_path_limit_is_read(tmp_path):
+    deep = tmp_path / "-".join(["carpeta de anexos"] * 6) / "-".join(["bases integradas y absolución"] * 5)
+    deep.mkdir(parents=True)
+    path = deep / "bases.pdf"
+    path.write_bytes((FIXTURES / "bases_cuantia_alto_trujillo.pdf").read_bytes())
+    assert len(str(path.resolve())) > 260
+    assert "3,020,598.92" in text_of(path)
+
+
 def test_pages_with_text_are_not_a_scan():
     assert not is_scanned(text_of(FIXTURES / "bases_cuantia_alto_trujillo.pdf"))
 
