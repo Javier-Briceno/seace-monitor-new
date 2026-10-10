@@ -132,9 +132,9 @@ def test_limited_offer_without_a_limits_table():
     assert warnings(result) == [{"aviso": "limitada_sin_limites"}]
 
 
-@pytest.mark.parametrize("nid", ["1255541", "1212216"])
+@pytest.mark.parametrize("nid", ["1255541", "1212216", "1249332"])
 def test_design_and_build_goes_to_a_person(nid):
-    # 1212216 writes the component amounts without "S/".
+    # 1212216 writes the component amounts without "S/"; 1249332 (a DOCX) only has the budget per component.
     assert read(bases(nid))["revisar"] == DESIGN
 
 
@@ -212,6 +212,21 @@ def test_scanned_bases_are_read_from_their_ocr_copy_and_say_so():
     # The copy stands in for an OCRed one: any PDF with a text layer.
     result = read_files([PDFS / "bases_scanned_page.pdf"], ocr=lambda path: PDFS / "bases_cuantia_alto_trujillo.pdf")
     assert (result["cuantia"], result["archivo"], result["ocr"]) == ("3020598.92", "bases_scanned_page.pdf", True)
+
+
+@needs_pdftotext
+def test_files_named_as_bases_are_ocred_first_and_only_a_few(tmp_path):
+    names = ["ACTA.pdf", "PLANOS 1.pdf", "PLANOS 2.pdf", "BASES PALMIRA.pdf"]
+    for name in names:
+        (tmp_path / name).write_bytes((PDFS / "bases_scanned_page.pdf").read_bytes())
+    asked = []
+
+    def ocr(path):
+        asked.append(path.name)
+        return PDFS / "bases_scanned_page.pdf"  # nothing found: every allowed file is tried
+
+    read_files([tmp_path / n for n in names], ocr=ocr)
+    assert asked == ["BASES PALMIRA.pdf", "ACTA.pdf"]
 
 
 @needs_pdftotext

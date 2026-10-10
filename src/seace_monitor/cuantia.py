@@ -40,9 +40,14 @@ UNFILLED = "sin rellenar"
 # The amounts table of a diseño y construcción obra; its general rules ("Advertencia") also stay
 # in many solo construcción bases, so the words alone say nothing.
 DESIGN_AND_BUILD = re.compile(r"cuant[ií]a\s+del\s+componente", re.I)
+# The budget table below the cuantía ("A. COMPONENTE DISEÑO ...") runs to 1.5, which a DOCX leaves unnumbered.
+DESIGN_BUDGET = re.compile(r"COMPONENTE\s+(?:DE\s+)?DISE[ÑN]O", re.I)
+BUDGET_END = re.compile(r"\n\s*1\.5\b|EXPEDIENTE\s+DE\s+CONTRATACI[OÓ]N", re.I)
 TYPE = re.compile(r"presente\s+procedimiento\s+de\s+selecci[oó]n\s+es\s*:?(.{0,200})", re.I | re.S)
 # The límites table sits right under its header; further down come the Amazonía table and the budget.
 TABLE_LINES = 14
+# Scanned files of one bases document that are OCRed in search of 1.4.
+OCR_FILES = 2
 # A límite this far from the cuantía is a misread column, not a figure an entity would write.
 PLAUSIBLE = (Decimal("0.70"), Decimal("1.30"))
 
@@ -186,22 +191,24 @@ def read_files(files: list[Path], valor_seace: Decimal | None = None,
         except TextError as error:
             unreadable.append(f"{path.name}: {error}")
             continue
-        recognized = False
         if is_scanned(text):
-            scanned.append(path.name)
-            if ocr is None:
-                continue
-            try:
-                text = text_of(ocr(path))
-            except (OcrError, TextError) as error:
-                unreadable.append(f"{path.name}: {error}")
-                continue
-            recognized = True
+            scanned.append(path)
+            continue
         result = read(text, valor_seace)
         if result["revisar"] != NO_SECTION:
-            return {**result, "archivo": path.name, "ocr": recognized}
+            return {**result, "archivo": path.name, "ocr": False}
+    # OCR costs minutes per file: the files named as bases first, and only a few of an archive's scans.
+    for path in sorted(scanned, key=lambda p: "BASE" not in p.name.upper())[:OCR_FILES if ocr else 0]:
+        try:
+            text = text_of(ocr(path))
+        except (OcrError, TextError) as error:
+            unreadable.append(f"{path.name}: {error}")
+            continue
+        result = read(text, valor_seace)
+        if result["revisar"] != NO_SECTION:
+            return {**result, "archivo": path.name, "ocr": True}
     result = {**read("", valor_seace), "ocr": False}
-    result["archivo"] = scanned[0] if scanned else ""
+    result["archivo"] = scanned[0].name if scanned else ""
     if scanned:
         result["revisar"] = SCANNED
     elif unreadable:
@@ -232,7 +239,11 @@ def read(text: str, valor_seace: Decimal | None = None) -> dict:
         result["revisar"] = TEMPLATE
         return result
     # A filled amounts table per component; the standard bases' empty one is a leftover.
+    budget = text[start: start + 8000]
+    end = BUDGET_END.search(budget, 200)
+    budget = budget[: end.start() if end else len(budget)]
     windows = [squeeze(block[m.end(): m.end() + 1500])[:250] for m in DESIGN_AND_BUILD.finditer(block)]
+    windows += [squeeze(budget[m.end(): m.end() + 1500])[:250] for m in DESIGN_BUDGET.finditer(budget)]
     if any(ANY_NUMBER.search(w) and PLACEHOLDER not in w.upper() for w in windows):
         result["revisar"] = DESIGN
         return result
