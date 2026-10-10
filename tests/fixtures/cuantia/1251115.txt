@@ -1,0 +1,60 @@
+CUANTÍA DE LA CONTRATACIÓN12
+
+       La cuantía de la contratación asciende a la suma de S/ 239,829.04 DOSCIENTOS
+       TREINTA Y NUEVE MIL OCHOCIENTOS VEINTINUEVE CON 04/100 SOLES], incluidos
+       los impuestos de ley y cualquier otro concepto que incida en el costo total de la ejecución
+       de la contratación.
+
+        Importante para la entidad contratante
+         En caso se trate del sistema de entrega de solo construcción y se hubiera determinado en la
+          estrategia de contratación que la evaluación de ofertas económicas es limitada, se debe incluir
+          lo siguiente:
+
+                CUANTÍA DE LA
+                                                      LIMITE INFERIOR                    LIMITE SUPERIOR
+                CONTRATACIÓN
+            [CONSIGNAR         EN               [CONSIGNAR           EN            [CONSIGNAR EN NÚMEROS
+            NÚMEROS LA CUANTÍA DE               NÚMEROS     EL   LÍMITE            EL                LÍMITE
+            LA       CONTRATACIÓN               CORRESPONDIENTE AL                 CORRESPONDIENTE       AL
+            INCLUYE IGV]                        95% DE LA CUANTÍA DE LA            110% DE LA CUANTÍA DE LA
+                                                CONTRATACIÓN CON IGV]              CONTRATACIÓN CON IGV]
+
+          Para la determinación de los límites de la cuantía de la contratación, si el límite inferior tiene más
+          de dos (2) decimales, se aumenta en un dígito el valor del segundo decimal; en el caso del límite
+          superior, se considera el valor del segundo decimal; en ambos casos sin efectuar el redondeo
+          matemático.
+
+          En caso se hubiera determinado en la estrategia de contratación que la evaluación de ofertas
+          económicas es FIJA, se suprime esta sección.
+
+         En caso se trate del sistema de entrega de diseño y construcción se debe incluir lo siguiente:
+
+              Cuantía del componente de diseño con                 Límite Inferior del componente de diseño
+                              IGV                                                   con IGV
+            [CONSIGNAR EN NÚMEROS LA CUANTÍA                      [CONSIGNAR EN NÚMEROS EL LÍMITE
+            DEL COMPONENTE DE DISEÑO CON IGV]                     CORRESPONDIENTE AL 90% DE LA
+                                                                  CUANTÍA DEL COMPONENTE DE DISEÑO
+                                                                  CON IGV]
+
+             Cuantía del componente de ejecución de                100% correspondiente al componente de
+                          obra con IGV                                   ejecución de obra con IGV
+            [CONSIGNAR EN NÚMEROS LA CUANTÍA                      [CONSIGNAR EN NÚMEROS, EL 100% DE
+            DEL COMPONENTE DE EJECUCIÓN DE                        LA CUANTÍA DEL COMPONENTE DE
+            OBRA CON IGV]                                         EJECUCIÓN DE OBRA CON IGV]
+
+          Para la determinación del límite de la cuantía de la contratación del componente diseño, si el
+          límite inferior tiene más de dos (2) decimales, se aumenta en un dígito el valor del segundo
+          decimal; sin efectuar el redondeo matemático.
+
+          En caso no corresponda a sistema de entrega de diseño y construcción, se suprime esta sección.
+
+         Cuando se trate de una
+
+[...]
+
+presente procedimiento de selección es: Fija
+   [SEÑALAR EL TIPO DE OFERTA ECÓNOMICA SELECCIONADA CONFORME A LA
+   ESTRATEGIA DE CONTRATACIÓN: FIJA O LIMITADA DE CONFORMIDAD AL ARTICULO
+   165 DEL REGLAMENTO]
+
+    Importante para la e
