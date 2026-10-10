@@ -14,7 +14,7 @@ from pathlib import Path
 from . import config, db, mail, manual, report
 from .archives import ArchiveError, MachineError, unpack
 from .download import DocumentError, download
-from .ficha import FichaError, open_ficha, parse_deadline, parse_documents, parse_estados
+from .ficha import FichaError, open_ficha, parse_deadline, parse_estados, read_documents
 from .locate import locate
 from .search import LIMA, AccessError, SearchError, make_session, search_split
 from .store import (
@@ -62,7 +62,7 @@ def read_fichas(conn, session, result, new) -> None:
         time.sleep(PAUSE)
         try:
             page = open_ficha(session, result, row)
-            documents = parse_documents(page)
+            documents = read_documents(session, page)
             deadline = parse_deadline(page)
             estados = parse_estados(page)
         except FichaError as error:
