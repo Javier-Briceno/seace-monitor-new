@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from seace_monitor.ficha import FichaError, has_bases, parse_deadline, parse_documents, parse_estados
+import requests
+
+from seace_monitor.ficha import (
+    DOCUMENT_TABLE, FichaError, StaleTable, has_bases, parse_deadline, parse_documents, parse_estados, read_documents,
+)
 from seace_monitor.search import LIMA
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -43,6 +47,13 @@ def test_document_without_link_is_kept_without_uuid():
     assert bases["nombre_archivo"] == "BASES.rar"
 
 
+def test_file_name_with_an_apostrophe_keeps_its_link():
+    page = read("ficha_rar.html").replace("'BASES.rar')", "'BASES ADM. OBRA S'.rar')")
+    [bases] = parse_documents(page)
+    assert bases["uuid"] is not None
+    assert bases["nombre_archivo"] == "BASES ADM. OBRA S'.rar"
+
+
 def test_bases_without_link_do_not_count():
     assert not has_bases(parse_documents(without_link(read("ficha_rar.html"))))
 
@@ -60,6 +71,85 @@ def test_bases_detected_by_document_type():
 def test_page_without_document_table_is_an_error():
     with pytest.raises(FichaError, match="document table"):
         parse_documents("<html>session expired</html>")
+
+
+class FakeResponse:
+    def __init__(self, text):
+        self.text = text
+
+    def raise_for_status(self):
+        pass
+
+
+class FakeSession:
+    """Answers each request for a further document page with the next prepared answer."""
+
+    proxies = {}
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.requests = []
+
+    def post(self, url, data, headers, timeout):
+        self.requests.append(data)
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return FakeResponse(answer)
+
+
+def first_page_answer(name: str) -> str:
+    """The ficha's first table page as the portal sends it when asked for by paging."""
+    page = read(name)
+    body = page.index("tbFicha:dtDocumentos_data")
+    rows = page[page.index(">", body) + 1 : page.index("</tbody>", body)]
+    return read("ficha_documents_page2.xml").replace(
+        re.search(r"<!\[CDATA\[(<tr.*?)\]\]>", read("ficha_documents_page2.xml"), re.S).group(1), rows)
+
+
+def test_further_document_pages_are_read_in_the_same_session():
+    session = FakeSession([first_page_answer("ficha_seven_documents.html"), read("ficha_documents_page2.xml")])
+    documents = read_documents(session, read("ficha_seven_documents.html"))
+    assert len(documents) == 7
+    assert [d["tipo"] for d in documents[5:]] == [
+        "Documentos de Calificación y Evaluación",
+        "Documentos de Otorgamiento de Buena Pro",
+    ]
+    assert documents[6]["publicado_en"] == datetime(2026, 10, 9, 19, 24, tzinfo=LIMA)
+    check, asked = session.requests
+    assert (check[f"{DOCUMENT_TABLE}_first"], asked[f"{DOCUMENT_TABLE}_first"]) == ("0", "5")
+    assert check["javax.faces.ViewState"] in read("ficha_seven_documents.html")
+
+
+def test_table_of_another_ficha_is_never_used():
+    session = FakeSession([first_page_answer("ficha_two_documents.html"), read("ficha_documents_page2.xml")])
+    with pytest.raises(StaleTable):
+        read_documents(session, read("ficha_seven_documents.html"))
+    assert len(session.requests) == 1
+
+
+def test_ficha_on_one_page_asks_for_nothing_more():
+    session = FakeSession([])
+    assert len(read_documents(session, read("ficha_two_documents.html"))) == 2
+    assert session.requests == []
+
+
+def test_fewer_documents_than_the_ficha_counts_is_an_error():
+    empty_page = re.sub(r"<tr.*</tr>", "", read("ficha_documents_page2.xml"), flags=re.S)
+    with pytest.raises(FichaError, match="5 of 7"):
+        read_documents(FakeSession([first_page_answer("ficha_seven_documents.html"), empty_page]),
+                       read("ficha_seven_documents.html"))
+
+
+def test_failed_further_page_is_an_error_not_a_short_list():
+    with pytest.raises(FichaError, match="document page"):
+        read_documents(FakeSession([requests.Timeout("slow")]), read("ficha_seven_documents.html"))
+
+
+def test_ficha_without_document_count_is_an_error():
+    page = re.sub(r"rowCount:\d+", "", read("ficha_seven_documents.html"))
+    with pytest.raises(FichaError, match="count"):
+        read_documents(FakeSession([]), page)
 
 
 def test_deadline_is_the_end_of_the_offer_stage():
