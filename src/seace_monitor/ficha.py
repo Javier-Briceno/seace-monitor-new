@@ -22,7 +22,8 @@ COLUMNS = {
     "publicado_en": "fecha y hora de publicacion",
 }
 ITEM_ESTADO = re.compile(r"Estado:</span></td>\s*<td>(.*?)</td>", re.S)
-DOWNLOAD_LINK = re.compile(r"descargaDocGeneral\('([^']+)','([^']+)','([^']+)'\)")
+# The file name runs to the end of the call: names can hold an apostrophe ("OBRA S'.pdf").
+DOWNLOAD_LINK = re.compile(r"descargaDocGeneral\('([^']+)','([^']+)','(.+?)'\);")
 
 
 class FichaError(Exception):

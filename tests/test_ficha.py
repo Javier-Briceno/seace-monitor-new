@@ -47,6 +47,13 @@ def test_document_without_link_is_kept_without_uuid():
     assert bases["nombre_archivo"] == "BASES.rar"
 
 
+def test_file_name_with_an_apostrophe_keeps_its_link():
+    page = read("ficha_rar.html").replace("'BASES.rar')", "'BASES ADM. OBRA S'.rar')")
+    [bases] = parse_documents(page)
+    assert bases["uuid"] is not None
+    assert bases["nombre_archivo"] == "BASES ADM. OBRA S'.rar"
+
+
 def test_bases_without_link_do_not_count():
     assert not has_bases(parse_documents(without_link(read("ficha_rar.html"))))
 
