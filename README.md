@@ -16,6 +16,8 @@ docker compose up -d --wait             # Postgres
 
 Unpacking archives needs [7-Zip](https://www.7-zip.org/) and reading PDFs needs Poppler's `pdftotext`
 (`winget install oschwartz10612.Poppler` on Windows, `apt install poppler-utils` on Debian/Ubuntu), both on the PATH.
+Scanned bases are read through [OCRmyPDF](https://ocrmypdf.readthedocs.io/) with Tesseract's Spanish model
+(`spa`) and Ghostscript; without them the text bases are still read and the scanned ones wait.
 
 ## Access from outside Peru
 
@@ -76,6 +78,10 @@ cent) and 110 % (cut at the cent) of the cuantía. Any other figure, a fixed off
 without it, an offer type left as the template's choice and a cuantía that differs from SEACE are warnings. Scanned
 bases, unfilled templates and diseño y construcción amounts per component are left for a person. Results go into
 `extracciones` with their own `version_extractor`; a new version reads every bases again.
+
+A scanned file of an obra's newest bases is OCRed first (its first 150 pages, about 10 minutes) into
+`<name>-ocr.pdf` next to the original; a daily run OCRs at most 10 files and leaves the rest for the next run.
+Readings from OCR are marked `ocr: true`: OCR misreads digits now and then, so check their amounts on the page.
 
 ```
 .venv/Scripts/python -m seace_monitor --extraer   # read every downloaded bases not read yet and exit

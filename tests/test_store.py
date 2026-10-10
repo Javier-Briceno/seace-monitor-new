@@ -235,6 +235,16 @@ def test_downloaded_bases_wait_for_extraction_and_other_documents_do_not(conn, r
     assert bases_to_extract(conn, "cuantia-1", [rows[1]["nid_proceso"]]) == []
 
 
+def test_integradas_are_the_newest_bases_of_their_obra(conn, rows, documents):
+    _, administrativas = downloaded(conn, rows, documents, "data/informe.pdf", "data/bases.pdf")
+    integradas = conn.execute(
+        """INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, publicado_en, estado, ruta_local)
+           VALUES (%s, 'u-int', 'Integración', 'Bases Integradas', 'BI.pdf', '2026-01-01', 'done', 'data/BI.pdf')
+           RETURNING id""", [rows[0]["nid_proceso"]]).fetchone()[0]
+    newest = {p["id"]: p["newest"] for p in bases_to_extract(conn, "cuantia-1")}
+    assert newest == {administrativas: False, integradas: True}
+
+
 def test_archived_bases_wait_until_unpacked(conn, rows, documents):
     _, bases = downloaded(conn, rows, documents, "data/informe.pdf", "data/BASES.rar")
     assert bases_to_extract(conn, "cuantia-1") == []

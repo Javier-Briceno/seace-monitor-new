@@ -8,12 +8,14 @@ cuantía, the bases prevail.
 """
 
 import re
+from collections.abc import Callable
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from pathlib import Path
 
 from .bases_text import TextError, is_scanned, page_of, text_of
+from .ocr import OcrError
 
-VERSION = "cuantia-1"
+VERSION = "cuantia-2"
 
 TITLE = re.compile(r"CUANT[IÍ]A\s+DE\s+LA\s+CONTRATACI[OÓ]N", re.I)
 # Not the footnote of 1.4 ("indicada en esta sección"): it can fall between the cuantía and the límites table.
@@ -170,9 +172,11 @@ def nearest(amounts: list[Decimal], target: Decimal, spread: Decimal) -> Decimal
     return min(close, key=lambda a: abs(a - target)) if close else None
 
 
-def read_files(files: list[Path], valor_seace: Decimal | None = None) -> dict:
+def read_files(files: list[Path], valor_seace: Decimal | None = None,
+               ocr: Callable[[Path], Path] | None = None) -> dict:
     """The reading of the first file that holds section 1.4; an archive also carries annexes and plans.
 
+    A scanned file is read from its OCRed copy when `ocr` makes one; that reading says `ocr: true`.
     No file with 1.4 and a scanned file among them: the bases are that scan.
     """
     scanned, unreadable = [], []
@@ -182,13 +186,21 @@ def read_files(files: list[Path], valor_seace: Decimal | None = None) -> dict:
         except TextError as error:
             unreadable.append(f"{path.name}: {error}")
             continue
+        recognized = False
         if is_scanned(text):
             scanned.append(path.name)
-            continue
+            if ocr is None:
+                continue
+            try:
+                text = text_of(ocr(path))
+            except (OcrError, TextError) as error:
+                unreadable.append(f"{path.name}: {error}")
+                continue
+            recognized = True
         result = read(text, valor_seace)
         if result["revisar"] != NO_SECTION:
-            return {**result, "archivo": path.name}
-    result = read("", valor_seace)
+            return {**result, "archivo": path.name, "ocr": recognized}
+    result = {**read("", valor_seace), "ocr": False}
     result["archivo"] = scanned[0] if scanned else ""
     if scanned:
         result["revisar"] = SCANNED

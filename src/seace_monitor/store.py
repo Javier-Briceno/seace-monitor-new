@@ -278,11 +278,17 @@ def contents_failed(conn: psycopg.Connection, doc_id: int, error: str) -> None:
 def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | None = None) -> list[dict]:
     """Downloaded bases of these obras without an extraction of this version; None means of every obra.
 
-    An archive waits until it has been unpacked (or found broken); `contents` are its files.
+    An archive waits until it has been unpacked (or found broken); `contents` are its files. `newest`:
+    the bases the obra is offered on now, its latest integradas or else its latest administrativas.
     """
-    sql = """SELECT d.id, d.nid_proceso, d.ruta_local, l.valor_referencial,
-                    COALESCE(array_agg(c.ruta ORDER BY c.id) FILTER (WHERE c.ruta IS NOT NULL AND c.error IS NULL), '{}')
-             FROM documentos d JOIN licitaciones l USING (nid_proceso)
+    sql = """WITH ranked AS (
+                 SELECT id, row_number() OVER (PARTITION BY nid_proceso ORDER BY (tipo ILIKE '%%integrad%%') DESC,
+                                               publicado_en DESC NULLS LAST, id DESC) = 1 AS newest
+                 FROM documentos WHERE estado = 'done' AND tipo ILIKE 'bases%%')
+             SELECT d.id, d.nid_proceso, d.ruta_local, l.valor_referencial,
+                    COALESCE(array_agg(c.ruta ORDER BY c.id) FILTER (WHERE c.ruta IS NOT NULL AND c.error IS NULL), '{}'),
+                    r.newest
+             FROM documentos d JOIN licitaciones l USING (nid_proceso) JOIN ranked r ON r.id = d.id
              LEFT JOIN documento_contenido c ON c.documento_id = d.id
              WHERE d.estado = 'done' AND d.tipo ILIKE 'bases%%'
                AND (lower(d.ruta_local) NOT LIKE ALL(%s) OR d.contenido_estado IS NOT NULL)
@@ -291,8 +297,8 @@ def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | N
     if nids is not None:
         sql += " AND d.nid_proceso = ANY(%s)"
         params.append(nids)
-    rows = conn.execute(sql + " GROUP BY d.id, l.valor_referencial ORDER BY d.id", params).fetchall()
-    return [dict(zip(("id", "nid_proceso", "ruta_local", "valor_referencial", "contents"), r)) for r in rows]
+    rows = conn.execute(sql + " GROUP BY d.id, l.valor_referencial, r.newest ORDER BY d.id", params).fetchall()
+    return [dict(zip(("id", "nid_proceso", "ruta_local", "valor_referencial", "contents", "newest"), r)) for r in rows]
 
 
 def save_extraction(conn: psycopg.Connection, doc_id: int, version: str, campos: dict, motivo: str | None) -> None:

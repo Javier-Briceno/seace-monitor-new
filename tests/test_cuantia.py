@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from seace_monitor.bases_text import ToolMissing, pdftotext
+from seace_monitor.ocr import OcrError
 from seace_monitor.cuantia import (
     DESIGN, NO_SECTION, SCANNED, TEMPLATE, lower_limit, money, read, read_files, upper_limit,
 )
@@ -203,6 +204,22 @@ def test_the_file_with_the_section_is_read_among_annexes(tmp_path):
 def test_bases_that_are_only_a_scan():
     result = read_files([PDFS / "bases_scanned_page.pdf"])
     assert result["revisar"] == SCANNED and result["archivo"] == "bases_scanned_page.pdf"
+    assert result["ocr"] is False
+
+
+@needs_pdftotext
+def test_scanned_bases_are_read_from_their_ocr_copy_and_say_so():
+    # The copy stands in for an OCRed one: any PDF with a text layer.
+    result = read_files([PDFS / "bases_scanned_page.pdf"], ocr=lambda path: PDFS / "bases_cuantia_alto_trujillo.pdf")
+    assert (result["cuantia"], result["archivo"], result["ocr"]) == ("3020598.92", "bases_scanned_page.pdf", True)
+
+
+@needs_pdftotext
+def test_failed_ocr_leaves_the_bases_for_a_person():
+    def fails(path):
+        raise OcrError("ocrmypdf exit 2")
+    result = read_files([PDFS / "bases_scanned_page.pdf"], ocr=fails)
+    assert result["revisar"] == SCANNED
 
 
 def test_document_without_pdf_or_docx():

@@ -15,6 +15,7 @@ from pathlib import Path
 from . import config, cuantia, db, mail, manual, report
 from .archives import ArchiveError, MachineError, unpack
 from .bases_text import ToolMissing, bases_files
+from .ocr import make_ocr, ocr_path, ocrmypdf
 from .download import DocumentError, download
 from .ficha import FichaError, StaleTable, open_ficha, parse_deadline, parse_estados, read_documents
 from .locate import locate
@@ -26,6 +27,7 @@ from .store import (
 )
 
 PAUSE = 1  # seconds between requests to SEACE
+OCR_PER_RUN = 10  # scanned bases files; about 10 minutes each
 
 
 def run_search(conn, session, query) -> list[tuple[int, Query]]:
@@ -161,20 +163,42 @@ def run_unpacking(conn, nids=None) -> None:
         print(f"  unpacked {path} ({len(files)} files)")
 
 
-def run_extraction(conn, nids=None) -> None:
-    """Read section 1.4 of the downloaded bases of these obras not read yet; None means every obra."""
+def run_extraction(conn, nids=None, ocr_budget=None) -> None:
+    """Read section 1.4 of the downloaded bases of these obras not read yet; None means every obra.
+
+    A scanned file of an obra's newest bases is OCRed first, at most `ocr_budget` files per run
+    (None: no limit); bases still waiting for OCR are left unread for the next run.
+    """
     pending = bases_to_extract(conn, cuantia.VERSION, nids)
     print(f"bases to read: {len(pending)}")
+    try:
+        ocrmypdf()
+    except ToolMissing as error:
+        print(f"{error}; scanned bases wait")
+        ocr_budget = 0
+    made = []
+
+    def counted_ocr(path):
+        if not ocr_path(path).exists():
+            made.append(path)
+            print(f"  OCR {path.name}")
+        return make_ocr(path)
+
     for document in pending:
+        may_ocr = document["newest"] and (ocr_budget is None or len(made) < ocr_budget)
         try:
             result = cuantia.read_files(bases_files(document["ruta_local"], document["contents"]),
-                                        document["valor_referencial"])
+                                        document["valor_referencial"], counted_ocr if may_ocr else None)
         except ToolMissing as error:
             print(f"reading stopped, nothing marked: {error}")
             return
+        if result["revisar"] == cuantia.SCANNED and document["newest"] and not may_ocr:
+            print(f"  {document['nid_proceso']}  scanned, waits for OCR in the next run")
+            continue
         save_extraction(conn, document["id"], cuantia.VERSION, result, result["revisar"])
         warnings = ", ".join(w["aviso"] for w in result["avisos"])
-        print(f"  {document['nid_proceso']}  {result['revisar'] or result['cuantia']}  {warnings}")
+        print(f"  {document['nid_proceso']}  {result['revisar'] or result['cuantia']}{' (OCR)' if result['ocr'] else ''}"
+              f"  {warnings}")
 
 
 def main() -> int:
@@ -221,7 +245,7 @@ def main() -> int:
         candidates = sorted(set(candidates) | set(tracked(conn)))
         run_downloads(conn, session, config.download_dir(cfg), candidates)
         run_unpacking(conn, candidates)
-        run_extraction(conn, candidates)
+        run_extraction(conn, candidates, OCR_PER_RUN)
     except AccessError as error:
         print(f"stopped, SEACE unreachable; no attempts were counted: {error}", file=sys.stderr)
         return 1
