@@ -29,6 +29,10 @@ class FichaError(Exception):
     pass
 
 
+class StaleTable(FichaError):
+    """The portal answered with the document table of a ficha paged earlier in this session."""
+
+
 def open_ficha(session: requests.Session, result: SearchResult, row: dict) -> str:
     if not row.get("ficha_params"):
         raise FichaError("the result row has no ficha button")
@@ -51,8 +55,10 @@ def read_documents(session: requests.Session, page: str) -> list[dict]:
     """Every document of the ficha, also those on the table's further pages.
 
     The table shows a few rows per page; the rest are asked for in the same session.
-    Fewer rows than the ficha counts is an error, so the ficha is read again
-    instead of being stored with documents missing.
+    The portal can answer a ficha's page requests with the table of a ficha paged
+    earlier in the same session, so the first page is asked for again and
+    must match the ficha's own, else StaleTable. Fewer rows than the ficha counts
+    is an error, so the ficha is read again instead of being stored with documents missing.
     """
     paginator = DOCUMENT_PAGINATOR.search(page)
     if not paginator:
@@ -66,10 +72,13 @@ def read_documents(session: requests.Session, page: str) -> list[dict]:
         if not action or not viewstate:
             raise FichaError("the ficha has no form to ask for further document pages")
         action, viewstate = action.group(1), viewstate.group(1)
+        check = document_page(session, action, viewstate, 0, per_page)
+        if answer_rows(check, index) != documents:
+            raise StaleTable("the document table answered belongs to another ficha")
+        viewstate = parse_viewstate(check) or viewstate
     while len(documents) < total:
         answer = document_page(session, action, viewstate, len(documents), per_page)
-        rows = re.search(rf'<update id="{DOCUMENT_TABLE}"><!\[CDATA\[(.*?)\]\]></update>', answer, re.S)
-        more = document_rows(rows.group(1) if rows else "", index)
+        more = answer_rows(answer, index)
         if not more:
             break
         documents += more
@@ -100,6 +109,11 @@ def document_page(session: requests.Session, action: str, viewstate: str, first:
         raise access_error(session, error) or FichaError(f"document page request failed: {error}") from error
     response.encoding = "utf-8"
     return response.text
+
+
+def answer_rows(answer: str, index: dict[str, int]) -> list[dict]:
+    rows = re.search(rf'<update id="{DOCUMENT_TABLE}"><!\[CDATA\[(.*?)\]\]></update>', answer, re.S)
+    return document_rows(rows.group(1) if rows else "", index)
 
 
 def document_table(page: str) -> str:
