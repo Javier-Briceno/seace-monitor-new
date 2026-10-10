@@ -20,9 +20,25 @@ ENTITY_PREFIXES = ("MUNICIPALIDAD DISTRITAL DE ", "MUNICIPALIDAD PROVINCIAL DE "
 
 CSV_COLUMNS = (
     "nid_proceso", "nomenclatura", "entidad", "departamentos", "ubicacion", "valor_referencial", "moneda",
-    "fecha_publicacion", "fecha_limite_ofertas", "dias_restantes", "estado", "reiniciado_desde",
+    "fecha_publicacion", "fecha_limite_ofertas", "dias_restantes", "estado", "reiniciado_desde", "reinicio_de",
     "documentos_descargados", "carpeta", "descripcion",
 )
+
+CHANGE_COLUMNS = ("nid_proceso", "nomenclatura", "entidad", "campo", "antes", "ahora", "detectado")
+
+# What each historial campo is called in the report.
+CHANGE_NAMES = {
+    "estado_items": "estado",
+    "fecha_limite_ofertas": "fecha límite de ofertas",
+    "documento": "documento nuevo",
+    "seguimiento": "seguimiento",
+}
+
+STOPPED = {
+    "cerrada": "deja de seguirse: cerrada",
+    "reiniciada": "deja de seguirse: reiniciada como obra nueva",
+    "parada": "deja de seguirse: parada, sin cambios en 60 días",
+}
 
 
 def pending(conn: psycopg.Connection, watched: list[str], download_dir: Path, now: datetime) -> list[dict]:
@@ -31,11 +47,10 @@ def pending(conn: psycopg.Connection, watched: list[str], download_dir: Path, no
     A licitación located only in other departamentos is left out: the portal lists
     it here because of the entity's seat, not the site.
     """
-    watched_norm = {normalize(d) for d in watched}
     rows = conn.execute(
         """SELECT l.nid_proceso, l.nomenclatura, l.entidad, l.departamentos, l.ubicacion_fuente,
                   l.valor_referencial, l.moneda, l.fecha_publicacion, l.fecha_limite_ofertas,
-                  l.reiniciado_desde, l.descripcion,
+                  l.reiniciado_desde, l.reinicio_de, l.descripcion,
                   count(d.id) FILTER (WHERE d.estado = 'done') AS descargados
            FROM licitaciones l LEFT JOIN documentos d USING (nid_proceso)
            WHERE l.informado_en IS NULL
@@ -43,9 +58,9 @@ def pending(conn: psycopg.Connection, watched: list[str], download_dir: Path, no
     ).fetchall()
     items = []
     for (nid, nomenclatura, entidad, departamentos, fuente, valor, moneda, publicada, limite,
-         reiniciado, descripcion, descargados) in rows:
+         reiniciado, reinicio_de, descripcion, descargados) in rows:
         located = bool(departamentos)
-        if located and not watched_norm & {normalize(d) for d in departamentos}:
+        if not in_watched(departamentos, watched):
             continue
         dias = (limite.astimezone(LIMA).date() - now.astimezone(LIMA).date()).days if limite else None
         if limite is None:
@@ -59,12 +74,73 @@ def pending(conn: psycopg.Connection, watched: list[str], download_dir: Path, no
             "departamentos": "/".join(departamentos), "ubicacion": fuente if located else "sin ubicar",
             "valor_referencial": valor, "moneda": moneda, "fecha_publicacion": publicada,
             "fecha_limite_ofertas": limite, "dias_restantes": dias, "estado": estado,
-            "reiniciado_desde": reiniciado, "documentos_descargados": descargados,
+            "reiniciado_desde": reiniciado, "reinicio_de": reinicio_de, "documentos_descargados": descargados,
             "carpeta": str(download_dir / str(nid)), "descripcion": descripcion,
         })
     # Most urgent first; obras without a deadline at the end.
     items.sort(key=lambda i: (i["fecha_limite_ofertas"] is None, i["fecha_limite_ofertas"] or now))
     return items
+
+
+def in_watched(departamentos: list[str], watched: list[str]) -> bool:
+    """Located in a watched departamento, or not located at all."""
+    return not departamentos or bool({normalize(d) for d in watched} & {normalize(d) for d in departamentos})
+
+
+def changes(conn: psycopg.Connection, watched: list[str]) -> list[dict]:
+    """Unreported historial rows of obras in the watched departamentos, grouped per obra.
+
+    Open obras come first, most urgent deadline first. A restart is shown with the new obra
+    ("reinicio de …"), so its own historial row is left out here.
+    """
+    rows = conn.execute(
+        """SELECT h.id, h.campo, h.valor_anterior, h.valor_nuevo, h.detectado_en,
+                  l.nid_proceso, l.nomenclatura, l.entidad, l.departamentos, l.seguimiento, l.fecha_limite_ofertas
+           FROM historial h JOIN licitaciones l USING (nid_proceso)
+           WHERE h.informado_en IS NULL AND h.campo <> 'reinicio'
+           ORDER BY h.id"""
+    ).fetchall()
+    obras = {}
+    for (id_, campo, antes, ahora, detectado, nid, nomenclatura, entidad, departamentos, seguimiento,
+         limite) in rows:
+        if not in_watched(departamentos, watched):
+            continue
+        obra = obras.setdefault(nid, {
+            "nid_proceso": nid, "nomenclatura": nomenclatura, "entidad": entidad,
+            "seguimiento": seguimiento, "fecha_limite_ofertas": limite, "cambios": [],
+        })
+        obra["cambios"].append({"id": id_, "campo": campo, "antes": antes, "ahora": ahora, "detectado": detectado})
+    return sorted(obras.values(), key=lambda o: (o["seguimiento"] != "abierta", o["fecha_limite_ofertas"] is None,
+                                                 o["fecha_limite_ofertas"] or datetime.max.replace(tzinfo=LIMA)))
+
+
+def change_lines(obra: dict) -> list[str]:
+    """One line per kind of change; new documents are listed by type in one line."""
+    lines = []
+    documentos = []
+    for c in obra["cambios"]:
+        if c["campo"] == "documento":
+            tipo = c["ahora"].split(": ", 1)[0]
+            if tipo not in documentos:
+                documentos.append(tipo)
+        elif c["campo"] == "seguimiento":
+            lines.append(STOPPED.get(c["ahora"], f"seguimiento: {c['ahora']}"))
+        else:
+            lines.append(f"{CHANGE_NAMES.get(c['campo'], c['campo'])}: {c['antes']} → {c['ahora']}")
+    if documentos:
+        lines.insert(0, f"{'documentos nuevos' if len(documentos) > 1 else 'documento nuevo'}: {', '.join(documentos)}")
+    return lines
+
+
+def write_changes_csv(obras: list[dict], path: Path) -> None:
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f, delimiter=";")
+        writer.writerow(CHANGE_COLUMNS)
+        for o in obras:
+            for c in o["cambios"]:
+                writer.writerow([o["nid_proceso"], o["nomenclatura"], o["entidad"],
+                                 CHANGE_NAMES.get(c["campo"], c["campo"]), c["antes"] or "", c["ahora"] or "",
+                                 c["detectado"].astimezone(LIMA).strftime("%d/%m/%Y %H:%M")])
 
 
 def money(value, currency) -> str:
@@ -91,7 +167,7 @@ def consultas(campos: dict) -> int:
 
 
 def summary(items: list[dict], now: datetime, watched: list[str],
-            extracted: list[dict] = (), problems: list[str] = ()) -> str:
+            extracted: list[dict] = (), problems: list[str] = (), changed: list[dict] = ()) -> str:
     abiertas = [i for i in items if i["estado"] == "abierta"]
     otras = [i for i in items if i["estado"] != "abierta"]
     lines = [
@@ -105,12 +181,19 @@ def summary(items: list[dict], now: datetime, watched: list[str],
         dias = i["dias_restantes"]
         plazo = "cierra hoy" if dias == 0 else f"cierra en {dias} días"
         lugar = "" if i["ubicacion"] != "sin ubicar" else " [sin ubicar]"
+        reinicio = " | reinicio de una convocatoria anterior" if i["reinicio_de"] else ""
         lines.append(f"- {i['fecha_limite_ofertas'].astimezone(LIMA):%d/%m} ({plazo}) | "
-                     f"{money(i['valor_referencial'], i['moneda'])} | {i['entidad']}{lugar} | {i['nomenclatura']}")
+                     f"{money(i['valor_referencial'], i['moneda'])} | {i['entidad']}{lugar} | {i['nomenclatura']}{reinicio}")
     if len(abiertas) > TOP:
         lines.append(f"... y {len(abiertas) - TOP} más en el CSV adjunto.")
     if otras:
         lines += ["", f"Sin plazo para ofertar (reiniciadas, vencidas o sin fecha): {len(otras)}, detalle en el CSV."]
+    if changed:
+        lines += ["", f"Cambios en obras seguidas: {len(changed)}"]
+        for o in changed[:TOP]:
+            lines += ["", title(o)] + [f"  {line}" for line in change_lines(o)]
+        if len(changed) > TOP:
+            lines += ["", f"... y {len(changed) - TOP} más en el CSV de cambios."]
     if extracted:
         lines += ["", f"Extraídas a mano desde el último informe: {len(extracted)} (todos los campos en el CSV de extracciones)"]
         for e in extracted:
@@ -253,6 +336,7 @@ class Report:
     files: list[Path]
     nids: list[int]
     extraction_ids: list[int] = field(default_factory=list)
+    change_ids: list[int] = field(default_factory=list)
 
 
 def build(conn: psycopg.Connection, watched: list[str], download_dir: Path, report_dir: Path,
@@ -261,7 +345,8 @@ def build(conn: psycopg.Connection, watched: list[str], download_dir: Path, repo
     now = now or datetime.now(LIMA)
     items = pending(conn, watched, download_dir, now)
     extracted = extractions(conn)
-    text = summary(items, now, watched, extracted, problems)
+    changed = changes(conn, watched)
+    text = summary(items, now, watched, extracted, problems, changed)
     stem = report_dir / f"{now.astimezone(LIMA):%Y-%m-%d}"
     stem.parent.mkdir(parents=True, exist_ok=True)
     stem.with_suffix(".md").write_text(text, encoding="utf-8")
@@ -270,4 +355,8 @@ def build(conn: psycopg.Connection, watched: list[str], download_dir: Path, repo
     if extracted:
         files.append(stem.parent / f"{stem.name}-extracciones.csv")
         write_extractions_csv(extracted, files[-1])
-    return Report(text, files, [i["nid_proceso"] for i in items], [e["id"] for e in extracted])
+    if changed:
+        files.append(stem.parent / f"{stem.name}-cambios.csv")
+        write_changes_csv(changed, files[-1])
+    return Report(text, files, [i["nid_proceso"] for i in items], [e["id"] for e in extracted],
+                  [c["id"] for o in changed for c in o["cambios"]])

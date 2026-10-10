@@ -1,6 +1,6 @@
 """Runs against a test database in the Docker Postgres (see conftest.py)."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -12,8 +12,9 @@ from seace_monitor.locate import locate
 from seace_monitor.search import LIMA, parse_results
 from seace_monitor.ficha import parse_documents
 from seace_monitor.store import (
-    MAX_ATTEMPTS, archives_to_unpack, contents_done, contents_failed, document_done, document_failed,
-    ficha_failed, fichas_to_read, pending_documents, save_ficha, save_new_licitaciones,
+    MAX_ATTEMPTS, STALLED_DAYS, archives_to_unpack, contents_done, contents_failed, document_done, document_failed,
+    ficha_failed, fichas_to_read, link_restarts, mark_stalled, open_since, pending_documents, save_ficha,
+    save_new_licitaciones, tracked,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -93,13 +94,14 @@ def test_new_rows_need_their_ficha(conn, rows):
     assert fichas_to_read(conn, nids) == set(nids)
 
 
-def test_ficha_with_bases_is_done_and_not_read_again(conn, rows, documents):
+def test_ficha_with_bases_is_done_and_read_again_only_while_tracked(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     nid = rows[0]["nid_proceso"]
-    assert save_ficha(conn, nid, documents) == 2
+    assert save_ficha(conn, nid, documents, estados=["Convocado"]) == 2
     assert ficha_state(conn, nid) == ("done", 0)
+    assert fichas_to_read(conn, [nid]) == {nid}
+    assert save_ficha(conn, nid, documents, estados=["Desierto"]) == 0
     assert fichas_to_read(conn, [nid]) == set()
-    assert save_ficha(conn, nid, documents) == 0
 
 
 def test_ficha_without_bases_stays_pending_without_spending_attempts(conn, rows, documents):
@@ -128,6 +130,45 @@ def test_item_estados_are_replaced_by_each_reading(conn, rows, documents):
     save_ficha(conn, nid, documents, estados=["Adjudicado", "Desierto"])
     stored = conn.execute("SELECT estado_items FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()
     assert stored == (["Adjudicado", "Desierto"],)
+
+
+def tracking(conn, nid):
+    return conn.execute(
+        "SELECT seguimiento, seguimiento_hasta IS NOT NULL FROM licitaciones WHERE nid_proceso = %s", [nid]
+    ).fetchone()
+
+
+def test_new_obra_is_tracked(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    assert tracking(conn, nid) == ("abierta", False)
+
+
+def test_obra_closes_when_no_item_is_convocado(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado", "Desierto"])
+    assert tracking(conn, nid) == ("abierta", False)
+    save_ficha(conn, nid, documents, estados=["Adjudicado", "Desierto"])
+    assert tracking(conn, nid) == ("cerrada", True)
+
+
+def test_obra_closes_when_offers_are_published(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    offers = {**documents[0], "uuid": "offers", "tipo": "Documentos de Presentación de Propuestas"}
+    save_ficha(conn, nid, documents + [offers], estados=["Convocado"])
+    assert tracking(conn, nid) == ("cerrada", True)
+
+
+def test_closed_obra_does_not_reopen(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Nulo"])
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    assert tracking(conn, nid) == ("cerrada", True)
+
 
 def test_document_states(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
@@ -160,6 +201,14 @@ def test_pending_documents_only_of_the_obras_asked_for(conn, rows, documents):
     assert {d["nid_proceso"] for d in pending_documents(conn, [wanted])} == {wanted}
     assert pending_documents(conn, []) == []
 
+
+def test_restart_listing_the_same_files_gets_its_own_documents(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:2])
+    old, restart = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    save_ficha(conn, old, documents)
+    assert save_ficha(conn, restart, documents) == len(documents)
+    assert {d["nid_proceso"] for d in pending_documents(conn, [old, restart])} == {old, restart}
+    assert save_ficha(conn, restart, documents) == 0
 
 
 def downloaded(conn, rows, documents, *paths):
@@ -214,11 +263,187 @@ def test_writes_survive_the_connection(test_dbname, rows, documents):
             cleanup.execute("DELETE FROM licitaciones WHERE nid_proceso = %s", [nid])
 
 
-def test_deadline_is_stored_once_and_never_overwritten(conn, rows, documents):
+def history(conn, nid):
+    return conn.execute(
+        "SELECT campo, valor_anterior, valor_nuevo FROM historial WHERE nid_proceso = %s ORDER BY id", [nid]
+    ).fetchall()
+
+
+def last_change(conn, nid):
+    return conn.execute("SELECT ultimo_cambio_en FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()[0]
+
+
+def test_postponed_deadline_keeps_the_old_one_in_historial(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     nid = rows[0]["nid_proceso"]
-    first = datetime(2026, 10, 9, 23, 59, tzinfo=LIMA)
-    save_ficha(conn, nid, documents, first)
-    save_ficha(conn, nid, documents, datetime(2026, 10, 20, 23, 59, tzinfo=LIMA))
+    later = datetime(2026, 10, 20, 23, 59, tzinfo=LIMA)
+    save_ficha(conn, nid, documents, datetime(2026, 10, 9, 23, 59, tzinfo=LIMA), ["Convocado"])
+    save_ficha(conn, nid, documents, later, ["Convocado"])
     stored = conn.execute("SELECT fecha_limite_ofertas FROM licitaciones WHERE nid_proceso = %s", [nid]).fetchone()[0]
-    assert stored == first
+    assert stored == later
+    assert history(conn, nid) == [("fecha_limite_ofertas", "09/10/2026 23:59", "20/10/2026 23:59")]
+    assert last_change(conn, nid) is not None
+
+
+def test_first_reading_is_not_a_change(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, datetime(2026, 10, 9, 23, 59, tzinfo=LIMA), ["Convocado"])
+    assert history(conn, nid) == []
+    assert last_change(conn, nid) is None
+
+
+def test_same_ficha_again_is_not_a_change(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    deadline = datetime(2026, 10, 9, 23, 59, tzinfo=LIMA)
+    save_ficha(conn, nid, documents, deadline, ["Convocado"])
+    save_ficha(conn, nid, documents, deadline, ["Convocado"])
+    assert history(conn, nid) == []
+
+
+def test_estado_change_and_closing_go_to_historial(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado", "Convocado"])
+    save_ficha(conn, nid, documents, estados=["Adjudicado", "Desierto"])
+    assert history(conn, nid) == [
+        ("estado_items", "Convocado / Convocado", "Adjudicado / Desierto"),
+        ("seguimiento", "abierta", "cerrada"),
+    ]
+
+
+def restart_of(rows, base, nid, **changes):
+    return {**base, "nid_proceso": nid, **changes}
+
+
+def links(conn):
+    return conn.execute(
+        "SELECT nid_proceso, reinicio_de, seguimiento FROM licitaciones ORDER BY nid_proceso"
+    ).fetchall()
+
+
+def test_restart_links_to_the_earlier_obra_and_stops_tracking_it(conn, rows, documents):
+    old = rows[0]
+    save_new_licitaciones(conn, [old])
+    save_ficha(conn, old["nid_proceso"], documents, estados=["Convocado"])
+    new = restart_of(rows, old, old["nid_proceso"] + 1000, reiniciado_desde="Registro de puntaje técnico")
+    save_new_licitaciones(conn, [new])
+    assert link_restarts(conn) == [(old["nid_proceso"], new["nid_proceso"])]
+    assert links(conn) == [(old["nid_proceso"], None, "reiniciada"), (new["nid_proceso"], old["nid_proceso"], "abierta")]
+    assert history(conn, new["nid_proceso"]) == [
+        ("reinicio", None, f"reiniciada desde Registro de puntaje técnico; antes nid {old['nid_proceso']}, estado Convocado")
+    ]
+    assert history(conn, old["nid_proceso"]) == [("seguimiento", "abierta", "reiniciada")]
+    assert link_restarts(conn) == []
+
+
+def test_closed_earlier_obra_stays_closed(conn, rows, documents):
+    old = rows[0]
+    save_new_licitaciones(conn, [old])
+    save_ficha(conn, old["nid_proceso"], documents, estados=["Nulo"])
+    save_new_licitaciones(conn, [restart_of(rows, old, old["nid_proceso"] + 1000)])
+    link_restarts(conn)
+    assert links(conn)[0] == (old["nid_proceso"], None, "cerrada")
+    assert history(conn, old["nid_proceso"]) == []
+
+
+def test_chain_of_restarts_links_each_to_the_one_before(conn, rows):
+    a = rows[0]
+    b, c = (restart_of(rows, a, a["nid_proceso"] + k) for k in (1000, 2000))
+    save_new_licitaciones(conn, [a, b, c])
+    link_restarts(conn)
+    assert [l[:2] for l in links(conn)] == [(a["nid_proceso"], None), (b["nid_proceso"], a["nid_proceso"]),
+                                            (c["nid_proceso"], b["nid_proceso"])]
+
+
+def test_same_nomenclatura_of_another_entidad_is_not_a_restart(conn, rows):
+    a = rows[0]
+    save_new_licitaciones(conn, [a, restart_of(rows, a, a["nid_proceso"] + 1000, entidad="OTRA ENTIDAD")])
+    assert link_restarts(conn) == []
+
+
+def test_obra_found_late_does_not_link_an_obra_twice(conn, rows):
+    a = rows[0]
+    b, c = (restart_of(rows, a, a["nid_proceso"] + k) for k in (1000, 2000))
+    save_new_licitaciones(conn, [a, c])
+    link_restarts(conn)
+    save_new_licitaciones(conn, [b])
+    assert link_restarts(conn) == []
+
+
+def test_tracked_obras_are_read_again_and_closed_ones_are_not(conn, rows, documents):
+    a, b = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    save_new_licitaciones(conn, rows[:2])
+    save_ficha(conn, a, documents, estados=["Convocado"])
+    save_ficha(conn, b, documents, estados=["Contratado"])
+    assert fichas_to_read(conn, [a, b]) == {a}
+    assert tracked(conn) == [a]
+
+
+def test_failed_re_reading_keeps_the_ficha_done(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    for _ in range(MAX_ATTEMPTS):
+        ficha_failed(conn, nid, "timeout")
+    assert ficha_state(conn, nid) == ("done", 0)
+    assert fichas_to_read(conn, [nid]) == {nid}
+
+
+def test_search_range_starts_at_the_oldest_tracked_obra(conn, rows, documents):
+    save_new_licitaciones(conn, rows)
+    oldest = min(rows, key=lambda r: r["fecha_publicacion"])
+    save_ficha(conn, oldest["nid_proceso"], documents, estados=["Nulo"])
+    still = min((r for r in rows if r is not oldest), key=lambda r: r["fecha_publicacion"])
+    assert open_since(conn) == {"LA LIBERTAD": still["fecha_publicacion"].date()}
+
+
+PUBLISHED = datetime(2026, 6, 1, 10, 0, tzinfo=LIMA)
+STALL_CHECK = PUBLISHED + timedelta(days=STALLED_DAYS + 30)
+
+
+def obra_dated(conn, rows, documents, deadline, document_dates):
+    """One tracked obra published on PUBLISHED, with this deadline and documents published on these dates."""
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    conn.execute("UPDATE licitaciones SET fecha_publicacion = %s WHERE nid_proceso = %s", [PUBLISHED, nid])
+    dated = [{**d, "uuid": f"{d['uuid']}-{i}", "publicado_en": when} for i, (d, when) in
+             enumerate(zip(documents * len(document_dates), document_dates))]
+    save_ficha(conn, nid, dated, deadline, ["Convocado"])
+    return nid
+
+
+def test_obra_without_movement_for_60_days_stops_being_tracked(conn, rows, documents):
+    nid = obra_dated(conn, rows, documents, PUBLISHED + timedelta(days=10), [PUBLISHED])
+    assert mark_stalled(conn, STALL_CHECK) == [nid]
+    assert tracking(conn, nid) == ("parada", True)
+    assert history(conn, nid) == [("seguimiento", "abierta", "parada")]
+    assert mark_stalled(conn, STALL_CHECK) == []
+
+
+def test_offer_deadline_still_ahead_never_stalls(conn, rows, documents):
+    obra_dated(conn, rows, documents, STALL_CHECK + timedelta(days=5), [PUBLISHED])
+    assert mark_stalled(conn, STALL_CHECK) == []
+
+
+def test_recent_document_keeps_the_obra_tracked(conn, rows, documents):
+    obra_dated(conn, rows, documents, PUBLISHED + timedelta(days=10),
+               [PUBLISHED, STALL_CHECK - timedelta(days=STALLED_DAYS - 1)])
+    assert mark_stalled(conn, STALL_CHECK) == []
+
+
+def test_change_seen_by_the_monitor_keeps_the_obra_tracked(conn, rows, documents):
+    nid = obra_dated(conn, rows, documents, PUBLISHED + timedelta(days=10), [PUBLISHED])
+    conn.execute("UPDATE licitaciones SET ultimo_cambio_en = %s WHERE nid_proceso = %s",
+                 [STALL_CHECK - timedelta(days=1), nid])
+    assert mark_stalled(conn, STALL_CHECK) == []
+
+
+def test_new_document_goes_to_historial(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"])
+    integradas = {**documents[0], "uuid": "integradas", "tipo": "Bases Integradas", "nombre_archivo": "bi.pdf"}
+    assert save_ficha(conn, nid, documents + [integradas], estados=["Convocado"]) == 1
+    assert history(conn, nid) == [("documento", None, "Bases Integradas: bi.pdf")]

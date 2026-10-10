@@ -222,3 +222,57 @@ def test_block_title_drops_the_municipality_prefix(conn, tmp_path):
 def test_problems_are_listed(conn, tmp_path):
     rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW, problems=["1.toml: not valid TOML"])
     assert "Problemas:\n- 1.toml: not valid TOML" in rep.text
+
+
+def change(conn, nid, campo, antes, ahora):
+    conn.execute("INSERT INTO historial (nid_proceso, campo, valor_anterior, valor_nuevo) VALUES (%s, %s, %s, %s)",
+                 [nid, campo, antes, ahora])
+
+
+def test_changes_of_watched_obras_go_into_the_mail_and_a_csv(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=5))
+    add(conn, 2, ["ANCASH"], NOW + timedelta(days=4), informado=NOW - timedelta(days=5))
+    change(conn, 1, "fecha_limite_ofertas", "05/10/2026 23:59", "07/10/2026 09:00")
+    change(conn, 1, "documento", None, "Bases Integradas: bi.pdf")
+    change(conn, 1, "documento", None, "Pliego de absolución de consultas y observaciones: p.pdf")
+    change(conn, 2, "estado_items", "Convocado", "Adjudicado")
+    rep = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW)
+    assert ("MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n"
+            "  documentos nuevos: Bases Integradas, Pliego de absolución de consultas y observaciones\n"
+            "  fecha límite de ofertas: 05/10/2026 23:59 → 07/10/2026 09:00") in rep.text
+    assert "Cambios en obras seguidas: 1" in rep.text
+    assert "LP-ABR-2" not in rep.text
+    assert rep.files[-1] == tmp_path / "2026-10-03-cambios.csv"
+    with open(rep.files[-1], encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f, delimiter=";"))
+    assert [(r["campo"], r["ahora"]) for r in rows] == [
+        ("fecha límite de ofertas", "07/10/2026 09:00"), ("documento nuevo", "Bases Integradas: bi.pdf"),
+        ("documento nuevo", "Pliego de absolución de consultas y observaciones: p.pdf"),
+    ]
+    assert len(rep.change_ids) == 3
+
+
+def test_reported_changes_are_not_reported_again(conn, tmp_path):
+    from seace_monitor.store import mark_changes_reported
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=5))
+    change(conn, 1, "estado_items", "Convocado", "Adjudicado")
+    mark_changes_reported(conn, build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW).change_ids)
+    assert "Cambios" not in build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW).text
+
+
+def test_tracking_stops_are_said_in_words(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW - timedelta(days=4), informado=NOW - timedelta(days=5))
+    change(conn, 1, "estado_items", "Convocado", "Desierto")
+    change(conn, 1, "seguimiento", "abierta", "cerrada")
+    text = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW).text
+    assert "  estado: Convocado → Desierto\n  deja de seguirse: cerrada" in text
+
+
+def test_restart_is_shown_with_the_new_obra_not_as_a_change(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW - timedelta(days=40), informado=NOW - timedelta(days=50))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=4))
+    conn.execute("UPDATE licitaciones SET reinicio_de = 1 WHERE nid_proceso = 2")
+    change(conn, 2, "reinicio", None, "reiniciada; antes nid 1, estado Nulo")
+    text = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW).text
+    assert "LP-ABR-2 | reinicio de una convocatoria anterior" in text
+    assert "Cambios" not in text

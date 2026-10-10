@@ -8,7 +8,7 @@ resolved to option codes on every page load.
 import html
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -55,6 +55,10 @@ COLUMNS = {
 
 class SearchError(Exception):
     pass
+
+
+class CapError(SearchError):
+    """The portal cut the list at RESULT_CAP; a shorter date range is needed."""
 
 
 class AccessError(SearchError):
@@ -305,7 +309,7 @@ def search_pages(query: Query, session: requests.Session | None = None) -> Itera
     session = session or make_session()
     page = search(query, session)
     if page.total >= RESULT_CAP:
-        raise SearchError(f"the portal stops at {RESULT_CAP} results; split the date range of {query}")
+        raise CapError(f"the portal stops at {RESULT_CAP} results; split the date range of {query}")
     check_dates(page.rows, query)
     seen = [r["nid_proceso"] for r in page.rows]
     yield page
@@ -330,6 +334,22 @@ def search_pages(query: Query, session: requests.Session | None = None) -> Itera
     # A row published while paging shifts the list: one row comes twice and another is skipped.
     if len(set(seen)) != page.total:
         raise SearchError(f"read {len(set(seen))} different rows of {page.total} for {query}; run again")
+
+
+def search_split(query: Query, session: requests.Session | None = None) -> Iterator[SearchResult]:
+    """Every results page of a query, halving its date range for as long as the portal cuts the list.
+
+    The cut shows on the first page, before any row is handed out, so no row comes twice.
+    """
+    session = session or make_session()
+    try:
+        yield from search_pages(query, session)
+    except CapError:
+        if not (query.desde and query.hasta) or query.desde >= query.hasta:
+            raise
+        middle = query.desde + (query.hasta - query.desde) // 2
+        yield from search_split(replace(query, hasta=middle), session)
+        yield from search_split(replace(query, desde=middle + timedelta(days=1)), session)
 
 
 def check_dates(rows: list[dict], query: Query) -> None:
