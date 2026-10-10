@@ -79,8 +79,9 @@ without it, an offer type left as the template's choice and a cuantía that diff
 bases, unfilled templates and diseño y construcción amounts per component are left for a person. Results go into
 `extracciones` with their own `version_extractor`; a new version reads every bases again.
 
-A scanned file of an obra's newest bases is OCRed first (its first 150 pages, about 10 minutes) into
-`<name>-ocr.pdf` next to the original; a daily run OCRs at most 10 files and leaves the rest for the next run.
+When section 1.4 is not in the text of an obra's newest bases, its image pages among the first 150 (whole scans,
+or a scanned requerimiento with only the entity's typed header) are OCRed into `<name>-ocr.pdf` next to the
+original, about 4 s per page; a daily run OCRs at most 10 files and leaves the rest for the next run.
 Readings from OCR are marked `ocr: true`: OCR misreads digits now and then, so check their amounts on the page.
 
 ```

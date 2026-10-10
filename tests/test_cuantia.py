@@ -210,7 +210,7 @@ def test_bases_that_are_only_a_scan():
 @needs_pdftotext
 def test_scanned_bases_are_read_from_their_ocr_copy_and_say_so():
     # The copy stands in for an OCRed one: any PDF with a text layer.
-    result = read_files([PDFS / "bases_scanned_page.pdf"], ocr=lambda path: PDFS / "bases_cuantia_alto_trujillo.pdf")
+    result = read_files([PDFS / "bases_scanned_page.pdf"], ocr=lambda path, pages: PDFS / "bases_cuantia_alto_trujillo.pdf")
     assert (result["cuantia"], result["archivo"], result["ocr"]) == ("3020598.92", "bases_scanned_page.pdf", True)
 
 
@@ -221,7 +221,7 @@ def test_files_named_as_bases_are_ocred_first_and_only_a_few(tmp_path):
         (tmp_path / name).write_bytes((PDFS / "bases_scanned_page.pdf").read_bytes())
     asked = []
 
-    def ocr(path):
+    def ocr(path, pages):
         asked.append(path.name)
         return PDFS / "bases_scanned_page.pdf"  # nothing found: every allowed file is tried
 
@@ -231,7 +231,7 @@ def test_files_named_as_bases_are_ocred_first_and_only_a_few(tmp_path):
 
 @needs_pdftotext
 def test_failed_ocr_leaves_the_bases_for_a_person():
-    def fails(path):
+    def fails(path, pages):
         raise OcrError("ocrmypdf exit 2")
     result = read_files([PDFS / "bases_scanned_page.pdf"], ocr=fails)
     assert result["revisar"] == SCANNED

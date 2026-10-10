@@ -178,11 +178,11 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
         ocr_budget = 0
     made = []
 
-    def counted_ocr(path):
+    def counted_ocr(path, pages):
         if not ocr_path(path).exists():
             made.append(path)
-            print(f"  OCR {path.name}")
-        return make_ocr(path)
+            print(f"  OCR {path.name} ({len(pages)} pages)")
+        return make_ocr(path, pages)
 
     for document in pending:
         may_ocr = document["newest"] and (ocr_budget is None or len(made) < ocr_budget)
@@ -192,8 +192,8 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
         except ToolMissing as error:
             print(f"reading stopped, nothing marked: {error}")
             return
-        if result["revisar"] == cuantia.SCANNED and document["newest"] and not may_ocr:
-            print(f"  {document['nid_proceso']}  scanned, waits for OCR in the next run")
+        if result.pop("ocr_pendiente", False) and document["newest"]:
+            print(f"  {document['nid_proceso']}  image pages, waits for OCR in the next run")
             continue
         save_extraction(conn, document["id"], cuantia.VERSION, result, result["revisar"])
         warnings = ", ".join(w["aviso"] for w in result["avisos"])

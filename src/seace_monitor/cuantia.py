@@ -13,9 +13,9 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from pathlib import Path
 
 from .bases_text import TextError, is_scanned, page_of, text_of
-from .ocr import OcrError
+from .ocr import OcrError, image_pages
 
-VERSION = "cuantia-2"
+VERSION = "cuantia-3"
 
 TITLE = re.compile(r"CUANT[IÍ]A\s+DE\s+LA\s+CONTRATACI[OÓ]N", re.I)
 # Not the footnote of 1.4 ("indicada en esta sección"): it can fall between the cuantía and the límites table.
@@ -178,13 +178,14 @@ def nearest(amounts: list[Decimal], target: Decimal, spread: Decimal) -> Decimal
 
 
 def read_files(files: list[Path], valor_seace: Decimal | None = None,
-               ocr: Callable[[Path], Path] | None = None) -> dict:
+               ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
     """The reading of the first file that holds section 1.4; an archive also carries annexes and plans.
 
-    A scanned file is read from its OCRed copy when `ocr` makes one; that reading says `ocr: true`.
-    No file with 1.4 and a scanned file among them: the bases are that scan.
+    Without 1.4 in any text, files with image pages are read from their OCRed copy when `ocr`
+    makes one (path, image pages); that reading says `ocr: true`. No file with 1.4 and a scanned
+    file among them: the bases are that scan.
     """
-    scanned, unreadable = [], []
+    scanned, with_images, unreadable = [], [], []
     for path in files:
         try:
             text = text_of(path)
@@ -193,21 +194,23 @@ def read_files(files: list[Path], valor_seace: Decimal | None = None,
             continue
         if is_scanned(text):
             scanned.append(path)
-            continue
-        result = read(text, valor_seace)
-        if result["revisar"] != NO_SECTION:
-            return {**result, "archivo": path.name, "ocr": False}
-    # OCR costs minutes per file: the files named as bases first, and only a few of an archive's scans.
-    for path in sorted(scanned, key=lambda p: "BASE" not in p.name.upper())[:OCR_FILES if ocr else 0]:
+        else:
+            result = read(text, valor_seace)
+            if result["revisar"] != NO_SECTION:
+                return {**result, "archivo": path.name, "ocr": False}
+        if pages := image_pages(text):
+            with_images.append((path, pages))
+    # OCR costs minutes per file: the files named as bases first, and only a few of an archive's.
+    for path, pages in sorted(with_images, key=lambda f: "BASE" not in f[0].name.upper())[:OCR_FILES if ocr else 0]:
         try:
-            text = text_of(ocr(path))
+            text = text_of(ocr(path, pages))
         except (OcrError, TextError) as error:
             unreadable.append(f"{path.name}: {error}")
             continue
         result = read(text, valor_seace)
         if result["revisar"] != NO_SECTION:
             return {**result, "archivo": path.name, "ocr": True}
-    result = {**read("", valor_seace), "ocr": False}
+    result = {**read("", valor_seace), "ocr": False, "ocr_pendiente": bool(with_images) and ocr is None}
     result["archivo"] = scanned[0].name if scanned else ""
     if scanned:
         result["revisar"] = SCANNED
