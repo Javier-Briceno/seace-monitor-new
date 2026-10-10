@@ -10,9 +10,10 @@ import sys
 import time
 from dataclasses import replace
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
-from . import config, cuantia, db, mail, manual, obra_page, report
+from . import config, cuantia, db, experiencia, mail, manual, obra_page, report
 from .archives import ArchiveError, MachineError, unpack
 from .bases_text import ToolMissing, bases_files
 from .ocr import make_ocr, ocr_path, ocrmypdf
@@ -164,13 +165,12 @@ def run_unpacking(conn, nids=None) -> None:
 
 
 def run_extraction(conn, nids=None, ocr_budget=None) -> None:
-    """Read section 1.4 of the downloaded bases of these obras not read yet; None means every obra.
+    """Read section 1.4 and then the experiencia del postor of the downloaded bases of these obras
+    not read yet by the current readers; None means every obra.
 
-    A scanned file of an obra's newest bases is OCRed first, at most `ocr_budget` files per run
-    (None: no limit); bases still waiting for OCR are left unread for the next run.
+    Image pages of an obra's newest bases are OCRed when a section is not in the text, at most
+    `ocr_budget` files per run (None: no limit); bases still waiting for OCR are left for the next run.
     """
-    pending = bases_to_extract(conn, cuantia.VERSION, nids)
-    print(f"bases to read: {len(pending)}")
     try:
         ocrmypdf()
     except ToolMissing as error:
@@ -184,21 +184,32 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
             print(f"  OCR {path.name} ({len(pages)} pages)")
         return make_ocr(path, pages)
 
-    for document in pending:
-        may_ocr = document["newest"] and (ocr_budget is None or len(made) < ocr_budget)
-        try:
-            result = cuantia.read_files(bases_files(document["ruta_local"], document["contents"]),
-                                        document["valor_referencial"], counted_ocr if may_ocr else None)
-        except ToolMissing as error:
-            print(f"reading stopped, nothing marked: {error}")
-            return
-        if result.pop("ocr_pendiente", False) and document["newest"]:
-            print(f"  {document['nid_proceso']}  image pages, waits for OCR in the next run")
-            continue
-        save_extraction(conn, document["id"], cuantia.VERSION, result, result["revisar"])
-        warnings = ", ".join(w["aviso"] for w in result["avisos"])
-        print(f"  {document['nid_proceso']}  {result['revisar'] or result['cuantia']}{' (OCR)' if result['ocr'] else ''}"
-              f"  {warnings}")
+    def cuantia_of(document):
+        found = document["cuantia_bases"] or document["valor_referencial"]
+        return Decimal(found) if found is not None else None
+
+    readers = (
+        (cuantia.VERSION, lambda files, document, ocr: cuantia.read_files(files, document["valor_referencial"], ocr),
+         lambda r: f"{r['revisar'] or r['cuantia']}  {', '.join(w['aviso'] for w in r['avisos'])}"),
+        (experiencia.VERSION, lambda files, document, ocr: experiencia.read_files(files, cuantia_of(document), ocr),
+         lambda r: f"{r['revisar'] or r['monto']}  {r['veces_cuantia'] or ''}"),
+    )
+    for version, read, line in readers:
+        pending = bases_to_extract(conn, version, nids)
+        print(f"bases to read with {version}: {len(pending)}")
+        for document in pending:
+            may_ocr = document["newest"] and (ocr_budget is None or len(made) < ocr_budget)
+            try:
+                result = read(bases_files(document["ruta_local"], document["contents"]), document,
+                              counted_ocr if may_ocr else None)
+            except ToolMissing as error:
+                print(f"reading stopped, nothing marked: {error}")
+                return
+            if result.pop("ocr_pendiente", False) and document["newest"]:
+                print(f"  {document['nid_proceso']}  image pages, waits for OCR in the next run")
+                continue
+            save_extraction(conn, document["id"], version, result, result["revisar"])
+            print(f"  {document['nid_proceso']}  {line(result)}{' (OCR)' if result['ocr'] else ''}")
 
 
 def main() -> int:

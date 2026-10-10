@@ -263,6 +263,13 @@ def test_extracted_bases_are_not_extracted_again_by_the_same_version(conn, rows,
         ({"cuantia": None}, "escaneado")]
 
 
+def test_the_cuantia_read_from_the_bases_goes_to_the_next_reader(conn, rows, documents):
+    _, bases = downloaded(conn, rows, documents, "data/informe.pdf", "data/bases.pdf")
+    assert [p["cuantia_bases"] for p in bases_to_extract(conn, "experiencia-1")] == [None]
+    save_extraction(conn, bases, "cuantia-3", {"cuantia": "416563.59"}, None)
+    assert [p["cuantia_bases"] for p in bases_to_extract(conn, "experiencia-1")] == ["416563.59"]
+
+
 def test_unpacked_archive_is_not_unpacked_again(conn, rows, documents):
     archive, _ = downloaded(conn, rows, documents, "data/BASES.zip")
     files = [

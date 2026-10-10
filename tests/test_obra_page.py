@@ -88,6 +88,25 @@ def test_ocr_reading_asks_to_check_the_figures(conn):
     assert "verificar las cifras en la página" in text(build(conn, ["LA LIBERTAD"], NOW))
 
 
+def test_experience_asked_by_the_bases(conn):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=4))
+    doc = bases(conn, 1, lectura=reading())
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'experiencia-1', %s, 'done')",
+                 [doc, json.dumps({"monto": "800000.00", "veces": None, "veces_cuantia": "1.015", "anios": 20,
+                                   "cuenta_desde": "acta de recepción", "especialidad": "Edificaciones y Afines",
+                                   "subespecialidades": ["Establecimientos de salud"], "pagina": 57, "revisar": None,
+                                   "ocr": False})])
+    doc = bases(conn, 2, lectura=reading())
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'experiencia-1', %s, 'done')",
+                 [doc, json.dumps({"monto": None, "veces": None, "revisar": "sin requisito de experiencia del postor",
+                                   "pagina": None, "ocr": False})])
+    page = text(build(conn, ["LA LIBERTAD"], NOW))
+    assert ("Experiencia del postor: S/ 800,000.00, 1,02 veces la cuantía, en Edificaciones y Afines — "
+            "Establecimientos de salud, en los últimos 20 años, contados desde acta de recepción (pág. 57).") in page
+    assert "Experiencia del postor: no se pudo leer, revisar a mano." in page
+
+
 def test_downloaded_bases_not_read_yet(conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
     bases(conn, 1)

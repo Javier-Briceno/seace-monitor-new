@@ -280,6 +280,7 @@ def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | N
 
     An archive waits until it has been unpacked (or found broken); `contents` are its files. `newest`:
     the bases the obra is offered on now, its latest integradas or else its latest administrativas.
+    `cuantia_bases`: the cuantía its 1.4 states, once read.
     """
     sql = """WITH ranked AS (
                  SELECT id, row_number() OVER (PARTITION BY nid_proceso ORDER BY (tipo ILIKE '%%integrad%%') DESC,
@@ -287,7 +288,9 @@ def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | N
                  FROM documentos WHERE estado = 'done' AND tipo ILIKE 'bases%%')
              SELECT d.id, d.nid_proceso, d.ruta_local, l.valor_referencial,
                     COALESCE(array_agg(c.ruta ORDER BY c.id) FILTER (WHERE c.ruta IS NOT NULL AND c.error IS NULL), '{}'),
-                    r.newest
+                    r.newest,
+                    (SELECT e.campos->>'cuantia' FROM extracciones e WHERE e.documento_id = d.id
+                       AND e.version_extractor LIKE 'cuantia-%%' ORDER BY e.creado_en DESC LIMIT 1)
              FROM documentos d JOIN licitaciones l USING (nid_proceso) JOIN ranked r ON r.id = d.id
              LEFT JOIN documento_contenido c ON c.documento_id = d.id
              WHERE d.estado = 'done' AND d.tipo ILIKE 'bases%%'
@@ -298,7 +301,8 @@ def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | N
         sql += " AND d.nid_proceso = ANY(%s)"
         params.append(nids)
     rows = conn.execute(sql + " GROUP BY d.id, l.valor_referencial, r.newest ORDER BY d.id", params).fetchall()
-    return [dict(zip(("id", "nid_proceso", "ruta_local", "valor_referencial", "contents", "newest"), r)) for r in rows]
+    keys = ("id", "nid_proceso", "ruta_local", "valor_referencial", "contents", "newest", "cuantia_bases")
+    return [dict(zip(keys, r)) for r in rows]
 
 
 def save_extraction(conn: psycopg.Connection, doc_id: int, version: str, campos: dict, motivo: str | None) -> None:

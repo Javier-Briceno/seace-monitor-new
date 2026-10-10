@@ -89,15 +89,46 @@ def obras(conn: psycopg.Connection, watched: list[str], now: datetime) -> list[d
            SELECT l.nid_proceso, l.nomenclatura, l.entidad, l.descripcion, l.departamentos, l.fecha_limite_ofertas,
                   l.valor_referencial, n.tipo,
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
-                     AND e.version_extractor LIKE 'cuantia-%%' ORDER BY e.creado_en DESC LIMIT 1)
+                     AND e.version_extractor LIKE 'cuantia-%%' ORDER BY e.creado_en DESC LIMIT 1),
+                  (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
+                     AND e.version_extractor LIKE 'experiencia-%%' ORDER BY e.creado_en DESC LIMIT 1)
            FROM licitaciones l LEFT JOIN newest n USING (nid_proceso)
            WHERE l.seguimiento = 'abierta' AND l.fecha_limite_ofertas > %s
            ORDER BY l.fecha_limite_ofertas, l.nid_proceso""",
         [now],
     ).fetchall()
     keys = ("nid_proceso", "nomenclatura", "entidad", "descripcion", "departamentos", "fecha_limite_ofertas",
-            "valor_referencial", "bases", "lectura")
+            "valor_referencial", "bases", "lectura", "experiencia")
     return [dict(zip(keys, r)) for r in rows if in_watched(r[4], watched)]
+
+
+def experience_lines(found: dict | None) -> list[str]:
+    """The requisito de experiencia del postor; nothing when the bases were not read for it yet."""
+    e = html.escape
+    if found is None:
+        return []
+    if found.get("revisar") and not found.get("monto"):
+        page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
+        return [f'<p class="revisar">Experiencia del postor: no se pudo leer{page}, revisar a mano.</p>']
+    times_word = "vez" if found.get("veces") == "1" else "veces"
+    asked = soles(found["monto"]) if found.get("monto") else f'{found["veces"]} {times_word} la cuantía'
+    times = found.get("veces_cuantia")
+    if times and Decimal(times) != 1:
+        asked += f", {Decimal(times):.2f} veces la cuantía".replace(".", ",", 1)
+    elif times:
+        asked += ", 1 vez la cuantía"
+    where = found.get("especialidad") or ""
+    if found.get("subespecialidades"):
+        where += (" — " if where else "") + ", ".join(found["subespecialidades"])
+    parts = [f"<b>Experiencia del postor:</b> {e(asked)}"]
+    if where:
+        parts.append(f"en {e(where)}")
+    if found.get("anios"):
+        parts.append(f"en los últimos {found['anios']} años")
+    if found.get("cuenta_desde"):
+        parts.append(f"contados desde {e(found['cuenta_desde'])}")
+    note = f' (pág. {found["pagina"]}{", leído con OCR" if found.get("ocr") else ""})' if found.get("pagina") else ""
+    return [f'<p>{", ".join(parts)}{note}.</p>']
 
 
 def card(obra: dict, now: datetime) -> str:
@@ -134,6 +165,7 @@ def card(obra: dict, now: datetime) -> str:
         lines.append('<p class="ok">Cuantía y límites sin observaciones.</p>')
     if reading.get("ocr"):
         lines.append('<p class="ocr">Leído de bases escaneadas con OCR: verificar las cifras en la página.</p>')
+    lines += experience_lines(obra["experiencia"])
     lines.append(f'<p class="fuente">{where}</p>')
     return f'<section{" class=con-aviso" if warnings else ""}>' + "".join(lines) + '</section>'
 
