@@ -64,6 +64,14 @@ def test_report_goes_to_every_recipient_with_the_csv(smtp):
     assert attachment.get_filename() == "2026-10-03.csv"
 
 
+def test_phone_page_goes_as_html(smtp, tmp_path):
+    page = tmp_path / "obras-abiertas-2026-10-03.html"
+    page.write_text("<!doctype html><p>obras</p>", encoding="utf-8")
+    mail.send("Informe SEACE", "cuerpo", [smtp, page])
+    _, msg = FakeSMTP.sent[0]
+    assert [a.get_content_type() for a in msg.iter_attachments()] == ["text/csv", "text/html"]
+
+
 def test_missing_setting_is_an_error_not_a_silent_skip(smtp, monkeypatch):
     monkeypatch.delenv("SMTP_PASSWORD")
     with pytest.raises(mail.MailError, match="SMTP_PASSWORD"):

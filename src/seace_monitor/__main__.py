@@ -12,7 +12,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-from . import config, cuantia, db, mail, manual, report
+from . import config, cuantia, db, mail, manual, obra_page, report
 from .archives import ArchiveError, MachineError, unpack
 from .bases_text import ToolMissing, bases_files
 from .ocr import make_ocr, ocr_path, ocrmypdf
@@ -208,6 +208,7 @@ def main() -> int:
     parser.add_argument("--plantilla", type=int, metavar="NID_PROCESO", help="write the manual extraction template of one obra and exit")
     parser.add_argument("--desempaquetar", action="store_true", help="unpack every downloaded archive not unpacked yet and exit")
     parser.add_argument("--extraer", action="store_true", help="read section 1.4 of every downloaded bases not read yet and exit")
+    parser.add_argument("--pagina", action="store_true", help="write the phone page of the obras open for offers and exit")
     args = parser.parse_args()
 
     cfg = config.load(args.config)
@@ -229,6 +230,9 @@ def main() -> int:
         return 0
     if args.extraer:
         run_extraction(conn)
+        return 0
+    if args.pagina:
+        print(f"page written: {obra_page.write(conn, config.watched(cfg), config.report_dir(cfg), datetime.now(LIMA))}")
         return 0
     try:
         alone = []
@@ -256,6 +260,7 @@ def main() -> int:
     for name in imported:
         print(f"manual extraction imported: {name}")
     rep = report.build(conn, config.watched(cfg), config.download_dir(cfg), config.report_dir(cfg), problems=problems)
+    rep.files.append(obra_page.write(conn, config.watched(cfg), config.report_dir(cfg), datetime.now(LIMA)))
     print(f"\n{rep.text}\nreport files: {', '.join(str(f) for f in rep.files)}")
     if args.no_mail:
         print("not sent (--no-mail); nothing marked as reported")
