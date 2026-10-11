@@ -137,6 +137,16 @@ def test_experience_whose_words_say_another_amount(conn):
     assert "El monto en letras dice S/ 4,829,130.42: mirar la página." in text(build(conn, ["LA LIBERTAD"], NOW))
 
 
+def test_experience_figure_out_of_range(conn):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
+    doc = bases(conn, 1, lectura=reading())
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'experiencia-2', %s, 'done')",
+                 [doc, json.dumps({"monto": "2338.42", "veces_cuantia": "0.001", "veces": None, "pagina": 44,
+                                   "revisar": "monto de experiencia fuera de rango", "ocr": True})])
+    assert ("Experiencia del postor: se leyó S/ 2,338.42, que no cuadra con la cuantía; puede ser una cifra mal leída "
+            "(pág. 44): revisar a mano.") in text(build(conn, ["LA LIBERTAD"], NOW))
+
+
 def test_page_escapes_what_comes_from_seace(conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
     conn.execute("UPDATE licitaciones SET descripcion = 'OBRA <script>x</script>'")

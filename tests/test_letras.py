@@ -29,6 +29,7 @@ def test_amounts_in_words(words, amount):
     ("Son: CUATROCIENTOS TREINTA Y SIETE MIL SEIS CIENTOS OCHENTA Y UNO CON 38/100 SOLES", "437681.38"),
     ("SEISCIENTOS CUATRO MIL TRESCIENTOS VEINTI CUATRO CON 50/100 SOLES", "604324.50"),
     ("seis cientos echenta y cinco mil seiscientos ochenta y dos con 75/100 soles", "685682.75"),
+    ("UN M!LLÓN SEISCIENTOS CUARENTA Y DOS MIL SEISCIENTOS NOVENTA CON 61/100 SOLES", "1642690.61"),
 ])
 def test_spellings_of_real_bases(words, amount):
     assert amount_in_words(words) == Decimal(amount)

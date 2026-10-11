@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from seace_monitor.experiencia import NOT_FOUND, read
+from seace_monitor.experiencia import DOUBTFUL, NOT_FOUND, read
 
 FIXTURES = Path(__file__).parent / "fixtures" / "experiencia"
 
@@ -67,6 +67,27 @@ def test_digits_misread_by_ocr_are_caught_by_the_words():
     assert read(bases("1243139"), Decimal("1071882.45"))["monto_letras"] is None
 
 
+def test_a_figure_far_from_the_cuantia_goes_to_a_person():
+    # 1240273: OCR read "2´338,423.65" as 2,338.42
+    result = read(bases("1224622"), Decimal("416563590.00"))
+    assert (result["monto"], result["revisar"]) == ("416563.59", DOUBTFUL)
+
+
+def test_unreadable_digits_are_taken_from_the_words():
+    text = ("EXPERIENCIA DEL POSTOR EN LA ESPECIALIDAD.\n Requisitos:\n El postor debe acreditar un monto facturado "
+            "acumulado no menor a S/ 2476 757 90 (Dos\n millones cuatrocientos setenta y seis mil setecientos cincuenta "
+            "y siete con 90/100 soles),\n correspondiente a la ... de obras")  # 1253839, OCR
+    result = read(text, Decimal("2476757.90"))
+    assert (result["monto"], result["monto_de_letras"], result["revisar"]) == ("2476757.90", True, None)
+
+
+def test_a_space_after_the_decimal_point():
+    text = ("EXPERIENCIA DEL POSTOR EN LA ESPECIALIDAD\n Requisitos:\n El postor debe acreditar un monto facturado "
+            "acumulado equivalente a S/ 491, 212. 88 (Cuatrocientos\n Noventa y Un Mil Doscientos Doce con 88/100 "
+            "Soles), en la ejecución")  # 1252377
+    assert read(text, Decimal("491212.88"))["monto"] == "491212.88"
+
+
 def test_ten_years_in_words():
     assert read(bases("1256289"), Decimal("443276.42"))["anios"] == 10
 
@@ -76,6 +97,19 @@ def test_acreditacion_of_the_scoring_factor_is_not_requisitos():
     factor = ("se considera la “Experiencia del Postor en la especialidad”,\n durante veinticinco años anteriores "
               "40 puntos\n fecha de la conformidad M>= S/ 2,671,056.04 y < S/ 4,006,584.06:\n\n Acreditación: 30 puntos")
     assert read(factor)["revisar"] == NOT_FOUND
+
+
+def test_chapter_iv_quoting_the_requirement_is_not_it():
+    # 1252300: the factor cites "requisito de calificación “Experiencia del Postor en la Especialidad”"
+    factor = ("requisito de calificación “Experiencia del Postor en la Especialidad”,\n durante los veinticinco (25) "
+              "años M>= S/ 5,500,000.00 y <\n Dicho monto debe ser en exceso al acreditado para\n cumplir el requisito "
+              "de calificación obligatoria.")
+    assert read(factor)["revisar"] == NOT_FOUND
+
+
+def test_ocr_noise_under_the_title_gives_no_amount():
+    noise = "EXPERIENCIA DEL POSTOR EN LA ESPECIALIDAD\n Reguisitos\n '¡X=_,o_gg'mf¡ ;\n 77 E ve <y 7A 1,832,698.69\n"
+    assert read(noise)["monto"] is None
 
 
 def test_scoring_factor_of_chapter_iv_is_not_the_requirement():

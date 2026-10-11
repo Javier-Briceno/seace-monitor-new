@@ -20,8 +20,13 @@ VERSION = "experiencia-2"
 
 # The requirement, not the scoring factor of chapter IV ("Experiencia adicional ... PUNTAJE"). OCR
 # turns "Requisitos:" into "Reguisitos:" or "Regquisios:", or loses it; the sentence that follows stays.
-REQUIREMENT = re.compile(r"EXPERIENCIA\s+DEL\s+POSTOR\s+EN\s+LA\s+ESPECIALIDAD(?:(?!PUNTAJE|Evaluaci[oó]n\s*:).){0,400}?"
-                         r"(?:\bRe\w{4,8}\s*:|\bRequisitos?\b|(?=El\s+postor\s+debe\s+acreditar\s+un\s+monto))", re.I | re.S)
+# A title in quotes is chapter IV citing the requirement; "requisito" alone is any sentence.
+REQUIREMENT = re.compile(r"EXPERIENCIA\s+DEL\s+POSTOR\s+EN\s+LA\s+ESPECIALIDAD(?![”\"])"
+                         r"(?:(?!PUNTAJE|Evaluaci[oó]n\s*:).){0,400}?"
+                         r"(?:\bRe\w{4,8}\s*:|\bRequisitos?[ \t]*\r?\n|(?=El\s+postor\s+debe\s+acreditar\s+un\s+monto))",
+                         re.I | re.S)
+# The requirement's own sentence; without it the block is OCR noise and no figure in it is the monto.
+SENTENCE = re.compile(r"monto\s+facturado|equivalente", re.I)
 END = re.compile(r"Acreditaci[oó]n\s*:", re.I)
 MAX_BLOCK = 6000
 AMOUNT_AFTER = re.compile(r"equivalente\s+a\s*(?:un\s+m[ií]nimo\s+de\s*)?(.{0,160})", re.I | re.S)
@@ -37,6 +42,9 @@ SUBSPECIALTY = re.compile(r"^\s*Sub\s*-?\s*esp[ae]cialidad(?:es)?" + SEPARATOR +
 
 NOT_FOUND = "sin requisito de experiencia del postor"
 NO_AMOUNT = "experiencia sin monto legible"
+# Real bases ask from about half the cuantía up to three times it; a figure outside is a misread one (OCR).
+PLAUSIBLE = (Decimal("0.25"), Decimal("3.0"))
+DOUBTFUL = "monto de experiencia fuera de rango"
 
 
 def squeeze(text: str) -> str:
@@ -61,7 +69,7 @@ def read(text: str, cuantia: Decimal | None = None) -> dict:
     """What the requirement asks for; `veces_cuantia` relates the monto to the cuantía of 1.4."""
     result = {"pagina": None, "monto": None, "veces": None, "veces_cuantia": None, "anios": None,
               "cuenta_desde": None, "especialidad": None, "subespecialidades": None, "cita": None,
-              "monto_letras": None, "revisar": None}
+              "monto_letras": None, "monto_de_letras": False, "revisar": None}
     m = REQUIREMENT.search(text)
     if not m:
         result["revisar"] = NOT_FOUND
@@ -73,7 +81,7 @@ def read(text: str, cuantia: Decimal | None = None) -> dict:
     result["cita"] = first[: first.find(".", 80) + 1 or 400][:500]
 
     after = AMOUNT_AFTER.search(block)
-    after = after.group(1) if after else block[:400]
+    after = after.group(1) if after else block[:400] if SENTENCE.search(block[:600]) else ""
     times = TIMES.search(after)
     if times:
         word = times.group(1).lower().replace(",", ".")
@@ -85,10 +93,15 @@ def read(text: str, cuantia: Decimal | None = None) -> dict:
         in_words = letras.check(after, amount.start(1), amount.end(1), money(amount.group(1)))
         if in_words is not None:
             result["monto_letras"] = str(in_words)
+    elif in_words := letras.first_in_words(after):
+        # "S/ 2476 757 90 (Dos millones cuatrocientos ...)": the digits are unreadable, the words are not
+        result["monto"], result["monto_de_letras"] = str(in_words), True
     if result["monto"] is None and result["veces"] is None:
         result["revisar"] = NO_AMOUNT
     if result["monto"] and cuantia:
         result["veces_cuantia"] = str((Decimal(result["monto"]) / cuantia).quantize(Decimal("0.001")))
+        if not PLAUSIBLE[0] <= Decimal(result["veces_cuantia"]) <= PLAUSIBLE[1]:
+            result["revisar"] = DOUBTFUL
 
     result["anios"] = years_of(block)
     if re.search(r"acta\s+de\s+recepci", block, re.I):

@@ -110,9 +110,12 @@ def experience_lines(found: dict | None) -> list[str]:
     e = html.escape
     if found is None:
         return []
+    page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
     if found.get("revisar") and not found.get("monto"):
-        page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
         return [f'<p class="revisar">Experiencia del postor: no se pudo leer{page}, revisar a mano.</p>']
+    if found.get("revisar"):
+        return [f'<p class="revisar">Experiencia del postor: se leyó {soles(found["monto"])}, que no cuadra con la '
+                f'cuantía; puede ser una cifra mal leída{page}: revisar a mano.</p>']
     times_word = "vez" if found.get("veces") == "1" else "veces"
     asked = soles(found["monto"]) if found.get("monto") else f'{found["veces"]} {times_word} la cuantía'
     times = found.get("veces_cuantia")
@@ -130,7 +133,8 @@ def experience_lines(found: dict | None) -> list[str]:
         parts.append(f"en los últimos {found['anios']} años")
     if found.get("cuenta_desde"):
         parts.append(f"contados desde {e(found['cuenta_desde'])}")
-    note = f' (pág. {found["pagina"]}{", leído con OCR" if found.get("ocr") else ""})' if found.get("pagina") else ""
+    how = ", leído de las letras" if found.get("monto_de_letras") else ", leído con OCR" if found.get("ocr") else ""
+    note = f' (pág. {found["pagina"]}{how})' if found.get("pagina") else ""
     lines = [f'<p>{", ".join(parts)}{note}.</p>']
     if found.get("monto_letras"):
         lines.append(f'<p class="revisar">El monto en letras dice {soles(found["monto_letras"])}: mirar la página.</p>')

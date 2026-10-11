@@ -22,8 +22,9 @@ TITLE = re.compile(r"CUANT[IÍ]A\s+DE\s+LA\s+CONTRATACI[OÓ]N", re.I)
 # Not the footnote of 1.4 ("indicada en esta sección"): it can fall between the cuantía and the límites table.
 SECTION_END = re.compile(r"OBLIGACIONES|FUENTE\s+DE\s+FINANCIAMIENTO|\n\s*1\.5\b", re.I)
 OPENING = re.compile(r"asciende|contrataci[oó]n\s+es\b", re.I)
-# A number as entities write it: "3,522,447.65", "2´996,729.85", "2, 216, 331.39", "5,895 503.74", "1,111.161.86".
-NUMBER = r"(\d[\d,.’'´ ]{0,22}?[.,]\d{2})(?!\d)"
+# A number as entities write it: "3,522,447.65", "2´996,729.85", "2, 216, 331.39", "5,895 503.74", "1,111.161.86",
+# "491, 212. 88".
+NUMBER = r"(\d[\d,.’'´ ]{0,22}?[.,] ?\d{2})(?!\d)"
 AMOUNT = re.compile(r"S/\.?\s*" + NUMBER, re.I)
 ANY_NUMBER = re.compile(NUMBER)
 # The first number after the opening words, also when an extra "a" or the amount in words comes first.

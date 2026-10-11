@@ -27,6 +27,7 @@ CENTS = re.compile(r"(\d{1,2})\s*/?\s*100\b")
 
 def plain(text: str) -> str:
     text = unicodedata.normalize("NFD", text.lower())
+    text = re.sub(r"(?<=[a-z])!(?=[a-z])", "i", text)  # OCR's "M!LLÓN"
     return "".join(c for c in text if unicodedata.category(c) != "Mn")
 
 
@@ -115,6 +116,15 @@ def words_around(text: str, start: int, end: int) -> str | None:
         anchor = list(re.finditer(r"(?:suma\s+de|equivalente\s+a|asciende\s+a)\s+", before[:opening], re.I))
         if anchor:
             return before[anchor[-1].end(): opening]
+    return None
+
+
+def first_in_words(text: str) -> Decimal | None:
+    """The first amount written in words in parentheses, for a figure whose digits cannot be read."""
+    for m in re.finditer(r"\(([^()]{8,300})\)", text):
+        found = parts(m.group(1))
+        if found is not None and found[0] >= 1000:
+            return (Decimal(found[0]) + Decimal(found[1] or 0) / 100).quantize(Decimal("0.01"))
     return None
 
 
