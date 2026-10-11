@@ -14,7 +14,7 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "factores-3"
+VERSION = "factores-4"
 
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
@@ -23,8 +23,11 @@ SUMMARY = re.compile(r"(?:CUADRO\s+)?RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES
 FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{1,2})?\s*\]?\s*puntos"
 # Word puts each table cell on its own line
 TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE, re.I)
-# "A. EXPERIENCIA ...", OCR's "[E. GESTIÓN DE CALIDAD?", sub-factors "B.1 FORMACIÓN ACADÉMICA ..."
-ROW = re.compile(r"^[^\w\n]{0,30}([A-P](?:\.\d)?)(?:\s*[.)]\s*|(?<=\d)\s+)([A-ZÁÉÍÓÚÑ].*)$", re.M)
+# "A. EXPERIENCIA ...", sub-factors "B.1 FORMACIÓN ACADÉMICA ...", and OCR's "[E. GESTIÓN DE CALIDAD?",
+# "lA. EXPERIENCIA", "|F. GESTIÓN" (a stray stroke before the letter), "A EXPERIENCIA" (the dot lost)
+FIRST_WORD = r"(?:EXPERIENCIA|SOSTENIBILIDAD|INTEGRIDAD|GESTI|CAPACITACI|MEJORA|PLANIFICACI|SEGURIDAD|TECNOLOG|PLAN\b|FORMACI|CERTIFICACI)"
+ROW = re.compile(r"^[^\w\n]{0,30}[lI|]?([A-P](?:\.\d)?)(?:\s*[.)]\s*|(?<=\d)\s+|\s+(?=" + FIRST_WORD + r"))"
+                 r"([A-ZÁÉÍÓÚÑ].*)$", re.M)
 # Rows without a letter (group 1 stays empty): a bullet ("o INTEGRIDAD EN LA  5 puntos"), or in Word, which
 # loses the list letters, a short line in capitals.
 BULLETED = re.compile(r"^()[^\w\n]{0,30}[o•·]\s+([A-ZÁÉÍÓÚÑ].*)$", re.M)
@@ -102,7 +105,10 @@ def summary_rows(table: str) -> list[dict]:
         complete = previous is None or factor_name(table[previous: m.start()])
         if complete and (not before or ROW_BEFORE.search(before[-1])):
             starts.append(m)
-    starts = sorted({m.start(): m for m in starts}.values(), key=lambda m: m.start())
+    unique = {}
+    for m in starts:  # a lettered row wins over the same line read as unlettered
+        unique.setdefault(m.start(), m)
+    starts = sorted(unique.values(), key=lambda m: m.start())
     rows = []
     carried = None
     for n, m in enumerate(starts):

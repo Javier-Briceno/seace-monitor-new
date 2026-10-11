@@ -161,6 +161,21 @@ def test_rows_marked_with_bullets():
     assert (result["suma"], result["revisar"]) == (100, None)
 
 
+def test_row_letters_as_ocr_leaves_them():
+    # 1255060 and 1239090: "A EXPERIENCIA" without its dot, "lA." and "|F." with a stray stroke, "Dal puntos"
+    text = ("4.1. EVALUACIÓN TÉCNICA\n G. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD   PUNTAJE\n"
+            " Evaluación:   30 puntos\n"
+            "RESUMEN FACTORES DE EVALUACIÓN\n FACTORES DE EVALUACIÓN TIPO DE\n FACULTATIVOS PUNTAJE EVALUADOR\n"
+            " lA. EXPERIENCIA ESPECÍFICA\n ADICIONAL DEL PERSONAL [40] puntos COMITÉ\n"
+            " B SOSTENIBILIDAD AMBIENTAL\n CLAVE\n [5] puntos COMITÉ\n"
+            " |F. GESTIÓN DE CALIDAD* 15] puntos COMITÉ\n F. SEGURIDAD Y SALUD [10] puntos COMITÉ\n"
+            " G EXPERIENCIA ADICIONAL\n POSTOR EN LA ESPECIALIDAD\n DEL\n Dal puntos CONITE\n"
+            " PUNTAJE TOTAL 100 puntos*\n")
+    result = read(text)
+    assert [(f["letra"], f["puntos"]) for f in result["factores"]] == [("A", 40), ("B", 5), ("F", 15), ("F", 10), ("G", 30)]
+    assert (result["suma"], result["revisar"]) == (100, None)
+
+
 def test_a_header_line_naming_bim_is_no_row():
     # 1253468: the rows add up to 115; the header "OBLIGATORIO EN CASO DE USAR BIM" must not make it unreadable
     text = ("      CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
