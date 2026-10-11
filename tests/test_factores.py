@@ -106,6 +106,30 @@ def test_a_word_table_without_letters():
     assert (result["suma"], result["revisar"]) == (100, None)
 
 
+def test_figures_with_decimals():
+    # 1256527: "05.00 puntos", "100.0 puntos"
+    text = ("      CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            " B. SOSTENIBILIDAD AMBIENTAL                05.00 puntos   COMITÉ\n"
+            " D. INTEGRIDAD EN LA CONTRATACION PÚBLICA   05.00 Puntos   COMITÉ\n"
+            " F. GESTIÓN DE CALIDAD                      45.00 Puntos   COMITÉ\n"
+            " K. SEGURIDAD Y SALUD                       45.00 Puntos   COMITÉ\n"
+            " PUNTAJE TOTAL                              100.0 puntos\n")
+    result = read(text)
+    assert [f["puntos"] for f in result["factores"]] == [5, 5, 45, 45]
+    assert (result["total"], result["suma"], result["avisos"]) == (100, 100, [])
+
+
+def test_a_factor_of_several_practices_states_only_the_first_in_its_description():
+    # 1255892: k.1 "Evaluación: [5] puntos", k.3 another 10; the table gives 15
+    text = ("4.1. EVALUACIÓN TÉCNICA\n E. SEGURIDAD Y SALUD   PARA SU ASIGNACIÓN\n Evaluación: [5] puntos\n"
+            " k.3 Uso de Tecnología   [10] puntos\n"
+            "      CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            " A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE     85 puntos   COMITÉ\n"
+            " E. SEGURIDAD Y SALUD                                       15 puntos   COMITÉ\n"
+            " PUNTAJE TOTAL                                              100 puntos\n")
+    assert read(text)["avisos"] == []
+
+
 def test_bases_without_chapter_iv():
     assert read("CAPÍTULO III REQUERIMIENTO")["revisar"] == NOT_FOUND
 

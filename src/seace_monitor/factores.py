@@ -17,18 +17,20 @@ from .bases_text import page_of
 VERSION = "factores-1"
 
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
-# Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter.
-SUMMARY = re.compile(r"CUADRO\s+RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES", re.I)
+# Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
+SUMMARY = re.compile(r"(?:CUADRO\s+)?RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES\s+DE\s+EVALUACI", re.I)
+# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos"; never the "0" of "05.00"
+FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{1,2})?\s*\]?\s*puntos"
 # Word puts each table cell on its own line
-TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?\[?(\d{1,3})\]?\s*puntos", re.I)
+TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE, re.I)
 # "A. EXPERIENCIA ...", OCR's "[E. GESTIÓN DE CALIDAD?", sub-factors "B.1 FORMACIÓN ACADÉMICA ..."
 ROW = re.compile(r"^[^\w\n]{0,30}([A-P](?:\.\d)?)(?:\s*[.)]\s*|(?<=\d)\s+)([A-ZÁÉÍÓÚÑ].*)$", re.M)
 # group 1 stays empty: these rows have no letter
 UNLETTERED = re.compile(r"^()\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ,/\-]{5,75})\s*$", re.M)
-POINTS = re.compile(r"\[?(\d{1,3})\]?\s*puntos", re.I)
+POINTS = re.compile(FIGURE, re.I)
 NOT_USED = re.compile(r"NO\s+CORRESPONDE", re.I)
 TEMPLATE = re.compile(r"\[\s*Como\s+m[aá]ximo", re.I)
-EVALUATION = re.compile(r"Evaluaci[oó]n\s*:(.{0,300}?)\[?(\d{1,3})\]?\s*puntos", re.I | re.S)
+EVALUATION = re.compile(r"Evaluaci[oó]n\s*:(.{0,300}?)" + FIGURE, re.I | re.S)
 MINIMUM = re.compile(r"puntaje\s+t[eé]cnico\s+m[ií]nimo\s+de\s+(\w+)", re.I)
 MINIMUM_WORDS = {"setenta": 70, "sesenta": 60, "ochenta": 80, "cincuenta": 50}
 
@@ -154,15 +156,19 @@ def read(text: str) -> dict:
         if row["puntos"] is None:
             row["puntos"] = described.get(row["factor"])
     differ = [r for r in rows if r["factor"] in described and described[r["factor"]] != r["puntos"]]
-    for r in differ:
-        result["avisos"].append({"aviso": "puntaje_distinto", "factor": r["factor"], "cuadro": r["puntos"],
-                                 "descripcion": described[r["factor"]]})
+    repaired = False
     if differ and None not in (r["puntos"] for r in rows):
         # The figures whose sum is the total win: a misread digit (OCR) leaves the sum off.
         with_described = sum(described[r["factor"]] if r in differ else r["puntos"] for r in rows)
-        if sum(r["puntos"] for r in rows) != result["total"] and with_described == result["total"]:
-            for r in differ:
-                r["puntos"] = described[r["factor"]]
+        repaired = sum(r["puntos"] for r in rows) != result["total"] and with_described == result["total"]
+    # A factor of several practices states the points of the first one only ("k.1 ... Evaluación: 5 puntos",
+    # then k.3 with 10 more): a description below the table is no contradiction unless it fixes the sum.
+    for r in differ:
+        if repaired or (r["puntos"] is not None and described[r["factor"]] > r["puntos"]):
+            result["avisos"].append({"aviso": "puntaje_distinto", "factor": r["factor"], "cuadro": r["puntos"],
+                                     "descripcion": described[r["factor"]]})
+        if repaired:
+            r["puntos"] = described[r["factor"]]
     # A row without a figure next to rows that already add up to the total gives no points.
     if sum(r["puntos"] or 0 for r in rows) == result["total"]:
         rows = [r for r in rows if r["puntos"] is not None]
