@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from seace_monitor import reading
 from seace_monitor.bases_text import ToolMissing, pdftotext
 from seace_monitor.ocr import OcrError
 from seace_monitor.cuantia import (
@@ -230,6 +231,14 @@ def test_files_named_as_bases_are_ocred_first_and_only_a_few(tmp_path):
 
 
 @needs_pdftotext
+def test_a_recognized_scan_without_the_section_is_no_longer_called_a_scan():
+    # The OCRed copy has text (any PDF with a text layer) but not what the reader looks for.
+    result = reading.read_files([PDFS / "bases_scanned_page.pdf"], lambda text: {"revisar": "not here"}, "not here",
+                                ocr=lambda path, pages: PDFS / "bases_cuantia_alto_trujillo.pdf")
+    assert result["revisar"] == "not here"
+
+
+@needs_pdftotext
 def test_failed_ocr_leaves_the_bases_for_a_person():
     def fails(path, pages):
         raise OcrError("ocrmypdf exit 2")
@@ -239,6 +248,12 @@ def test_failed_ocr_leaves_the_bases_for_a_person():
 
 def test_document_without_pdf_or_docx():
     assert read_files([])["revisar"] == "sin PDF ni DOCX"
+
+
+def test_cuantia_whose_words_say_another_figure():
+    text = ("1.4. CUANTÍA DE LA CONTRATACIÓN\n La cuantía de la contratación asciende a S/ 4,823,130.47 (Cuatro "
+            "Millones Ochocientos Veintinueve Mil Ciento Treinta con 42/100 Soles), incluidos los impuestos")
+    assert read(text)["avisos"] == [{"aviso": "cuantia_distinta_letras", "cifra": "4823130.47", "letras": "4829130.42"}]
 
 
 def test_cuantia_after_the_amount_in_words():

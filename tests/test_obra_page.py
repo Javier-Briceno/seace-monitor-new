@@ -123,6 +123,20 @@ def test_an_upper_limit_below_the_exact_figure_says_who_it_disqualifies():
     assert "una oferta desde S/ 1,622,638.32 hasta S/ 1,662,638.31 cumple el 110 %" in sentence
 
 
+def test_figures_that_disagree_with_their_words():
+    sentence = warning_text({"aviso": "cuantia_distinta_letras", "cifra": "4823130.47", "letras": "4829130.42"})
+    assert "La cuantía en cifras (S/ 4,823,130.47) no es la que dicen las letras (S/ 4,829,130.42)" in sentence
+
+
+def test_experience_whose_words_say_another_amount(conn):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
+    doc = bases(conn, 1, lectura=reading())
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'experiencia-2', %s, 'done')",
+                 [doc, json.dumps({"monto": "4823130.47", "monto_letras": "4829130.42", "veces": None, "pagina": 30,
+                                   "revisar": None, "ocr": True})])
+    assert "El monto en letras dice S/ 4,829,130.42: mirar la página." in text(build(conn, ["LA LIBERTAD"], NOW))
+
+
 def test_page_escapes_what_comes_from_seace(conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
     conn.execute("UPDATE licitaciones SET descripcion = 'OBRA <script>x</script>'")

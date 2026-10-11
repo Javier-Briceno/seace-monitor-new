@@ -48,6 +48,8 @@ def read_files(files: list[Path], read: Callable[[str], dict], missing: str,
         result = read(text)
         if result["revisar"] != missing:
             return {**result, "archivo": path.name, "ocr": True}
+        if path in scanned and not is_scanned(text):
+            scanned.remove(path)  # recognized and searched: no longer an unread scan
     result = {**read(""), "ocr": False, "ocr_pendiente": bool(with_images) and ocr is None}
     result["archivo"] = scanned[0].name if scanned else ""
     if scanned:

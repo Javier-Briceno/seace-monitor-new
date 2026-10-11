@@ -6,20 +6,22 @@ recepción or from the conformidad. Many bases carry chapter III as scanned page
 from the OCRed copy.
 """
 
+import difflib
 import re
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
-from . import reading
+from . import letras, reading
 from .bases_text import page_of
 from .cuantia import ANY_NUMBER, money
 
-VERSION = "experiencia-1"
+VERSION = "experiencia-2"
 
-# The requirement, not the scoring factor of chapter IV ("Experiencia adicional ... PUNTAJE").
+# The requirement, not the scoring factor of chapter IV ("Experiencia adicional ... PUNTAJE"). OCR
+# turns "Requisitos:" into "Reguisitos:" or "Regquisios:", or loses it; the sentence that follows stays.
 REQUIREMENT = re.compile(r"EXPERIENCIA\s+DEL\s+POSTOR\s+EN\s+LA\s+ESPECIALIDAD(?:(?!PUNTAJE|Evaluaci[oó]n\s*:).){0,400}?"
-                         r"Requisitos?\s*:", re.I | re.S)
+                         r"(?:\bRe\w{4,8}\s*:|\bRequisitos?\b|(?=El\s+postor\s+debe\s+acreditar\s+un\s+monto))", re.I | re.S)
 END = re.compile(r"Acreditaci[oó]n\s*:", re.I)
 MAX_BLOCK = 6000
 AMOUNT_AFTER = re.compile(r"equivalente\s+a\s*(?:un\s+m[ií]nimo\s+de\s*)?(.{0,160})", re.I | re.S)
@@ -28,8 +30,10 @@ TIMES = re.compile(r"\b(\d+(?:[.,]\d+)?|una|dos|tres)\s*(?:\(\s*\d+\s*\))?\s*VE(
 TIMES_WORDS = {"una": "1", "dos": "2", "tres": "3"}
 YEARS = re.compile(r"durante\s+(?:los\s+)?(?:[uú]ltimos\s+)?(\w+)\s*(?:\((\d+)\))?\s*a[ñn]os", re.I)
 YEARS_WORDS = {"diez": 10, "quince": 15, "veinte": 20, "veinticinco": 25, "treinta": 30}
-SPECIALTY = re.compile(r"^\s*Especialidad(?:es)?\s*:\s*(.+)$", re.I | re.M)
-SUBSPECIALTY = re.compile(r"^\s*Sub\s*-?\s*especialidad(?:es)?\s*:\s*(.+)$", re.I | re.M)
+# The colon comes out of OCR as ". |", "|:" or "-"; "Especialidad" as "Espacialidad".
+SEPARATOR = r"\s*[:|.\-–—]+[\s:|.+\-–—]*"
+SPECIALTY = re.compile(r"^\s*Esp[ae]cialidad(?:es)?" + SEPARATOR + r"(\w.+)$", re.I | re.M)
+SUBSPECIALTY = re.compile(r"^\s*Sub\s*-?\s*esp[ae]cialidad(?:es)?" + SEPARATOR + r"(\w.+)$", re.I | re.M)
 
 NOT_FOUND = "sin requisito de experiencia del postor"
 NO_AMOUNT = "experiencia sin monto legible"
@@ -46,14 +50,18 @@ def years_of(block: str) -> int | None:
     if m.group(2):
         return int(m.group(2))
     word = m.group(1).lower()
-    return int(word) if word.isdigit() else YEARS_WORDS.get(word)
+    if word.isdigit():
+        return int(word)
+    # "veinficinco" from OCR
+    close = difflib.get_close_matches(word, YEARS_WORDS, n=1, cutoff=0.8)
+    return YEARS_WORDS[close[0]] if close else None
 
 
 def read(text: str, cuantia: Decimal | None = None) -> dict:
     """What the requirement asks for; `veces_cuantia` relates the monto to the cuantía of 1.4."""
     result = {"pagina": None, "monto": None, "veces": None, "veces_cuantia": None, "anios": None,
               "cuenta_desde": None, "especialidad": None, "subespecialidades": None, "cita": None,
-              "revisar": None}
+              "monto_letras": None, "revisar": None}
     m = REQUIREMENT.search(text)
     if not m:
         result["revisar"] = NOT_FOUND
@@ -74,6 +82,9 @@ def read(text: str, cuantia: Decimal | None = None) -> dict:
             result["monto"] = str((Decimal(result["veces"]) * cuantia).quantize(Decimal("0.01")))
     elif amount := ANY_NUMBER.search(after):
         result["monto"] = str(money(amount.group(1)))
+        in_words = letras.check(after, amount.start(1), amount.end(1), money(amount.group(1)))
+        if in_words is not None:
+            result["monto_letras"] = str(in_words)
     if result["monto"] is None and result["veces"] is None:
         result["revisar"] = NO_AMOUNT
     if result["monto"] and cuantia:

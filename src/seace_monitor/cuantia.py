@@ -12,11 +12,11 @@ from collections.abc import Callable
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from pathlib import Path
 
-from . import reading
+from . import letras, reading
 from .bases_text import page_of
 from .reading import SCANNED
 
-VERSION = "cuantia-3"
+VERSION = "cuantia-4"
 
 TITLE = re.compile(r"CUANT[IÍ]A\s+DE\s+LA\s+CONTRATACI[OÓ]N", re.I)
 # Not the footnote of 1.4 ("indicada en esta sección"): it can fall between the cuantía and the límites table.
@@ -88,17 +88,17 @@ def section(text: str) -> tuple[int, str] | None:
     return None
 
 
-def first_amount(block: str) -> Decimal | None:
+def first_amount(block: str) -> tuple[Decimal, int, int] | None:
     """The first number after the opening words, else the first S/ amount soon after them
-    (the amount in words can come first and carry its own "69/100")."""
+    (the amount in words can come first and carry its own "69/100"); with where it stands in the block."""
     m = FIRST_AMOUNT.search(block)
     if m:
-        return money(m.group(1))
+        return money(m.group(1)), m.start(1), m.end(1)
     opening = OPENING.search(block)
     if opening:
-        m = AMOUNT.search(block[opening.end(): opening.end() + 350])
+        m = AMOUNT.search(block, opening.end(), opening.end() + 350)
         if m:
-            return money(m.group(1))
+            return money(m.group(1)), m.start(1), m.end(1)
     return None
 
 
@@ -210,12 +210,15 @@ def read(text: str, valor_seace: Decimal | None = None) -> dict:
     if any(ANY_NUMBER.search(w) and PLACEHOLDER not in w.upper() for w in windows):
         result["revisar"] = DESIGN
         return result
-    cuantia = first_amount(block)
-    if cuantia is None:
+    found = first_amount(block)
+    if found is None:
         result["revisar"] = NO_AMOUNT
         return result
+    cuantia, amount_start, amount_end = found
     result["cuantia"] = str(cuantia)
     warnings = result["avisos"]
+    if (in_words := letras.check(block, amount_start, amount_end, cuantia)) is not None:
+        warnings.append({"aviso": "cuantia_distinta_letras", "cifra": str(cuantia), "letras": str(in_words)})
     if valor_seace is not None and valor_seace != cuantia:
         warnings.append({"aviso": "cuantia_distinta_seace", "bases": str(cuantia), "seace": str(valor_seace)})
 

@@ -49,8 +49,33 @@ def test_amounts_as_the_bases_write_them(nid, cuantia, monto, veces):
     assert (result["monto"], result["veces_cuantia"]) == (monto, veces)
 
 
+@pytest.mark.parametrize("nid, cuantia, monto, anios, especialidad", [
+    ("1255957", "318695.96", "318695.96", 25, "Represas, Irrigaciones."),  # "Reguisitos:", "Especialidad . |"
+    ("1239040", "766396.87", "766396.87", 25, "SANEAMIENTO Y AFINES"),     # no "Requisitos", "5/ 766,396.87"
+    ("1234676", "4829130.42", "4823130.47", 25, "wiales, Puertos"),       # "Regquisios:", "Si 4,823,130.47"
+    ("1243139", "1071882.45", "1071882.45", 25, "EDIFICACIONES Y AFINES"),
+])
+def test_chapter_iii_read_by_ocr(nid, cuantia, monto, anios, especialidad):
+    result = read(bases(nid), Decimal(cuantia))
+    assert (result["monto"], result["anios"], result["especialidad"]) == (monto, anios, especialidad)
+    assert result["cuenta_desde"] == "acta de recepción"
+
+
+def test_digits_misread_by_ocr_are_caught_by_the_words():
+    result = read(bases("1234676"), Decimal("4829130.42"))
+    assert (result["monto"], result["monto_letras"]) == ("4823130.47", "4829130.42")
+    assert read(bases("1243139"), Decimal("1071882.45"))["monto_letras"] is None
+
+
 def test_ten_years_in_words():
     assert read(bases("1256289"), Decimal("443276.42"))["anios"] == 10
+
+
+def test_acreditacion_of_the_scoring_factor_is_not_requisitos():
+    # 1248264: chapter IV quotes the requirement's name and ends its block with "Acreditación:"
+    factor = ("se considera la “Experiencia del Postor en la especialidad”,\n durante veinticinco años anteriores "
+              "40 puntos\n fecha de la conformidad M>= S/ 2,671,056.04 y < S/ 4,006,584.06:\n\n Acreditación: 30 puntos")
+    assert read(factor)["revisar"] == NOT_FOUND
 
 
 def test_scoring_factor_of_chapter_iv_is_not_the_requirement():

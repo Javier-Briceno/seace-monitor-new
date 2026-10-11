@@ -73,6 +73,9 @@ def warning_text(w: dict) -> str:
         return "El capítulo IV dice que la oferta es LIMITADA, pero el punto 1.4 no trae el cuadro de límites."
     if kind == "tipo_oferta_sin_rellenar":
         return "El capítulo IV no dice si la oferta es fija o limitada: quedó el texto del modelo de bases."
+    if kind == "cuantia_distinta_letras":
+        return (f"La cuantía en cifras ({soles(w['cifra'])}) no es la que dicen las letras ({soles(w['letras'])}). "
+                f"Puede ser un error de las bases o, si se leyó con OCR, un dígito mal leído: mirar la página.")
     if kind == "cuantia_distinta_seace":
         return (f"La cuantía de las bases ({soles(w['bases'])}) no es la de la ficha del SEACE ({soles(w['seace'])}). "
                 f"Las bases dicen que, si hay contradicción, prima la de las bases.")
@@ -128,7 +131,10 @@ def experience_lines(found: dict | None) -> list[str]:
     if found.get("cuenta_desde"):
         parts.append(f"contados desde {e(found['cuenta_desde'])}")
     note = f' (pág. {found["pagina"]}{", leído con OCR" if found.get("ocr") else ""})' if found.get("pagina") else ""
-    return [f'<p>{", ".join(parts)}{note}.</p>']
+    lines = [f'<p>{", ".join(parts)}{note}.</p>']
+    if found.get("monto_letras"):
+        lines.append(f'<p class="revisar">El monto en letras dice {soles(found["monto_letras"])}: mirar la página.</p>')
+    return lines
 
 
 def card(obra: dict, now: datetime) -> str:
