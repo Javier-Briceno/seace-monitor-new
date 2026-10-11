@@ -83,6 +83,10 @@ A second reader takes the requisito "Experiencia del postor en la especialidad" 
 monto or times the cuantía, years, especialidad); a figure outside 0.25 to 3 times the cuantía goes to a person.
 The bases repeat every amount in words; `letras.py` compares them with the digits.
 
+A third reads the factores de evaluación of chapter IV (`factores.py`): each factor with its points from the
+CUADRO RESUMEN. A sum that is not the PUNTAJE TOTAL, a total that is not 100 and a factor's description that gives
+more points than the table are warnings.
+
 When a section is not in the text of an obra's newest bases, its image pages among the first 150 (whole scans,
 or a scanned requerimiento with only the entity's typed header) are OCRed into `<name>-ocr.pdf` next to the
 original, about 4 s per page; a daily run OCRs at most 10 files and leaves the rest for the next run.

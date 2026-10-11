@@ -157,6 +157,26 @@ def test_experience_figure_out_of_range(conn):
             "(pág. 44): revisar a mano.") in text(build(conn, ["LA LIBERTAD"], NOW))
 
 
+def test_factors_with_their_points_and_warnings(conn):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=4))
+    doc = bases(conn, 1, lectura=reading())
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'factores-1', %s, 'done')",
+                 [doc, json.dumps({"pagina": 67, "total": 100, "suma": 105, "revisar": None, "factores": [
+                     {"letra": "A", "factor": "Experiencia específica adicional del personal clave", "puntos": 60},
+                     {"letra": "B", "factor": "Sostenibilidad ambiental", "puntos": 45}],
+                     "avisos": [{"aviso": "suma_distinta_total", "suma": 105, "total": 100}]})])
+    doc = bases(conn, 2, lectura=reading())
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'factores-1', %s, 'done')",
+                 [doc, json.dumps({"pagina": None, "factores": [], "avisos": [], "revisar": "sin cuadro resumen de factores"})])
+    page = text(build(conn, ["LA LIBERTAD"], NOW))
+    assert ("Factores de evaluación (pág. 67): Experiencia específica adicional del personal clave 60, "
+            "Sostenibilidad ambiental 45. Total 100.") in page
+    assert "Los puntajes del cuadro resumen suman 105, pero el puntaje total dice 100." in page
+    assert "Factores de evaluación: no se pudo leer el cuadro resumen, revisar a mano." in page
+    assert "1 con algo que revisar" in page
+
+
 def test_page_escapes_what_comes_from_seace(conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
     conn.execute("UPDATE licitaciones SET descripcion = 'OBRA <script>x</script>'")
