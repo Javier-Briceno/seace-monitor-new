@@ -139,12 +139,53 @@ def test_a_figure_below_a_factor_that_does_not_apply_is_not_its_own():
             " K. SEGURIDAD Y SALUD                               COMITÉ34\n"
             " PUNTAJE TOTAL                                      100 puntos\n")
     result = read(text)
-    assert "Planificación detallada" not in [f["factor"] for f in result["factores"]]
-    assert "suma_distinta_total" not in [w["aviso"] for w in result["avisos"]]
+    assert [(f["factor"], f["puntos"]) for f in result["factores"]] == [
+        ("Experiencia específica adicional del personal clave", 85), ("Seguridad y salud", 15)]
+    assert (result["suma"], result["avisos"]) == (100, [])
 
 
 def test_bases_without_chapter_iv():
     assert read("CAPÍTULO III REQUERIMIENTO")["revisar"] == NOT_FOUND
+
+
+def test_rows_marked_with_bullets():
+    # 1243793: the entity's own text layer turned the letters into "o"
+    text = ("RESUMEN FACTORES DE EVALUACIÓN\n FACTORES DE EVALUACIÓN PUNTAJE TIPO DE EVALUADOR\n FACULTATIVOS\n"
+            " A. EXPERIENCIA ESPECÍFICA 30 puntos COMITÉ\n ADICIONAL DEL PERSONAL\n CLAVE\n"
+            " B. SOSTENIBILIDAD AMBIENTAL 5 puntos COMITÉ\n o INTEGRIDAD EN LA 5 puntos COMITÉ\n CONTRATACION PÚBLICA\n"
+            " o GESTIÓN DE CALIDAD 30 puntos COMITÉ\n o SEGURIDAD Y SALUD 15 puntos COMITÉ\n"
+            " o EXPERIENCIA ADICIONAL DEL 15 puntos COMITÉ\n POSTOR EN LA ESPECIALIDAD\n PUNTAJE TOTAL 100 puntos26\n")
+    result = read(text)
+    assert [f["puntos"] for f in result["factores"]] == [30, 5, 5, 30, 15, 15]
+    assert result["factores"][5]["factor"] == "Experiencia adicional del postor en la especialidad"
+    assert (result["suma"], result["revisar"]) == (100, None)
+
+
+def test_a_header_line_naming_bim_is_no_row():
+    # 1253468: the rows add up to 115; the header "OBLIGATORIO EN CASO DE USAR BIM" must not make it unreadable
+    text = ("      CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            " A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE     65 puntos   COMITÉ\n"
+            " K. SEGURIDAD Y SALUD                                       50 puntos   COMITÉ\n"
+            " M. EXPERIENCIA ADICIONAL DEL\n NO CORRESPONDE COMITÉ/JURADO\n POSTOR EN LA ESPECIALIDAD\n"
+            " FACTOR DE EVALUACIÓN\n OBLIGATORIO EN CASO DE USAR BIM\n"
+            " N. PLAN DE EJECUCIÓN BIM     NO CORRESPONDE   COMITÉ\n"
+            " PUNTAJE TOTAL                                              100 puntos\n")
+    assert read(text)["avisos"] == [{"aviso": "suma_distinta_total", "suma": 115, "total": 100}]
+
+
+def test_a_word_table_that_lost_only_some_letters():
+    # 1249332 (DOCX): "A." and "B.1" kept, the rows below them without a letter
+    text = ("RESUMEN FACTORES DE EVALUACIÓN\nFACTOR DE EVALUACIÓN OBLIGATORIO \nPUNTAJE \n"
+            "A. EXPERIENCIA EN LA ESPECIALIDAD ADICIONAL DEL PERSONAL CLAVE \n35 puntos \n"
+            "FACTORES DE EVALUACIÓN FACULTATIVOS \nPUNTAJE \nB.1 FORMACIÓN ACADÉMICA ADICIONAL DEL PERSONAL CLAVE \n"
+            "35 puntos\nC. SOSTENIBILIDAD AMBIENTAL \nNO CORRESPONDE \nINTEGRIDAD EN LA CONTRATACION PÚBLICA   \n"
+            "20 puntos \nCAPACITACIÓN  \nNO CORRESPONDE \nGESTIÓN DE CALIDAD \n10 puntos\nPUNTAJE TOTAL\n100 puntos\n")
+    result = read(text)
+    assert [(f["factor"], f["puntos"]) for f in result["factores"]] == [
+        ("Experiencia específica adicional del personal clave", 35),
+        ("Formación académica adicional del personal clave", 35),
+        ("Integridad en la contratación pública", 20), ("Gestión de calidad", 10)]
+    assert (result["suma"], result["revisar"]) == (100, None)
 
 
 def test_the_table_is_found_without_the_chapter_title():

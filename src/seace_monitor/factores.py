@@ -14,7 +14,7 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "factores-2"
+VERSION = "factores-3"
 
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
@@ -25,8 +25,14 @@ FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{1,2})?\s*\]?\s*puntos"
 TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE, re.I)
 # "A. EXPERIENCIA ...", OCR's "[E. GESTIÓN DE CALIDAD?", sub-factors "B.1 FORMACIÓN ACADÉMICA ..."
 ROW = re.compile(r"^[^\w\n]{0,30}([A-P](?:\.\d)?)(?:\s*[.)]\s*|(?<=\d)\s+)([A-ZÁÉÍÓÚÑ].*)$", re.M)
-# group 1 stays empty: these rows have no letter
+# Rows without a letter (group 1 stays empty): a bullet ("o INTEGRIDAD EN LA  5 puntos"), or in Word, which
+# loses the list letters, a short line in capitals.
+BULLETED = re.compile(r"^()[^\w\n]{0,30}[o•·]\s+([A-ZÁÉÍÓÚÑ].*)$", re.M)
 UNLETTERED = re.compile(r"^()\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ,/\-]{5,75})\s*$", re.M)
+# What the line before an unlettered row ends with: the previous row's figure, "NO CORRESPONDE" or evaluator
+# (COMITÉ, JURADO), or a header
+ROW_BEFORE = re.compile(r"puntos|CORRESPONDE|COMIT|JURADO|EVALUADOR|PUNTAJE|FACULTATIVOS|OBLIGATORIO", re.I)
+HEADER = re.compile(r"FACTOR|OBLIGATORIO|FACULTATIVO|PUNTAJE|EVALUADOR|EN\s+CASO\s+DE", re.I)
 POINTS = re.compile(FIGURE, re.I)
 NOT_USED = re.compile(r"NO\s+CORRESPONDE", re.I)
 TEMPLATE = re.compile(r"\[\s*Como\s+m[aá]ximo", re.I)
@@ -82,29 +88,44 @@ def descriptions(text: str, table_start: int) -> str:
 
 
 def summary_rows(table: str) -> list[dict]:
-    """Rows of the CUADRO RESUMEN: a letter starts a row, the lines below it until the next letter belong to it.
-    A Word file loses the list letters; there a short line in capitals naming a factor starts the row."""
-    starts = list(ROW.finditer(table))
-    if not starts:
-        starts = [m for m in UNLETTERED.finditer(table) if factor_name(m.group(2))]
+    """Rows of the CUADRO RESUMEN: a letter starts a row, the lines below it until the next one belong to it.
+    A bullet starts one too, and so does a short line in capitals naming a factor right after the previous row
+    ended (Word loses list letters, sometimes only some of them)."""
+    starts = list(ROW.finditer(table)) + list(BULLETED.finditer(table))
+    for m in UNLETTERED.finditer(table):
+        # not a header such as "FACTOR DE EVALUACIÓN OBLIGATORIO EN CASO DE USAR BIM"
+        if not factor_name(m.group(2)) or HEADER.search(m.group(2)):
+            continue
+        before = [line for line in table[: m.start()].splitlines() if line.strip()]
+        previous = max((s.start() for s in starts if s.start() < m.start()), default=None)
+        # "A. EXPERIENCIA ESPECÍFICA / 40 PUNTOS / ADICIONAL DEL PERSONAL CLAVE" is one row, not two
+        complete = previous is None or factor_name(table[previous: m.start()])
+        if complete and (not before or ROW_BEFORE.search(before[-1])):
+            starts.append(m)
+    starts = sorted({m.start(): m for m in starts}.values(), key=lambda m: m.start())
     rows = []
+    carried = None
     for n, m in enumerate(starts):
         body = table[m.start(): starts[n + 1].start() if n + 1 < len(starts) else len(table)]
         # A page break inside the table brings footnotes and the page header; the name is in the first lines.
         lines = [line for line in body.splitlines() if line.strip()]
         name = factor_name(lines[0]) or factor_name(" ".join(lines[:3]))
         points = POINTS.search(body)
-        if name is None and not points:
-            continue
-        # a row OCR left without a readable name still counts in the sum
-        name = name or UNNAMED
+        figure = int(points.group(1)) if points else None
         # "J. PLANIFICACIÓN DETALLADA  NO CORRESPONDE" with the next row's figure on the line below it
         not_used = NOT_USED.search(body)
         if not_used and points and not_used.start() < points.start():
-            points = None
-        rows.append({"letra": m.group(1), "factor": name, "puntos": int(points.group(1)) if points else None,
-                     "no_corresponde": bool(not_used) and not points,
-                     "plantilla": bool(TEMPLATE.search(body)) and not points})
+            carried, figure = figure, None
+        elif figure is None and carried is not None and not not_used:
+            figure, carried = carried, None
+        else:
+            carried = None
+        if name is None and figure is None:
+            continue
+        # a row OCR left without a readable name still counts in the sum
+        rows.append({"letra": m.group(1), "factor": name or UNNAMED, "puntos": figure,
+                     "no_corresponde": bool(not_used) and figure is None,
+                     "plantilla": bool(TEMPLATE.search(body)) and figure is None})
     return rows
 
 
