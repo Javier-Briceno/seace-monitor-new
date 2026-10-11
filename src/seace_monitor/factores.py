@@ -14,7 +14,7 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "factores-1"
+VERSION = "factores-2"
 
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
@@ -98,8 +98,12 @@ def summary_rows(table: str) -> list[dict]:
             continue
         # a row OCR left without a readable name still counts in the sum
         name = name or UNNAMED
+        # "J. PLANIFICACIÓN DETALLADA  NO CORRESPONDE" with the next row's figure on the line below it
+        not_used = NOT_USED.search(body)
+        if not_used and points and not_used.start() < points.start():
+            points = None
         rows.append({"letra": m.group(1), "factor": name, "puntos": int(points.group(1)) if points else None,
-                     "no_corresponde": bool(NOT_USED.search(body)) and not points,
+                     "no_corresponde": bool(not_used) and not points,
                      "plantilla": bool(TEMPLATE.search(body)) and not points})
     return rows
 

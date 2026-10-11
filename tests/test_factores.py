@@ -130,6 +130,19 @@ def test_a_factor_of_several_practices_states_only_the_first_in_its_description(
     assert read(text)["avisos"] == []
 
 
+def test_a_figure_below_a_factor_that_does_not_apply_is_not_its_own():
+    # 1256463: Seguridad y salud's "[15] PUNTOS" sits on the line above its name, below "NO CORRESPONDE"
+    text = ("      CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            " A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE     [85] PUNTOS   COMITÉ\n"
+            " J. PLANIFICACIÓN DETALLADA        NO CORRESPONDE   JURADO\n"
+            "                                   [15] PUNTOS\n"
+            " K. SEGURIDAD Y SALUD                               COMITÉ34\n"
+            " PUNTAJE TOTAL                                      100 puntos\n")
+    result = read(text)
+    assert "Planificación detallada" not in [f["factor"] for f in result["factores"]]
+    assert "suma_distinta_total" not in [w["aviso"] for w in result["avisos"]]
+
+
 def test_bases_without_chapter_iv():
     assert read("CAPÍTULO III REQUERIMIENTO")["revisar"] == NOT_FOUND
 
