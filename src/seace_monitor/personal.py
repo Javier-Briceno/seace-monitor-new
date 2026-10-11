@@ -291,7 +291,7 @@ def pair(rows: list[dict], times: list[dict]) -> list[dict] | None:
 
 
 def squeeze(text: str) -> str:
-    text = re.sub(r"\s+", " ", COUNTED_FROM.sub(" ", text)).strip(" ,;:-—–.…\"'“”")
+    text = re.sub(r"\s+", " ", COUNTED_FROM.sub(" ", text)).strip(" ,;:-—–.…\"'“”•·")
     # "ESPECIALISTA DE SEGURIDAD EN OBRA Y SALUD EN EL TRABAJO consignadas": a word of the next column
     if sum(c.isupper() for c in text) > 3 * sum(c.islower() for c in text):
         text = re.sub(r"(?:\s+[a-záéíóúñ]+)+$", "", text)
