@@ -107,6 +107,13 @@ def test_chapter_iv_quoting_the_requirement_is_not_it():
     assert read(factor)["revisar"] == NOT_FOUND
 
 
+def test_the_sentence_after_many_blank_layout_lines():
+    # 1238269: the layout pads the block with blank lines before the sentence
+    text = ("EXPERIENCIA DEL POSTOR\n EN LA ESPECIALIDAD\n\n\n Requisitos:\n" + "\n" * 12 + " " * 700 +
+            "\n El postor debe acreditar un monto facturad\n o acumulado equivalenie a S/ 2,246,870.83 en la ejecución")
+    assert read(text, Decimal("2246870.83"))["monto"] == "2246870.83"
+
+
 def test_ocr_noise_under_the_title_gives_no_amount():
     noise = "EXPERIENCIA DEL POSTOR EN LA ESPECIALIDAD\n Reguisitos\n '¡X=_,o_gg'mf¡ ;\n 77 E ve <y 7A 1,832,698.69\n"
     assert read(noise)["monto"] is None

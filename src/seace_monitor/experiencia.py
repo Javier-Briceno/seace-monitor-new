@@ -26,7 +26,7 @@ REQUIREMENT = re.compile(r"EXPERIENCIA\s+DEL\s+POSTOR\s+EN\s+LA\s+ESPECIALIDAD(?
                          r"(?:\bRe\w{4,8}\s*:|\bRequisitos?[ \t]*\r?\n|(?=El\s+postor\s+debe\s+acreditar\s+un\s+monto))",
                          re.I | re.S)
 # The requirement's own sentence; without it the block is OCR noise and no figure in it is the monto.
-SENTENCE = re.compile(r"monto\s+facturado|equivalente", re.I)
+SENTENCE = re.compile(r"monto\s+factura|equivalen|acumulado", re.I)
 END = re.compile(r"Acreditaci[oó]n\s*:", re.I)
 MAX_BLOCK = 6000
 AMOUNT_AFTER = re.compile(r"equivalente\s+a\s*(?:un\s+m[ií]nimo\s+de\s*)?(.{0,160})", re.I | re.S)
@@ -81,7 +81,7 @@ def read(text: str, cuantia: Decimal | None = None) -> dict:
     result["cita"] = first[: first.find(".", 80) + 1 or 400][:500]
 
     after = AMOUNT_AFTER.search(block)
-    after = after.group(1) if after else block[:400] if SENTENCE.search(block[:600]) else ""
+    after = after.group(1) if after else first[:400] if SENTENCE.search(first[:600]) else ""
     times = TIMES.search(after)
     if times:
         word = times.group(1).lower().replace(",", ".")
