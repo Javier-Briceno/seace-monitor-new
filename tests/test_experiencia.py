@@ -22,6 +22,20 @@ def test_amount_years_count_and_specialty():
     assert result["revisar"] is None
 
 
+def test_specialty_in_a_table_without_colons():
+    text = ("EXPERIENCIA DEL POSTOR EN LA ESPECIALIDAD\n Requisitos:\n"
+            " El postor debe acreditar un monto facturado acumulado equivalente a S/ 1,000,000.00, en la ejecución\n"
+            " de obras en la especialidad durante los veinte años anteriores.\n"
+            " Se considera la siguiente especialidad y subespecialidades como experiencia del postor:\n"
+            "      Especialidad              Subespecialidad             Tipologías\n"
+            "      Especialidad        Represas, irrigaciones y afines\n"
+            "      Subespecialidad     Infraestructura de Riego\n"
+            "Acreditación:\n")
+    result = read(text, Decimal("1000000.00"))
+    assert (result["especialidad"], result["subespecialidades"]) == (
+        "Represas, irrigaciones y afines", ["Infraestructura de Riego"])
+
+
 def test_several_subspecialties():
     assert read(bases("1233771"), Decimal("4373954.19"))["subespecialidades"] == ["OBRAS VIALES", "OBRAS RURALES"]
 
