@@ -23,8 +23,12 @@ VERSION = "personal-1"
 REQUIREMENT = re.compile(r"(?:B\s*\.\s*2\s*\.?\s*|^[^\w\n]{0,12})EXPERIENCIA\s+DEL\s+PERSONAL\s+CLAVE\b(?![”\")])"
                          r"(?:(?!PUNTAJE|Acreditaci[oó]n\s*:).){0,400}?(?:\bRe\w{4,9}\s*:|^\s*REQUISITOS?\b)[^\n]*\n",
                          re.I | re.S | re.M)
+# The numbered heading alone is enough when OCR garbled or dropped "Requisitos" ("Begu¡si;osz"); "8.2" is OCR's "B.2".
+NUMBERED_HEADING = re.compile(r"\b[B8]\s*\.\s*2\s*\.?\s*EXPERIENCIA\s+DEL\s+PERSONAL\s+CLAVE\b(?![”\")])[^\n]*\n", re.I)
 END = re.compile(r"Acreditaci[oó]n\s*:", re.I)
-MAX_BLOCK = 8000
+# Characters, not lines: a -layout line of a table is over a hundred characters, mostly spaces, so this is about
+# four pages. A shorter cut ended a table in the middle and left its last cargos out.
+MAX_BLOCK = 30000
 # "24 meses", "36 MESES", "veinticuatro (24) meses", "(12 meses)", "3 años"
 TIME = re.compile(r"\(?\s*(?<![\d.,])(\d{1,3})\s*\)?\s*(mes(?:es)?|a[ñn]os?)\b", re.I)
 # "una antigüedad no mayor a veinte (20) años" is about the works counted, not a cargo
@@ -38,12 +42,14 @@ CONNECTOR = re.compile(r"\b(?:de|del|en|y|e|o|la|las|el|a|con)$|[/,\-]$", re.I)
 NUMBERED = re.compile(r"^\s{0,12}\d{1,2}\s*[.)\-]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,70}?)\s*$", re.M)
 # The column headers; the cargo column is the one headed CARGO, PERSONAL or PUESTO.
 CARGO_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO)\b", re.I)
-HEADER_WORDS = re.compile(r"CARGO|PERSONAL|PUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|ESPECIALIDAD|REQUERID|"
-                          r"FORMACI|ACREDITACI|DESEMPE|RESPONSABILIDAD|CANT|^\s*N\s*[°º.]?\s*$|PLANTEL|^\s*DE\s*$|T[IÍ]TULO",
+HEADER_WORDS = re.compile(r"\bCARGO|\bPERSONAL\b|\bPUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|ESPECIALIDAD|REQUERID|"
+                          r"FORMACI|ACREDITACI|DESEMPE|RESPONSABILIDAD|CANT|^\s*N\s*[°º.]?\s*$|PLANTEL|^\s*DE\s*$|T[IÍ]TULO|"
+                          r"POSICI[OÓ]N|\bCLAVE\b|\b[IÍ]TEM\b",
                           re.I)
 PAGE_LINE = re.compile(r"MUNICIPALIDAD|GOBIERNO|LICITACI|CONVOCATORIA|CONCURSO|PROCEDIMIENTO|PROGRAMA\s+NACIONAL|"
                        r"GERENCIA|NOMBRE\s+DE\s+LA\s+ENTIDAD|DENOMINACI|\bN[°º]\s*\d|^\s*\d{1,3}\s*$|-20\d\d-|/20\d\d\b|"
-                       r"Firmado|digitalmente|Motivo\s*:|Fecha\s*:|\bFAU\b", re.I)
+                       r"Firmado|digitalmente|Motivo\s*:|Fecha\s*:|\bFAU\b|\b\d{6,}\b|[“”]|BASES\s+(?:INTEGRADAS|ADMINISTRATIVAS)",
+                       re.I)
 NOT_CARGO = re.compile(r"^(?:\d{1,3}|N[°º]|\d{1,2}[.)]|\d+[.,]\d+|MESES|A[ÑN]OS|[—–\-.\"'“”]+)$", re.I)
 # The time column's "(computado desde la fecha de la colegiatura)" falling inside the cargo column.
 COUNTED_FROM = re.compile(r"\(?\s*(?:se\s+)?computad?[oa]s?\b.*?colegiatura\s*\)?\.?|\bse\s+computa\b.*?colegiatura\.?",
@@ -156,6 +162,14 @@ def cargo_column(lines: list[str], first_time: int) -> tuple[int, int]:
     return first, right
 
 
+def cargo_edge(lines: list[str], times: list[dict]) -> tuple[int, int]:
+    first, right = cargo_column(lines, times[0]["line"])
+    if right < 8:
+        # descriptions too narrow to give long lines, notes across the page did: the cargo column is left of the times
+        right = min(t["x"] for t in times) - 1
+    return first, right
+
+
 def fragments(lines: list[str], first: int, right: int, times: list[dict]) -> list[tuple[int, str]]:
     """The words of the cargo column, line by line."""
     out = []
@@ -176,16 +190,32 @@ def fragments(lines: list[str], first: int, right: int, times: list[dict]) -> li
         if not words:
             continue
         # a sentence across the page below the table ("*Se considera obras similares a: ...") ends it
-        if out and re.match(r"\s{0,14}(?:[*(]|Nota\b)", line):
+        if out and re.match(r"\s{0,14}(?:[*(]|Nota\b)|\s*(?:Importante|Advertencia)\b", line, re.I):
             break
-        text = " ".join(w.group() for w in words
-                        if not NOT_CARGO.match(w.group()) and w.group().lower() not in TIME_COLUMN_WORDS)
+        tokens = re.findall(r"\S+(?: \S+)*", line)
+        if len(tokens) > 1 and all(len(t) <= 40 and HEADER_WORDS.search(t) for t in tokens):
+            continue  # the column headers again at the top of the next page
+        text = joined(" ".join(w.group() for w in words
+                               if not NOT_CARGO.match(w.group()) and w.group().lower() not in TIME_COLUMN_WORDS))
         plain = text.lower().split()
         if plain and all(w in NOISE for w in plain) and not {"de", "la", "del", "a"}.issuperset(plain):
             continue  # "se", "desde", "colegiatura." of the time column, one word a line
-        if text and not HEADER_WORDS.fullmatch(text.strip()):
+        if text and not (HEADER_WORDS.search(text) and not HEADS.search(text)):
             out.append((i, text))
     return out
+
+
+def joined(text: str) -> str:
+    """ "Especialis ta" (a word the text layer broke in two) as one word, when only together it is a cargo word."""
+    words = text.split(" ")
+    out = []
+    for word in words:
+        if out and (out[-1] + word).lower() in VOCABULARY and out[-1].lower() not in VOCABULARY \
+                and word.lower() not in VOCABULARY:
+            out[-1] += word
+        else:
+            out.append(word)
+    return " ".join(out)
 
 
 def complete(cargo: str) -> bool:
@@ -201,7 +231,9 @@ def doubtful(cargo: str) -> bool:
             or not cargo[:1].isupper() or bool(CONNECTOR.search(cargo))
             or len(cargo) > 75 or bool(re.search(r"\d", cargo))
             or any(a == b for a, b in zip(words, words[1:]))
-            or bool(re.search(r"\bING(?:\.|ENIER[OA])\s+CIVIL\b", cargo, re.I))
+            or bool(re.search(r"\bING(?:\.|ENIER[OA])\s+CIVIL\b|\bREQUISITO|\bIMPORTANTE\b", cargo, re.I))
+            # "RESIDENTE DE OBRA seis en el INGENIERO Doce": the words of a time from the description
+            or any(letras.plain(w) in letras.UNITS for w in words if w not in ("e", "y", "un", "una"))
             or bool(re.search(r"[¡=|\\{}<>]|[;,]\w", cargo)))
 
 
@@ -210,8 +242,15 @@ def unknown_words(cargo: str) -> list[str]:
 
 
 def rows_from_column(frags: list[tuple[int, str]]) -> list[dict]:
+    # "Especialis" on one line and "ta en" on the next
+    frags = [list(f) for f in frags]
+    for a, b in zip(frags, frags[1:]):
+        head, _, last = a[1].rpartition(" ")
+        first, _, rest = b[1].partition(" ")
+        if joined(f"{last} {first}") == last + first:
+            a[1], b[1] = f"{head} {last}{first}".strip(), rest
     rows = []
-    for i, text in frags:
+    for i, text in ((i, t) for i, t in frags if t):
         starts = START.match(text)
         if starts and (not rows or complete(rows[-1]["cargo"]) and not CONNECTOR.search(rows[-1]["cargo"])):
             rows.append({"line": i, "cargo": text})
@@ -232,11 +271,23 @@ def rows_from_headings(block: str) -> list[dict]:
 def pair(rows: list[dict], times: list[dict]) -> list[dict] | None:
     """Times in the order of the rows. A row may state its time twice, in its own column and in the
     description ("24 meses" and "veinticuatro (24) meses" a few lines apart); any other surplus is no pairing."""
-    if len(times) > len(rows):
-        times = [t for k, t in enumerate(times)
-                 if not any(u["valor"] == t["valor"] and 0 <= t["line"] - u["line"] <= 15 and abs(t["x"] - u["x"]) > 10
-                            for u in times[:k])]
-    return times if len(times) == len(rows) else None
+    if len(times) == len(rows):
+        return times
+    if len(times) < len(rows):
+        return None
+    columns = []
+    for t in times:
+        column = next((c for c in columns if abs(c[0]["x"] - t["x"]) <= 10), None)
+        if column is None:
+            columns.append([t])
+        else:
+            column.append(t)
+    for column in columns:
+        others = [t for t in times if t not in column]
+        if len(column) == len(rows) and all(
+                any(u["valor"] == t["valor"] and abs(u["line"] - t["line"]) <= 15 for u in column) for t in others):
+            return column
+    return None
 
 
 def squeeze(text: str) -> str:
@@ -250,13 +301,13 @@ def squeeze(text: str) -> str:
 def read(text: str) -> dict:
     """Each cargo with the time of experience it asks for; `avisos` when a time's words and digits differ."""
     result = {"pagina": None, "personal": [], "avisos": [], "revisar": None}
-    m = REQUIREMENT.search(text)
+    m = REQUIREMENT.search(text) or NUMBERED_HEADING.search(text)
     if not m:
         result["revisar"] = NOT_FOUND
         return result
     result["pagina"] = page_of(text, m.start())
     end = END.search(text, m.end())
-    block = text[m.end(): end.start() if end and end.start() - m.end() < MAX_BLOCK else m.end() + 4000]
+    block = text[m.end(): end.start() if end and end.start() - m.end() < MAX_BLOCK else m.end() + MAX_BLOCK]
     block = block.replace("|", " ")  # OCR reads the table's rules as bars that join two columns
     lines = block.split("\n")
     times = times_in(block)
@@ -265,7 +316,7 @@ def read(text: str) -> dict:
         return result
     rows = rows_from_headings(block)
     if len(rows) != len(times):
-        first, right = cargo_column(lines, times[0]["line"])
+        first, right = cargo_edge(lines, times)
         rows = rows_from_column(fragments(lines, first, right, times))
     paired = pair(rows, times) if rows else None
     if paired is None or any(doubtful(squeeze(r["cargo"])) for r in rows):

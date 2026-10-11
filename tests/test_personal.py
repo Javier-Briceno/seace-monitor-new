@@ -41,14 +41,18 @@ def cargos(result: dict) -> list[tuple[str, str]]:
     # "(12)" ends a line, "meses" opens the next after the profession column; the profession header on its own line
     ("1247868", [("RESIDENTE DE OBRA", "24 meses"),
                  ("ESPECIALISTA DE SEGURIDAD EN OBRA Y SALUD EN EL TRABAJO", "12 meses")]),
-    # "24 meses" in its own column and "(24) meses" in the description on the same line
-    ("1223688", [("RESIDENTE DE OBRA", "24 meses"), ("INGENIERO SSOMA", "12 meses")]),
+    # every time in its own column and again in the description ("doce (12) meses"), the rows a few lines apart
+    ("1223688", [("RESIDENTE DE OBRA", "24 meses"), ("INGENIERO SSOMA", "12 meses"),
+                 ("INGENIERO AMBIENTAL", "12 meses"), ("INGENIERO DE CALIDAD", "12 meses")]),
     # digital signature stamps (names replaced) in the cargo column
     ("1228370", [("RESIDENTE DE OBRA", "36 meses"), ("ESPECIALISTA DE CALIDAD", "12 meses"),
                  ("ESPECIALISTA AMBIENTAL", "12 meses"),
                  ("ESPECIALISTA DE SEGURIDAD EN OBRA Y SALUD EN EL TRABAJO", "12 meses"),
                  ("ESPECIALISTA SANITARIO", "12 meses")]),
     # "Se computa desde la colegiatura." of the time column, one word a line, inside the cargo column
+    # "Especialis" on one line, "ta en" on the next
+    ("1255345", [("Residente de Obra", "36 meses"), ("Especialista en Medio Ambiente", "12 meses"),
+                 ("Especialista en Calidad", "12 meses"), ("Especialista en Seguridad", "12 meses")]),
     ("1235753", [("Residente de Obra", "36 meses"), ("Especialista Ambiental", "12 meses"),
                  ("Especialista de Seguridad en Obra y Salud en el Trabajo", "12 meses"),
                  ("Especialista en Calidad", "12 meses")]),
@@ -57,6 +61,31 @@ def test_cargos_and_times(nid, expected):
     result = read(bases(nid))
     assert cargos(result) == expected
     assert result["revisar"] is None
+
+
+def test_a_table_over_two_pages_is_read_to_its_end():
+    # OCR text: six cargos over a page break, far more than a few thousand characters of -layout lines
+    result = read(bases("1252048"))
+    assert [p["tiempo"] for p in result["personal"]] == ["2 años"] + ["1 año"] * 5
+    assert result["personal"][-1]["cargo"] == "ESPECIALISTA EN SEGURIDAD EN OBRA"
+
+
+def test_column_headers_and_project_title_repeated_on_every_page():
+    result = read(bases("1254298"))  # "PRESUPUESTOS" holds "PUESTO", which once made its line a column header
+    assert len(result["personal"]) == 11
+    assert result["personal"][5]["cargo"] == "ESPECIALISTA EN COSTOS Y PRESUPUESTOS Y PROGRAMACION DE OBRA"
+    assert result["personal"][-1] == {"cargo": "ARQUEOLOGO", "tiempo": "24 meses", "meses": 24}
+
+
+def test_ten_cargos_over_two_pages():
+    result = read(bases("1252956"))  # checked against the page images
+    assert cargos(result) == [
+        ("GERENTE DE OBRA", "36 meses"), ("RESIDENTE DE OBRA", "36 meses"), ("ESPECIALISTA EN ESTRUCTURAS", "24 meses"),
+        ("ESPECIALISTA EN ARQUITECTURA", "24 meses"), ("ESPECIALISTA EN INSTALACIONES SANITARIAS", "18 meses"),
+        ("ESPECIALISTA EN INSTALACIONES ELÉCTRICAS", "18 meses"),
+        ("ESPECIALISTA EN ESTUDIO E IMPACTO AMBIENTAL, SEGURIDAD Y SALUD", "24 meses"),
+        ("ESPECIALISTA EN COSTOS Y PRESUPUESTOS", "18 meses"), ("ARQUEÓLOGO", "18 meses"),
+        ("ESPECIALISTA EN CONTROL DE CALIDAD", "24 meses")]
 
 
 def test_words_that_say_another_time_than_the_digits():
