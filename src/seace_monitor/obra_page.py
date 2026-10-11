@@ -181,6 +181,8 @@ def personal_lines(found: dict | None) -> list[str]:
     if found is None:
         return []
     page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
+    if found.get("revisar") and not found.get("pagina"):
+        return ['<p class="revisar">Personal clave: no se encontró en el texto de las bases, revisar a mano.</p>']
     if found.get("revisar"):
         return [f'<p class="revisar">Personal clave: no se pudo leer el cuadro de cargos{page}, revisar a mano.</p>']
     how = ", leído con OCR" if found.get("ocr") else ""
