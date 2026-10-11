@@ -173,6 +173,15 @@ def test_words_of_the_description_inside_the_cargo_go_to_a_person():
     assert read(text)["revisar"] == UNREADABLE
 
 
+def test_heading_indented_and_with_de_instead_of_del():
+    text = ("                    Experiencia de personal clave\n"
+            "                    Requisitos:\n"
+            "   CARGO                 EXPERIENCIA\n"
+            "   Residente de obra     Mínimo 36 meses de experiencia acumulada en la ejecución de obras.\n"
+            "Acreditación:\n")
+    assert cargos(read(text)) == [("Residente de obra", "36 meses")]
+
+
 def test_works_older_than_twenty_years_is_no_time():
     text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\n  Requisitos:\n"
             "   CARGO                 EXPERIENCIA\n"

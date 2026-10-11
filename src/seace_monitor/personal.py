@@ -15,12 +15,12 @@ from pathlib import Path
 from . import letras, reading
 from .bases_text import page_of
 
-VERSION = "personal-1"
+VERSION = "personal-2"
 
 # The requirement heading followed by "Requisitos", not the scoring factor of chapter IV nor a sentence citing
 # it. OCR leaves noise before "B.2" ("de .B.2", "“iB.2") and puts a second column on the same line;
 # "Requisitos:" comes out as "Reguisitos:" as in experiencia.
-REQUIREMENT = re.compile(r"(?:B\s*\.\s*2\s*\.?\s*|^[^\w\n]{0,12})EXPERIENCIA\s+DEL\s+PERSONAL\s+CLAVE\b(?![”\")])"
+REQUIREMENT = re.compile(r"(?:B\s*\.\s*2\s*\.?\s*|^[^\w\n]*)EXPERIENCIA\s+DEL?\s+PERSONAL\s+CLAVE\b(?![”\")])"
                          r"(?:(?!PUNTAJE|Acreditaci[oó]n\s*:).){0,400}?(?:\bRe\w{4,9}\s*:|^\s*REQUISITOS?\b)[^\n]*\n",
                          re.I | re.S | re.M)
 # The numbered heading alone is enough when OCR garbled or dropped "Requisitos" ("Begu¡si;osz"); "8.2" is OCR's "B.2".
