@@ -15,7 +15,7 @@ from pathlib import Path
 from . import letras, reading
 from .bases_text import page_of
 
-VERSION = "personal-2"
+VERSION = "personal-3"
 
 # The requirement heading followed by "Requisitos", not the scoring factor of chapter IV nor a sentence citing
 # it. OCR leaves noise before "B.2" ("de .B.2", "“iB.2") and puts a second column on the same line;
@@ -269,6 +269,17 @@ def rows_from_headings(block: str) -> list[dict]:
     return rows
 
 
+def rows_from_cells(lines: list[str], times: list[dict]) -> list[dict]:
+    """A Word table gives one cell a line: the cargo on the line just above the one its description and time
+    open ("Residente de Obra" / "5 años de experiencia como: ...")."""
+    rows = []
+    for t in times:
+        above = next((lines[i].strip() for i in range(t["line"] - 1, -1, -1) if lines[i].strip()), "")
+        if t["x"] <= 2 and len(above) <= 80 and START.match(above) and complete(above):
+            rows.append({"line": t["line"] - 1, "cargo": above})
+    return rows
+
+
 def pair(rows: list[dict], times: list[dict]) -> list[dict] | None:
     """Times in the order of the rows. A row may state its time twice, in its own column and in the
     description ("24 meses" and "veinticuatro (24) meses" a few lines apart); any other surplus is no pairing."""
@@ -320,6 +331,8 @@ def read(text: str) -> dict:
         first, right = cargo_edge(lines, times)
         rows = rows_from_column(fragments(lines, first, right, times))
     paired = pair(rows, times) if rows else None
+    if paired is None and len(cells := rows_from_cells(lines, times)) == len(times):
+        rows, paired = cells, times
     if paired is None or any(doubtful(squeeze(r["cargo"])) for r in rows):
         result["personal"] = [{"cargo": None, "tiempo": t["tiempo"], "meses": t["meses"]} for t in times]
         result["revisar"] = UNREADABLE
