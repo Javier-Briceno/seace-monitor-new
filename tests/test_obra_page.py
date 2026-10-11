@@ -182,7 +182,10 @@ def test_personal_clave_with_its_times(conn):
     add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=4))
     add(conn, 3, ["LA LIBERTAD"], NOW + timedelta(days=5))
     add(conn, 4, ["LA LIBERTAD"], NOW + timedelta(days=6))
+    add(conn, 5, ["LA LIBERTAD"], NOW + timedelta(days=7))
     readings = {
+        5: {"pagina": 1, "ocr": False, "revisar": None, "archivo": "BASES.docx", "avisos": [], "personal": [
+                {"cargo": "Residente de Obra", "tiempo": "5 años", "meses": 60}]},
         4: {"pagina": None, "ocr": False, "revisar": "sin requisito de personal clave", "avisos": [], "personal": []},
         1: {"pagina": 58, "ocr": False, "revisar": None, "personal": [
                 {"cargo": "Ingeniero Residente de Obra", "tiempo": "24 meses", "meses": 24},
@@ -203,6 +206,7 @@ def test_personal_clave_with_its_times(conn):
     assert "Ingeniero Residente de Obra: el tiempo en cifras (24) no es el que dicen las letras (36)." in page
     assert "Personal clave: no se pudo leer el cuadro de cargos (pág. 44), revisar a mano." in page
     assert "Personal clave: no se encontró en el texto de las bases, revisar a mano." in page
+    assert "Personal clave: Residente de Obra 5 años." in page  # a Word file has no pages
     assert "Personal clave (pág. 61, leído con OCR): Residente de Obra 24 meses." in page
     assert "Leído con OCR; antes de consultarlo, comprobar en la página 61:" in page
     assert "1 con algo que revisar" in page  # the warning read through OCR waits for a look at the page

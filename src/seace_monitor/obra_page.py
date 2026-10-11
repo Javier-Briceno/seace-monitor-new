@@ -106,7 +106,14 @@ def obras(conn: psycopg.Connection, watched: list[str], now: datetime) -> list[d
     ).fetchall()
     keys = ("nid_proceso", "nomenclatura", "entidad", "descripcion", "departamentos", "fecha_limite_ofertas",
             "valor_referencial", "bases", "lectura", "experiencia", "factores", "personal")
-    return [dict(zip(keys, r)) for r in rows if in_watched(r[4], watched)]
+    items = [dict(zip(keys, r)) for r in rows if in_watched(r[4], watched)]
+    for obra in items:
+        for key in ("lectura", "experiencia", "factores", "personal"):
+            found = obra[key]
+            # a Word file has no pages; the readers count every DOCX as page 1
+            if found and str(found.get("archivo") or "").lower().endswith(".docx"):
+                obra[key] = {**found, "pagina": None}
+    return items
 
 
 def experience_lines(found: dict | None) -> list[str]:
@@ -181,13 +188,14 @@ def personal_lines(found: dict | None) -> list[str]:
     if found is None:
         return []
     page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
-    if found.get("revisar") and not found.get("pagina"):
-        return ['<p class="revisar">Personal clave: no se encontró en el texto de las bases, revisar a mano.</p>']
-    if found.get("revisar"):
+    if found.get("revisar") in ("cargos ilegibles", "personal clave sin tiempos legibles"):
         return [f'<p class="revisar">Personal clave: no se pudo leer el cuadro de cargos{page}, revisar a mano.</p>']
-    how = ", leído con OCR" if found.get("ocr") else ""
+    if found.get("revisar"):
+        return ['<p class="revisar">Personal clave: no se encontró en el texto de las bases, revisar a mano.</p>']
+    notes = [f"pág. {found['pagina']}"] if found.get("pagina") else []
+    notes += ["leído con OCR"] if found.get("ocr") else []
     listed = "; ".join(f"{p['cargo']} {p['tiempo']}" for p in found["personal"])
-    lines = [f'<p><b>Personal clave (pág. {found["pagina"]}{how}):</b> {e(listed)}.</p>']
+    lines = [f'<p><b>Personal clave{" (" + ", ".join(notes) + ")" if notes else ""}:</b> {e(listed)}.</p>']
     warnings = [f"{w['cargo']}: el tiempo en cifras ({w['cifra']}) no es el que dicen las letras ({w['letras']})."
                 for w in found.get("avisos") or []]
     if warnings and found.get("ocr"):
