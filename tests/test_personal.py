@@ -164,6 +164,15 @@ def test_a_profession_in_the_cargo_column_goes_to_a_person():
     assert read(text)["revisar"] == UNREADABLE
 
 
+def test_words_of_the_description_inside_the_cargo_go_to_a_person():
+    text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\n  Requisitos:\n"
+            "   CARGO                    EXPERIENCIA\n"
+            "   Ingeniero Residente      12 meses como residente y/o supervisor y/o inspector en obras de la\n"
+            "   y/o jefe de Obra         especialidad y subespecialidad.\n"
+            "Acreditación:\n")
+    assert read(text)["revisar"] == UNREADABLE
+
+
 def test_works_older_than_twenty_years_is_no_time():
     text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\n  Requisitos:\n"
             "   CARGO                 EXPERIENCIA\n"

@@ -44,10 +44,10 @@ NUMBERED = re.compile(r"^\s{0,12}\d{1,2}\s*[.)\-]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,70
 CARGO_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO)\b", re.I)
 HEADER_WORDS = re.compile(r"\bCARGO|\bPERSONAL\b|\bPUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|ESPECIALIDAD|REQUERID|"
                           r"FORMACI|ACREDITACI|DESEMPE|RESPONSABILIDAD|CANT|^\s*N\s*[°º.]?\s*$|PLANTEL|^\s*DE\s*$|T[IÍ]TULO|"
-                          r"POSICI[OÓ]N|\bCLAVE\b|\b[IÍ]TEM\b",
+                          r"POSICI[OÓ]N|\bCLAVE\b|\b[IÍ]TEM\b|DENOMINACI",
                           re.I)
 PAGE_LINE = re.compile(r"MUNICIPALIDAD|GOBIERNO|LICITACI|CONVOCATORIA|CONCURSO|PROCEDIMIENTO|PROGRAMA\s+NACIONAL|"
-                       r"GERENCIA|NOMBRE\s+DE\s+LA\s+ENTIDAD|DENOMINACI|\bN[°º]\s*\d|^\s*\d{1,3}\s*$|-20\d\d-|/20\d\d\b|"
+                       r"GERENCIA|NOMBRE\s+DE\s+LA\s+ENTIDAD|\bN[°º]\s*\d|^\s*\d{1,3}\s*$|-20\d\d-|/20\d\d\b|"
                        r"Firmado|digitalmente|Motivo\s*:|Fecha\s*:|\bFAU\b|\b\d{6,}\b|[“”]|BASES\s+(?:INTEGRADAS|ADMINISTRATIVAS)",
                        re.I)
 NOT_CARGO = re.compile(r"^(?:\d{1,3}|N[°º]|\d{1,2}[.)]|\d+[.,]\d+|MESES|A[ÑN]OS|[—–\-.\"'“”]+)$", re.I)
@@ -231,7 +231,7 @@ def doubtful(cargo: str) -> bool:
             or not cargo[:1].isupper() or bool(CONNECTOR.search(cargo))
             or len(cargo) > 75 or bool(re.search(r"\d", cargo))
             or any(a == b for a, b in zip(words, words[1:]))
-            or bool(re.search(r"\bING(?:\.|ENIER[OA])\s+CIVIL\b|\bREQUISITO|\bIMPORTANTE\b", cargo, re.I))
+            or bool(re.search(r"\bING(?:\.|ENIER[OA])\s+CIVIL\b|\bREQUISITO|\bIMPORTANTE\b|\by\s*/\s*o\b", cargo, re.I))
             # "RESIDENTE DE OBRA seis en el INGENIERO Doce": the words of a time from the description
             or any(letras.plain(w) in letras.UNITS for w in words if w not in ("e", "y", "un", "una"))
             or bool(re.search(r"[¡=|\\{}<>]|[;,]\w", cargo)))
