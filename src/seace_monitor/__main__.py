@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from . import config, cuantia, db, experiencia, factores, mail, manual, obra_page, report
+from . import config, cuantia, db, experiencia, factores, mail, manual, obra_page, personal, report
 from .archives import ArchiveError, MachineError, unpack
 from .bases_text import ToolMissing, bases_files
 from .ocr import make_ocr, ocr_path, ocrmypdf
@@ -165,8 +165,8 @@ def run_unpacking(conn, nids=None) -> None:
 
 
 def run_extraction(conn, nids=None, ocr_budget=None) -> None:
-    """Read section 1.4, the experiencia del postor and the factores de evaluación of the downloaded
-    bases of these obras not read yet by the current readers; None means every obra.
+    """Read section 1.4, the experiencia del postor, the personal clave and the factores de evaluación of the
+    downloaded bases of these obras not read yet by the current readers; None means every obra.
 
     Image pages of an obra's newest bases are OCRed when a section is not in the text, at most
     `ocr_budget` files per run (None: no limit); bases still waiting for OCR are left for the next run.
@@ -195,6 +195,8 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
          lambda r: f"{r['revisar'] or r['monto']}  {r['veces_cuantia'] or ''}"),
         (factores.VERSION, lambda files, document, ocr: factores.read_files(files, ocr),
          lambda r: f"{r['revisar'] or r['suma']}  {', '.join(w['aviso'] for w in r['avisos'])}"),
+        (personal.VERSION, lambda files, document, ocr: personal.read_files(files, ocr),
+         lambda r: f"{r['revisar'] or len(r['personal'])}  {', '.join(w['aviso'] for w in r['avisos'])}"),
     )
     for version, read, line in readers:
         pending = bases_to_extract(conn, version, nids)
@@ -220,7 +222,7 @@ def main() -> int:
     parser.add_argument("--no-mail", action="store_true", help="write the report but do not send it or mark anything")
     parser.add_argument("--plantilla", type=int, metavar="NID_PROCESO", help="write the manual extraction template of one obra and exit")
     parser.add_argument("--desempaquetar", action="store_true", help="unpack every downloaded archive not unpacked yet and exit")
-    parser.add_argument("--extraer", action="store_true", help="read cuantía, experiencia and factores of every downloaded bases not read yet and exit")
+    parser.add_argument("--extraer", action="store_true", help="read cuantía, experiencia, personal clave and factores of every downloaded bases not read yet and exit")
     parser.add_argument("--pagina", action="store_true", help="write the phone page of the obras open for offers and exit")
     args = parser.parse_args()
 

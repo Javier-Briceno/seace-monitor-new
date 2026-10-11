@@ -96,14 +96,16 @@ def obras(conn: psycopg.Connection, watched: list[str], now: datetime) -> list[d
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
                      AND e.version_extractor LIKE 'experiencia-%%' ORDER BY e.creado_en DESC LIMIT 1),
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
-                     AND e.version_extractor LIKE 'factores-%%' ORDER BY e.creado_en DESC LIMIT 1)
+                     AND e.version_extractor LIKE 'factores-%%' ORDER BY e.creado_en DESC LIMIT 1),
+                  (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
+                     AND e.version_extractor LIKE 'personal-%%' ORDER BY e.creado_en DESC LIMIT 1)
            FROM licitaciones l LEFT JOIN newest n USING (nid_proceso)
            WHERE l.seguimiento = 'abierta' AND l.fecha_limite_ofertas > %s
            ORDER BY l.fecha_limite_ofertas, l.nid_proceso""",
         [now],
     ).fetchall()
     keys = ("nid_proceso", "nomenclatura", "entidad", "descripcion", "departamentos", "fecha_limite_ofertas",
-            "valor_referencial", "bases", "lectura", "experiencia", "factores")
+            "valor_referencial", "bases", "lectura", "experiencia", "factores", "personal")
     return [dict(zip(keys, r)) for r in rows if in_watched(r[4], watched)]
 
 
@@ -173,6 +175,26 @@ def factor_lines(found: dict | None) -> list[str]:
     return lines
 
 
+def personal_lines(found: dict | None) -> list[str]:
+    """Each cargo of the personal clave with the time it asks for; nothing when the bases were not read for it yet."""
+    e = html.escape
+    if found is None:
+        return []
+    page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
+    if found.get("revisar"):
+        return [f'<p class="revisar">Personal clave: no se pudo leer el cuadro de cargos{page}, revisar a mano.</p>']
+    how = ", leído con OCR" if found.get("ocr") else ""
+    listed = "; ".join(f"{p['cargo']} {p['tiempo']}" for p in found["personal"])
+    lines = [f'<p><b>Personal clave (pág. {found["pagina"]}{how}):</b> {e(listed)}.</p>']
+    warnings = [f"{w['cargo']}: el tiempo en cifras ({w['cifra']}) no es el que dicen las letras ({w['letras']})."
+                for w in found.get("avisos") or []]
+    if warnings and found.get("ocr"):
+        lines.append(f'<p class="ocr">Leído con OCR; antes de consultarlo, comprobar en la página {found["pagina"]}:</p>')
+    if warnings:
+        lines.append("<ul>" + "".join(f"<li>{e(w)}</li>" for w in warnings) + "</ul>")
+    return lines
+
+
 def card(obra: dict, now: datetime) -> str:
     e = html.escape
     reading = obra["lectura"]
@@ -214,6 +236,7 @@ def card(obra: dict, now: datetime) -> str:
     if reading.get("ocr") and not warnings:
         lines.append('<p class="ocr">Leído de bases escaneadas con OCR: verificar las cifras en la página.</p>')
     lines += experience_lines(obra["experiencia"])
+    lines += personal_lines(obra.get("personal"))
     lines += factor_lines(obra["factores"])
     lines.append(f'<p class="fuente">{where}</p>')
     return f'<section{" class=con-aviso" if flagged(obra) else ""}>' + "".join(lines) + '</section>'
@@ -221,15 +244,17 @@ def card(obra: dict, now: datetime) -> str:
 
 def flagged(obra: dict) -> bool:
     """Warnings read from the text; those read through OCR still wait for a look at the page."""
-    reading = obra["lectura"] or {}
-    return bool(reading.get("avisos") and not reading.get("ocr")) or bool((obra["factores"] or {}).get("avisos"))
+    reading, personal = obra["lectura"] or {}, obra.get("personal") or {}
+    return (bool(reading.get("avisos") and not reading.get("ocr")) or bool((obra["factores"] or {}).get("avisos"))
+            or bool(personal.get("avisos") and not personal.get("ocr")))
 
 
 def build(conn: psycopg.Connection, watched: list[str], now: datetime) -> str:
     items = obras(conn, watched, now)
     flagged_count = sum(1 for o in items if flagged(o))
     head = (f'{len(items)} obras abiertas para ofertas en {e_join(watched)}. '
-            f'{flagged_count} con algo que revisar o consultar en la cuantía, los límites o los factores de evaluación.')
+            f'{flagged_count} con algo que revisar o consultar en la cuantía, los límites, el personal clave '
+            f'o los factores de evaluación.')
     return PAGE.format(fecha=f"{now.astimezone(LIMA):%d/%m/%Y}", resumen=html.escape(head),
                        obras="\n".join(card(o, now) for o in items))
 

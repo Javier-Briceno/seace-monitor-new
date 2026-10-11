@@ -87,6 +87,11 @@ A third reads the factores de evaluación of chapter IV (`factores.py`): each fa
 CUADRO RESUMEN. A sum that is not the PUNTAJE TOTAL, a total that is not 100 and a factor's description that gives
 more points than the table are warnings.
 
+A fourth reads the requisito "Experiencia del personal clave" of chapter III (`personal.py`): each cargo with the
+time of experience it asks for. The cargo comes from its column of the table and the rows are paired with the times
+in order; cargos and times that do not pair up, or two cargos run together, go to a person. A time whose words say
+another number than its digits ("treinta y seis (24) meses") is a warning.
+
 When a section is not in the text of an obra's newest bases, its image pages among the first 150 (whole scans,
 or a scanned requerimiento with only the entity's typed header) are OCRed into `<name>-ocr.pdf` next to the
 original, about 4 s per page; a daily run OCRs at most 10 files and leaves the rest for the next run.

@@ -177,6 +177,34 @@ def test_factors_with_their_points_and_warnings(conn):
     assert "1 con algo que revisar" in page
 
 
+def test_personal_clave_with_its_times(conn):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=4))
+    add(conn, 3, ["LA LIBERTAD"], NOW + timedelta(days=5))
+    readings = {
+        1: {"pagina": 58, "ocr": False, "revisar": None, "personal": [
+                {"cargo": "Ingeniero Residente de Obra", "tiempo": "24 meses", "meses": 24},
+                {"cargo": "Especialista en Seguridad", "tiempo": "1 año", "meses": 12}],
+            "avisos": [{"aviso": "tiempo_distinto_letras", "cargo": "Ingeniero Residente de Obra", "cifra": 24, "letras": 36}]},
+        2: {"pagina": 44, "ocr": False, "revisar": "cargos ilegibles", "avisos": [], "personal": [
+                {"cargo": None, "tiempo": "36 meses", "meses": 36}]},
+        3: {"pagina": 61, "ocr": True, "revisar": None, "personal": [
+                {"cargo": "Residente de Obra", "tiempo": "24 meses", "meses": 24}],
+            "avisos": [{"aviso": "tiempo_distinto_letras", "cargo": "Residente de Obra", "cifra": 24, "letras": 34}]},
+    }
+    for nid, found in readings.items():
+        doc = bases(conn, nid, lectura=reading())
+        conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'personal-1', %s, 'done')",
+                     [doc, json.dumps(found)])
+    page = text(build(conn, ["LA LIBERTAD"], NOW))
+    assert "Personal clave (pág. 58): Ingeniero Residente de Obra 24 meses; Especialista en Seguridad 1 año." in page
+    assert "Ingeniero Residente de Obra: el tiempo en cifras (24) no es el que dicen las letras (36)." in page
+    assert "Personal clave: no se pudo leer el cuadro de cargos (pág. 44), revisar a mano." in page
+    assert "Personal clave (pág. 61, leído con OCR): Residente de Obra 24 meses." in page
+    assert "Leído con OCR; antes de consultarlo, comprobar en la página 61:" in page
+    assert "1 con algo que revisar" in page  # the warning read through OCR waits for a look at the page
+
+
 def test_page_escapes_what_comes_from_seace(conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
     conn.execute("UPDATE licitaciones SET descripcion = 'OBRA <script>x</script>'")
