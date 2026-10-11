@@ -88,6 +88,16 @@ def test_ocr_reading_asks_to_check_the_figures(conn):
     assert "verificar las cifras en la página" in text(build(conn, ["LA LIBERTAD"], NOW))
 
 
+def test_warnings_read_through_ocr_ask_for_a_look_first(conn):
+    # 1216921: OCR read 206,938.97 where the page says 206,338.97, the exact 95 %
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
+    bases(conn, 1, lectura=reading(ocr=True, pagina=22, avisos=[
+        {"aviso": "limite_inferior", "bases": "206938.97", "exacto": "206338.97"}]))
+    page = text(build(conn, ["LA LIBERTAD"], NOW))
+    assert "Leído con OCR; antes de consultarlo, comprobar en la página 22:" in page
+    assert "Para revisar o consultar" not in page and "0 con algo que revisar" in page
+
+
 def test_experience_asked_by_the_bases(conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
     add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=4))

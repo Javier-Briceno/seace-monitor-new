@@ -167,24 +167,35 @@ def card(obra: dict, now: datetime) -> str:
     if reading.get("revisar"):
         lines.append(f'<p class="revisar">{e(UNREAD.get(reading["revisar"], "Revisar a mano: " + reading["revisar"]))}</p>')
     warnings = reading.get("avisos") or []
-    if warnings:
+    if warnings and reading.get("ocr"):
+        # OCR misreads a digit now and then: a figure off by it is not yet the entity's mistake
+        lines.append(f'<p class="ocr">Leído con OCR; antes de consultarlo, comprobar en la página '
+                     f'{reading.get("pagina") or ""}:</p><ul>')
+        lines += [f'<li>{e(warning_text(w))}</li>' for w in warnings]
+        lines.append('</ul>')
+    elif warnings:
         lines.append('<p class="aviso-titulo">Para revisar o consultar:</p><ul>')
         lines += [f'<li>{e(warning_text(w))}</li>' for w in warnings]
         lines.append('</ul>')
     elif reading.get("cuantia") and not reading.get("revisar") and reading.get("tipo_oferta") in ("fija", "limitada"):
         lines.append('<p class="ok">Cuantía y límites sin observaciones.</p>')
-    if reading.get("ocr"):
+    if reading.get("ocr") and not warnings:
         lines.append('<p class="ocr">Leído de bases escaneadas con OCR: verificar las cifras en la página.</p>')
     lines += experience_lines(obra["experiencia"])
     lines.append(f'<p class="fuente">{where}</p>')
-    return f'<section{" class=con-aviso" if warnings else ""}>' + "".join(lines) + '</section>'
+    return f'<section{" class=con-aviso" if flagged(reading) else ""}>' + "".join(lines) + '</section>'
+
+
+def flagged(reading: dict | None) -> bool:
+    """Warnings read from the text; those read through OCR still wait for a look at the page."""
+    return bool(reading and reading.get("avisos") and not reading.get("ocr"))
 
 
 def build(conn: psycopg.Connection, watched: list[str], now: datetime) -> str:
     items = obras(conn, watched, now)
-    flagged = sum(1 for o in items if o["lectura"] and o["lectura"].get("avisos"))
+    flagged_count = sum(1 for o in items if flagged(o["lectura"]))
     head = (f'{len(items)} obras abiertas para ofertas en {e_join(watched)}. '
-            f'{flagged} con algo que revisar o consultar en la cuantía o los límites.')
+            f'{flagged_count} con algo que revisar o consultar en la cuantía o los límites.')
     return PAGE.format(fecha=f"{now.astimezone(LIMA):%d/%m/%Y}", resumen=html.escape(head),
                        obras="\n".join(card(o, now) for o in items))
 
