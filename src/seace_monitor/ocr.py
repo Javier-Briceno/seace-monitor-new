@@ -80,6 +80,8 @@ def make_ocr(path: Path, pages: list[int]) -> Path:
     command = [ocrmypdf(), "-q", "-l", "spa", "--force-ocr", "--pages", page_ranges(pages),
                # landscape tables come out upside down with the default threshold
                "--rotate-pages", "--rotate-pages-threshold", "2",
+               # the signature is lost only on the copy; the signed original stays next to it
+               "--invalidate-digital-signatures",
                "--jobs", str(os.cpu_count() or 1), "--output-type", "pdf", str(path.resolve()), str(part.resolve())]
     try:
         done = subprocess.run(command, capture_output=True, timeout=TIMEOUT)

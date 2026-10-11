@@ -49,6 +49,15 @@ def test_pages_with_text_keep_their_own_text(tmp_path):
 
 
 @needs_ocr
+def test_a_signed_bases_is_recognized_and_the_original_keeps_its_signature(tmp_path):
+    original = tmp_path / "bases.pdf"
+    original.write_bytes((FIXTURES / "bases_scanned_page_signed.pdf").read_bytes())
+    before = original.read_bytes()
+    assert not is_scanned(text_of(make_ocr(original, [1])))
+    assert original.read_bytes() == before
+
+
+@needs_ocr
 def test_an_existing_copy_is_not_made_again(tmp_path):
     original = tmp_path / "bases.pdf"
     original.write_bytes((FIXTURES / "bases_scanned_page.pdf").read_bytes())
