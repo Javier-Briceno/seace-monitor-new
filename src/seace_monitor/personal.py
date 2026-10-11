@@ -42,14 +42,13 @@ CONNECTOR = re.compile(r"\b(?:de|del|en|y|e|o|la|las|el|a|con)$|[/,\-]$", re.I)
 NUMBERED = re.compile(r"^\s{0,12}\d{1,2}\s*[.)\-]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,70}?)\s*$", re.M)
 # The column headers; the cargo column is the one headed CARGO, PERSONAL or PUESTO.
 CARGO_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO)\b", re.I)
-HEADER_WORDS = re.compile(r"\bCARGO|\bPERSONAL\b|\bPUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|ESPECIALIDAD|REQUERID|"
-                          r"FORMACI|ACREDITACI|DESEMPE|RESPONSABILIDAD|CANT|^\s*N\s*[°º.]?\s*$|PLANTEL|^\s*DE\s*$|T[IÍ]TULO|"
-                          r"POSICI[OÓ]N|\bCLAVE\b|\b[IÍ]TEM\b|DENOMINACI",
-                          re.I)
+HEADER_WORDS = re.compile(r"\bCARGO|\bPERSONAL\b|\bPUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|"
+                          r"ESPECIALIDAD|REQUERID|FORMACI|ACREDITACI|DESEMPE|RESPONSABILIDAD|CANT|^\s*N\s*[°º.]?\s*$|"
+                          r"PLANTEL|^\s*DE\s*$|T[IÍ]TULO|POSICI[OÓ]N|\bCLAVE\b|\b[IÍ]TEM\b|DENOMINACI", re.I)
 PAGE_LINE = re.compile(r"MUNICIPALIDAD|GOBIERNO|LICITACI|CONVOCATORIA|CONCURSO|PROCEDIMIENTO|PROGRAMA\s+NACIONAL|"
                        r"GERENCIA|NOMBRE\s+DE\s+LA\s+ENTIDAD|\bN[°º]\s*\d|^\s*\d{1,3}\s*$|-20\d\d-|/20\d\d\b|"
-                       r"Firmado|digitalmente|Motivo\s*:|Fecha\s*:|\bFAU\b|\b\d{6,}\b|[“”]|BASES\s+(?:INTEGRADAS|ADMINISTRATIVAS)",
-                       re.I)
+                       r"Firmado|digitalmente|Motivo\s*:|Fecha\s*:|\bFAU\b|\b\d{6,}\b|[“”]|"
+                       r"BASES\s+(?:INTEGRADAS|ADMINISTRATIVAS)", re.I)
 NOT_CARGO = re.compile(r"^(?:\d{1,3}|N[°º]|\d{1,2}[.)]|\d+[.,]\d+|MESES|A[ÑN]OS|[—–\-.\"'“”]+)$", re.I)
 # The time column's "(computado desde la fecha de la colegiatura)" falling inside the cargo column.
 COUNTED_FROM = re.compile(r"\(?\s*(?:se\s+)?computad?[oa]s?\b.*?colegiatura\s*\)?\.?|\bse\s+computa\b.*?colegiatura\.?",
@@ -189,7 +188,7 @@ def fragments(lines: list[str], first: int, right: int, times: list[dict]) -> li
         words = [m for m in re.finditer(r"\S+", line) if m.start() < right]
         if not words:
             continue
-        # a sentence across the page below the table ("*Se considera obras similares a: ...") ends it
+        # a note below the table ("*Se considera obras similares a: ...", "Importante") ends it
         if out and re.match(r"\s{0,14}(?:[*(]|Nota\b)|\s*(?:Importante|Advertencia)\b", line, re.I):
             break
         tokens = re.findall(r"\S+(?: \S+)*", line)
@@ -231,14 +230,16 @@ def doubtful(cargo: str) -> bool:
             or not cargo[:1].isupper() or bool(CONNECTOR.search(cargo))
             or len(cargo) > 75 or bool(re.search(r"\d", cargo))
             or any(a == b for a, b in zip(words, words[1:]))
-            or bool(re.search(r"\bING(?:\.|ENIER[OA])\s+CIVIL\b|\bREQUISITO|\bIMPORTANTE\b|\by\s*/\s*o\b", cargo, re.I))
+            or bool(re.search(r"\bING(?:\.|ENIER[OA])\s+CIVIL\b|\bREQUISITO|\bIMPORTANTE\b|\by\s*/\s*o\b",
+                              cargo, re.I))
             # "RESIDENTE DE OBRA seis en el INGENIERO Doce": the words of a time from the description
             or any(letras.plain(w) in letras.UNITS for w in words if w not in ("e", "y", "un", "una"))
             or bool(re.search(r"[¡=|\\{}<>]|[;,]\w", cargo)))
 
 
 def unknown_words(cargo: str) -> list[str]:
-    return [w for w in re.findall(r"[^\s,()/–—-]+", cargo.lower()) if w.strip(".") not in VOCABULARY and w not in VOCABULARY]
+    return [w for w in re.findall(r"[^\s,()/–—-]+", cargo.lower())
+            if w.strip(".") not in VOCABULARY and w not in VOCABULARY]
 
 
 def rows_from_column(frags: list[tuple[int, str]]) -> list[dict]:
