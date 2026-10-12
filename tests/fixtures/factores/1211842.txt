@@ -1,0 +1,358 @@
+CAPÍTULO IV
+                                EVALUACIÓN DE OFERTAS
+  Los factores de evaluación son determinados por los evaluadores. En la contratación de
+  obras, la evaluación de la oferta consiste en: i) Evaluación Técnica y ii) Evaluación Económica.
+
+  La evaluación económica de la oferta es posterior a la evaluación técnica, de acuerdo con el
+  artículo 93 del Reglamento. El puntaje máximo de cada una de estas evaluaciones es equivalente
+  a cien puntos, salvo en el caso que se determine la utilización de la oferta económica fija en el
+  sistema de entrega de solo construcción, en cuyo caso el puntaje total equivale al puntaje total
+  de la evaluación técnica y no hay asignación de puntaje a la evaluación económica.
+
+  Para determinar la oferta con el mejor puntaje y el orden de prelación de las ofertas, se considera
+  lo siguiente:
+
+ 4.1. EVALUACIÓN TÉCNICA
+
+     La evaluación técnica se realiza sobre cien puntos. Para acceder a la etapa de evaluación
+     económica, el postor debe obtener un puntaje técnico mínimo de setenta puntos.
+
+1.1.1 FACTORES DE EVALUACIÓN FACULTATIVOS
+
+     A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL                        PUNTAJE / METODOLOGÍA
+        PERSONAL CLAVE                                                PARA SU ASIGNACIÓN
+      Evaluación:                                                  60 puntos
+
+      Se evalúa en función al porcentaje de personal clave         Si el 50% o más del número de
+      considerado en este listado que supere el tiempo de          personas consideradas en el
+      experiencia específica considerada en los requisitos de      listado del personal clave
+      calificación.                                                supere     el  requisito   de
+                                                                   experiencia específica:
+      El personal clave para evaluar en este factor es el
+      siguiente:                                                                        60 puntos
+
+           1. RESIDENTE DE OBRA                                    Si menos del 50% del número
+           2. ESPECIALISTA DE ESTRUCTURAS                          de personas consideradas en
+           3. ESPECIALISTA EN SEGURIDAD Y SALUD EN                 el listado del personal clave
+              EL TRABAJO                                           supera     el  requisito   de
+           4. ESPECIALISTA DE CALIDAD                              experiencia específica:
+
+      Se considera que un personal clave supera el tiempo de                            50 puntos
+      experiencia específica cuando acredita al menos 1 año
+      adicional a la experiencia requerida en los requisitos de    No acredita personal clave que
+      calificación.                                                supera    el   requisito      de
+                                                                   experiencia específica:
+      Acreditación:
+                                                                                           0 puntos
+      La experiencia del personal clave se acredita con copia
+      simple de cualquiera de los siguientes documentos: (i)
+      contratos y su respectiva conformidad; o (ii) constancias,
+      o (iii) certificados; o (iv) cualquier otra documentación
+      que, de manera fehaciente, demuestre la experiencia del
+      personal propuesto.
+
+      Los documentos que acreditan la experiencia deben
+      incluir los nombres y apellidos del personal clave; puesto
+      y/o posición; el plazo de la prestación indicando el día,
+      mes y año de inicio y culminación; el nombre de la
+      entidad u organización que emite el documento; la fecha
+
+                                                                                                        28
+GOBIERNO REGIONAL LA LIBERTAD
+LICITACIÓN PUBLICA ABREVIADA DE OBRAS N°007-2026-GRLL-GRCO- I CONVOCATORIA
+
+     de emisión y nombres y apellidos de quien suscribe el
+     documento.
+
+     En caso los documentos que acrediten la experiencia
+     este en meses sin especificar los días se debe considerar
+     el mes completo.
+
+     Se considera aquella experiencia que no tenga una
+     antigüedad mayor a veinticinco años anteriores a la fecha
+     de la presentación de ofertas.
+
+     De presentarse experiencia ejecutada paralelamente
+     (traslape), para el cómputo del tiempo de dicha
+     experiencia sólo se considerará una vez el periodo
+     traslapado.
+
+     En ningún caso corresponde exigir que el mismo
+     personal clave acredite experiencia en más de un cargo.
+
+       Advertencia
+       Al acreditar este factor de evaluación Experiencia Específica
+       Adicional del Personal Clave, también se acredita la
+       experiencia declarada en el requisito de calificación
+       Experiencia Adicional del Personal Clave.
+
+                                                                                  PUNTAJE / METODOLOGÍA
+                 B. SOSTENIBILIDAD AMBIENTAL
+                                                                                    PARA SU ASIGNACIÓN
+     Evaluación:
+
+     Se evalúa que el postor cuente con una o más prácticas
+     de sostenibilidad ambiental.
+                                                                                              5 puntos
+     En caso de consorcios, los integrantes que realizan                       • Acredita la     certificación
+     actividades relacionadas al objeto del contrato,
+     acreditan algunas(s) de las practicas relacionadas a la                                                  5 puntos
+     sostenibilidad ambiental.
+                                                                               • No acredita la certificación
+     Acreditación:
+                                                                                                              0 puntos
+    b.1) Certificados de sistemas de gestión ambiental o
+         políticas ambientales a nivel empresarial:
+
+           Se aceptan certificaciones como ISO 14001 o
+     equivalentes, emitidas por organismos internacionales
+     reconocidos o entidades de certificación equivalentes. El
+     referido certificado debe corresponder a la sede, filial u oficina
+     a cargo de la prestación19 Estas certificaciones deben estar
+     vigentes20, incluir la fecha de caducidad, y aplicarse
+     específicamente a servicios de consultoría de obra y obra.
+
+
+
+
+19 En el certificado debe estar consignada la dirección exacta de la sede, filial u oficina a cargo de la prestación.
+20 Se refiere al periodo de vigencia que señala el certificado presentado.
+                                                                                                                         29
+GOBIERNO REGIONAL LA LIBERTAD
+LICITACIÓN PUBLICA ABREVIADA DE OBRAS N°007-2026-GRLL-GRCO- I CONVOCATORIA
+
+                                                                              PUNTAJE / METODOLOGÍA
+     C. INTEGRIDAD EN LA CONTRATACION PÚBLICA
+                                                                               PARA SU ASIGNACIÓN
+     Evaluación:                                                            5 puntos
+
+     Se evalúa que el postor cuente con al menos (1) una                    • Acredita Certificación
+     certificación del sistema de gestión antisoborno.
+                                                                                                         5 puntos
+     Acreditación:
+                                                                            • No acredita la Certificación
+     Presenta copia simple del certificado que acredita que
+     se ha implementado un sistema de gestión antisoborno                                                0 puntos
+     de acuerdo con la norma ISO 37001:2025 o con la
+     Norma Técnica Peruana equivalente (NTP-ISO 37001).
+
+     El certificado debe haber sido emitido por un Organismo
+     de Certificación acreditado para dicho sistema de
+     gestión, ya sea ante el INACAL u otro organismo
+     acreditador     que    cuente    con     reconocimiento
+     internacional21.
+
+     El referido certificado debe corresponder a la sede, filial
+     u oficina a cargo de la prestación22, y estar vigente23 a
+     la fecha de presentación de ofertas.
+
+     En caso de que el postor se presente en consorcio,
+     cada uno de sus integrantes, debe acreditar que cuenta
+     con la certificación para obtener el puntaje.
+
+
+                                                                               PUNTAJE / METODOLOGÍA
+                     D. GESTIÓN DE CALIDAD
+                                                                                 PARA SU ASIGNACIÓN
+     Evaluación:
+                                                                            5 puntos
+     Se evalúa la implementación de un sistema de
+     aseguramiento y control de calidad.                                    Se asigna puntaje acorde a lo
+                                                                            siguiente:
+     En caso de consorcios, los integrantes que realizan                    Certificación vigente con alcance en
+     actividades relacionadas al objeto del contrato                        ejecución de obras y/o consultoría
+     acreditan alguna(s) de las practicas relacionadas a la                 de obras:
+     gestión de calidad.
+                                                                                                          5 puntos
+     Acreditación:
+                                                                            Certificación en otro sistema
+    f.1) Certificación en Sistemas de Gestión de Calidad:                   reconocido sin alcance específico
+         Presentar copia simple de certificado vigente ISO 9001-            en obras y/o consultoría:
+         2015 o equivalente, con alcance en ejecución de obras o
+         consultoría de obras. Estas certificaciones deben estar                                          3 puntos
+         vigentes, incluir la fecha de caducidad, y aplicarse
+         específicamente a la obra o consultoría a contratar.               No presenta certificación o ésta no
+          Advertencia                                                       es válida:
+          Esta certificación no puede ser utilizada en forma
+          simultánea con el Sistema de Control Calidad                                                 0 puntos
+          aplicado a proyectos.
+
+
+21 Sea firmante/signatario del Acuerdo de Reconocimiento Mutuo (MLA) del International Accreditation Forum-IAF
+   (http://www.iaf.nu) o del InterAmerican Accreditation Cooperation-IAAC (http://www.iaac.org.mx) o Acuerdo de
+   Reconocimiento Mutuo (MRA) del International Laboratory Accreditation Cooperation - ILAC (https://ilac.org/) o del
+   European co-operation for Accreditation-EA (http://www.european-accreditation.org/) o del Asia Pacific Accreditation
+   Cooperation-APAC (https://www.apac-accreditation.org/)
+22 En el certificado debe estar consignada la dirección exacta de la sede, filial u oficina a cargo de la prestación.
+23 Se refiere al periodo de vigencia que señala el certificado presentado.
+                                                                                                                          30
+GOBIERNO REGIONAL LA LIBERTAD
+LICITACIÓN PUBLICA ABREVIADA DE OBRAS N°007-2026-GRLL-GRCO- I CONVOCATORIA
+
+
+                                                                              PUNTAJE / METODOLOGÍA
+                      E. SEGURIDAD Y SALUD
+                                                                                 PARA SU ASIGNACIÓN
+     Evaluación:
+                                                                            5 puntos
+     Se evalúa la implementación de prácticas y
+     herramientas adicionales a la regulación en materia de                 • Acredita Certificación
+     seguridad y salud en el trabajo más allá del
+     cumplimiento normativo obligatorio.                                                        5 puntos
+
+     En caso de consorcios, los integrantes que realizan                    • No acredita la Certificación
+     actividades relacionadas al objeto del contrato
+                                                                                                0 puntos
+     acreditan alguna(s) de las practicas relacionadas a la
+     seguridad y salud.
+
+     Acreditación:
+
+    k.1 Certificación en Sistemas de Gestión de Seguridad y
+       Salud Ocupacional: Copia simple del certificado ISO
+       45001:2018, NTP-ISO 45001:2018 o equivalente, cuyo
+       alcance incluya específicamente la ejecución de obras.
+
+
+
+
+     F. EXPERIENCIA ADICIONAL DEL POSTOR EN LA                              PUNTAJE   / METODOLOGÍA
+                     ESPECIALIDAD                                           PARA SU ASIGNACIÓN
+     Evaluación:                                                            20 puntos
+
+     El postor debe acreditar un monto facturado acumulado                  M = Monto facturado acumulado
+     equivalente a S/ 4,136,058.02 equivalente a 2 veces la                 por el postor por contrataciones
+     cuantía de la contratación, en la ejecución de obras en                iguales o similares
+     la especialidad y subespecialidades previstas en el
+     requisito de calificación “Experiencia del Postor en la                M>= [4,136,058.02]27:
+     especialidad”, durante veinticinco años anteriores a la
+     fecha de la presentación de ofertas, que se computan                                              20 puntos
+     desde la fecha de la conformidad o emisión del
+     comprobante de pago, según corresponda.                                M>=     [3,102,043.52]           y   <
+                                                                            [4,136,058.02]:
+     Acreditación:
+                                                                                                       15 puntos
+     La experiencia adicional del postor en la especialidad
+     se acredita con copia simple de: (i) contratos y sus                   M>    [2,585,036.26]28         y     <[
+     respectivas actas de recepción de obra; (ii) contratos y               3,102,043.52]:
+     sus respectivas resoluciones de (iii) contratos y sus
+     respectivas constancias de prestación o cualquier otra                                            10 puntos
+     documentación      de    la    cual    se    desprenda
+     fehacientemente que la obra fue concluida, así como el                 No acredita       la    experiencia
+     monto total que implicó su ejecución; correspondientes                 adicional
+     a un máximo de veinte (20) contrataciones.
+                                                                                                        0 puntos
+     En caso el postor sustente su experiencia en la
+     especialidad mediante contrataciones realizadas con
+     privados24, para acreditarla debe presentar de forma
+     obligatoria comprobantes de pago cuya cancelación se
+     acredite documental y fehacientemente, con constancia
+     de depósito, nota de abono, reporte de estado de
+
+
+24 Se entiende “privados” como aquellos que no son entidades contratantes.
+27 El monto no puede ser mayor a tres veces la cuantía de la contratación o del ítem.
+28 El monto debe ser mayor al requerido como requisito de calificación.
+                                                                                                                      31
+GOBIERNO REGIONAL LA LIBERTAD
+LICITACIÓN PUBLICA ABREVIADA DE OBRAS N°007-2026-GRLL-GRCO- I CONVOCATORIA
+
+     cuenta o cualquier otro documento emitido por entidad
+     del sistema financiero que acredite el abono o mediante
+     cancelación en el mismo comprobante de pago 25 o
+     comprobante de retención electrónico emitido por
+     SUNAT por la retención del IGV26, no es posible que
+     acredite su experiencia únicamente con la presentación
+     de contratos u órdenes con conformidad o constancia
+     de prestación.
+
+      Si el titular de la experiencia no es el postor, consignar
+      si dicha experiencia corresponde a la matriz en caso de
+      que el postor sea sucursal, o fue transmitida por
+      reorganización societaria, debiendo acompañar la
+      documentación sustentatoria correspondiente.
+
+       Advertencia
+      • El postor puede acreditar experiencia en cualquiera de las
+        tipologías   incluidas    en    las    subespecialidades
+        consignadas en el requisito de calificación “Experiencia
+        del Postor en la Especialidad”.
+
+      • Durante la verificación del factor “Experiencia Adicional
+        del Postor en la Especialidad”, si la documentación
+        presentada para acreditar una experiencia adicional
+        comprende una obra en la que se haya ejecutado dos o
+        más subespecialidades, los evaluadores verifican
+        técnicamente    si  estas   corresponden       a    las
+        subespecialidades   consignadas    en    las    bases.
+        Identificadas las subespecialidades válidas, los
+        evaluadores reconocen su monto para la acreditación de
+        la experiencia.
+
+
+
+
+25 El solo sello de cancelado en el comprobante, cuando ha sido colocado por el propio postor, no puede ser
+   considerado como una acreditación fehaciente de la cancelación. Es válido el sello colocado por el cliente del postor
+   (sea utilizando el término “cancelado” o “pagado”).
+26 De acuerdo con el Régimen de Retenciones del Impuesto General a las Ventas (IGV).
+                                                                                                                           32
+GOBIERNO REGIONAL LA LIBERTAD
+LICITACIÓN PUBLICA ABREVIADA DE OBRAS N°007-2026-GRLL-GRCO- I CONVOCATORIA
+
+
+
+
+                         CUADRO RESUMEN FACTORES DE EVALUACIÓN
+
+        FACTORES DE EVALUACIÓN                                                            TIPO DE
+                                                             PUNTAJE                    EVALUADOR
+             FACULTATIVOS
+   A. EXPERIENCIA ESPECÍFICA
+      ADICIONAL DEL PERSONAL                                 60 puntos                     COMITÉ
+      CLAVE
+   B. SOSTENIBILIDAD AMBIENTAL                                5 puntos                    COMITÉ29
+    D.INTEGRIDAD       EN      LA
+                                                             5 puntos                      COMITÉ
+    CONTRATACION PÚBLICA
+    F. GESTIÓN DE CALIDAD30                                   5 puntos                     COMITÉ
+    K.SEGURIDAD Y SALUD                                       5 puntos                    COMITÉ31
+    M.EXPERIENCIA ADICIONAL DEL
+                                                             20 puntos                     COMITÉ
+    POSTOR EN LA ESPECIALIDAD
+      PUNTAJE TOTAL                                        100 puntos32
+
+
+
+
+29 Se emplea el tipo de evaluador “Jurado” para las prácticas señaladas en los literales c.4); y, c.5)
+30 Las practicas señaladas en los literales g.2); y, g.4) solo pueden ser empleadas de manera facultativa en
+  procedimientos de selección de obras cuya cuantía de contratación sea mayor a 9350 UIT.
+31 Se emplea el tipo de evaluador “Jurado” para la práctica señalada en el literal l.2
+32 Es la suma de los puntajes de todos los factores de evaluación.
+                                                                                                               33
+GOBIERNO REGIONAL LA LIBERTAD
+LICITACIÓN PUBLICA ABREVIADA DE OBRAS N°007-2026-GRLL-GRCO- I CONVOCATORIA
+
+4.2. EVALUACIÓN ECONÓMICA (Puntaje Máximo: 100 Puntos)
+
+ A. OFERTA ECONÓMICA EN EL SISTEMA DE ENTREGA DE SOLO CONSTRUCCIÓN
+
+      La evaluación de ofertas económicas en el presente procedimiento de selección es: OFERTA
+      LIMITADA
+
+
+                                                                         PUNTAJE / METODOLOGÍA PARA
+                        OFERTA ECONÓMICA
+                                                                                  SU ASIGNACIÓN
+      Evaluación:                                                       La evaluación consistirá en otorgar el
+                                                                        máximo puntaje a la oferta de precio
+      Se evalúa considerando el precio ofertado por el postor           más bajo y se otorga a las demás
+      que debe encontrarse en el rango entre el 95% y 110% de           ofertas    puntajes      inversamente
+      la cuantía de la contratación. Los evaluadores descalifican       proporcionales a sus respectivos
+      las propuestas que no cumplan el referido rango.                  precios, según la siguiente fórmula:
+
+      Acreditación:                                                     Po       =       Mb x Pmax
+                                                                                             Mo
+      Se acredita mediante el documento que contiene la oferta
+      económica (Anexo N° 6).                                            Po          =   Puntaje de la oferta

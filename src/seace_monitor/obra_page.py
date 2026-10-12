@@ -94,14 +94,16 @@ def obras(conn: psycopg.Connection, watched: list[str], now: datetime) -> list[d
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
                      AND e.version_extractor LIKE 'cuantia-%%' ORDER BY e.creado_en DESC LIMIT 1),
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
-                     AND e.version_extractor LIKE 'experiencia-%%' ORDER BY e.creado_en DESC LIMIT 1)
+                     AND e.version_extractor LIKE 'experiencia-%%' ORDER BY e.creado_en DESC LIMIT 1),
+                  (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
+                     AND e.version_extractor LIKE 'factores-%%' ORDER BY e.creado_en DESC LIMIT 1)
            FROM licitaciones l LEFT JOIN newest n USING (nid_proceso)
            WHERE l.seguimiento = 'abierta' AND l.fecha_limite_ofertas > %s
            ORDER BY l.fecha_limite_ofertas, l.nid_proceso""",
         [now],
     ).fetchall()
     keys = ("nid_proceso", "nomenclatura", "entidad", "descripcion", "departamentos", "fecha_limite_ofertas",
-            "valor_referencial", "bases", "lectura", "experiencia")
+            "valor_referencial", "bases", "lectura", "experiencia", "factores")
     return [dict(zip(keys, r)) for r in rows if in_watched(r[4], watched)]
 
 
@@ -138,6 +140,36 @@ def experience_lines(found: dict | None) -> list[str]:
     lines = [f'<p>{", ".join(parts)}{note}.</p>']
     if found.get("monto_letras"):
         lines.append(f'<p class="revisar">El monto en letras dice {soles(found["monto_letras"])}: mirar la página.</p>')
+    return lines
+
+
+def factor_warning_text(w: dict) -> str:
+    kind = w["aviso"]
+    if kind == "suma_distinta_total":
+        return f"Los puntajes del cuadro resumen suman {w['suma']}, pero el puntaje total dice {w['total']}."
+    if kind == "total_distinto_100":
+        return f"El puntaje total del cuadro resumen es {w['total']}, no 100."
+    if kind == "factor_sin_rellenar":
+        return (f"En el cuadro resumen quedó el texto del modelo («[Como máximo …]») en: {', '.join(w['factores'])}. "
+                f"No dice si se evalúan.")
+    if kind == "puntaje_distinto":
+        return (f"{w['factor']}: el cuadro resumen da {w['cuadro']} puntos y la descripción del factor "
+                f"{w['descripcion']}.")
+    return kind
+
+
+def factor_lines(found: dict | None) -> list[str]:
+    """The factores de evaluación with their points; nothing when the bases were not read for them yet."""
+    e = html.escape
+    if found is None:
+        return []
+    page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
+    if found.get("revisar"):
+        return [f'<p class="revisar">Factores de evaluación: no se pudo leer el cuadro resumen{page}, revisar a mano.</p>']
+    listed = ", ".join(f"{f['factor']} {f['puntos']}" for f in found["factores"])
+    lines = [f'<p><b>Factores de evaluación{e(page)}:</b> {e(listed)}. Total {found["total"]}.</p>']
+    if found.get("avisos"):
+        lines.append("<ul>" + "".join(f"<li>{e(factor_warning_text(w))}</li>" for w in found["avisos"]) + "</ul>")
     return lines
 
 
@@ -182,20 +214,22 @@ def card(obra: dict, now: datetime) -> str:
     if reading.get("ocr") and not warnings:
         lines.append('<p class="ocr">Leído de bases escaneadas con OCR: verificar las cifras en la página.</p>')
     lines += experience_lines(obra["experiencia"])
+    lines += factor_lines(obra["factores"])
     lines.append(f'<p class="fuente">{where}</p>')
-    return f'<section{" class=con-aviso" if flagged(reading) else ""}>' + "".join(lines) + '</section>'
+    return f'<section{" class=con-aviso" if flagged(obra) else ""}>' + "".join(lines) + '</section>'
 
 
-def flagged(reading: dict | None) -> bool:
+def flagged(obra: dict) -> bool:
     """Warnings read from the text; those read through OCR still wait for a look at the page."""
-    return bool(reading and reading.get("avisos") and not reading.get("ocr"))
+    reading = obra["lectura"] or {}
+    return bool(reading.get("avisos") and not reading.get("ocr")) or bool((obra["factores"] or {}).get("avisos"))
 
 
 def build(conn: psycopg.Connection, watched: list[str], now: datetime) -> str:
     items = obras(conn, watched, now)
-    flagged_count = sum(1 for o in items if flagged(o["lectura"]))
+    flagged_count = sum(1 for o in items if flagged(o))
     head = (f'{len(items)} obras abiertas para ofertas en {e_join(watched)}. '
-            f'{flagged_count} con algo que revisar o consultar en la cuantía o los límites.')
+            f'{flagged_count} con algo que revisar o consultar en la cuantía, los límites o los factores de evaluación.')
     return PAGE.format(fecha=f"{now.astimezone(LIMA):%d/%m/%Y}", resumen=html.escape(head),
                        obras="\n".join(card(o, now) for o in items))
 
