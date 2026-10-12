@@ -103,8 +103,10 @@ in order; cargos and times that do not pair up, or two cargos run together, go t
 another number than its digits ("treinta y seis (24) meses") is a warning.
 
 When a section is not in the text of an obra's newest bases, its image pages among the first 150 (whole scans,
-or a scanned requerimiento with only the entity's typed header) are OCRed into `<name>-ocr.pdf` next to the
-original, about 4 s per page; a daily run OCRs at most 10 files and leaves the rest for the next run.
+or a scanned requerimiento with only the entity's typed header) are OCRed, about 4 s per page, and the text of the
+result is kept next to the original as `<name>-ocr.txt`; the OCRed PDF itself is not kept. A daily run OCRs at most
+10 files and leaves the rest for the next run. An `<name>-ocr.pdf` from an earlier version is turned into its text
+instead of recognized again.
 Readings from OCR are marked `ocr: true`: OCR misreads digits now and then, so check their amounts on the page.
 
 ```

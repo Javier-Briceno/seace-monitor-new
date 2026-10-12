@@ -46,6 +46,10 @@ def tool_path(path: Path) -> str:
 
 def pdf_text(path: Path) -> str:
     """Pages are separated by form feeds."""
+    return pdf_text_bytes(path).decode("utf-8", "replace")
+
+
+def pdf_text_bytes(path: Path) -> bytes:
     try:
         done = subprocess.run([pdftotext(), "-enc", "UTF-8", "-layout", "-l", str(LAST_PAGE), tool_path(path), "-"],
                               capture_output=True, timeout=180)
@@ -53,7 +57,7 @@ def pdf_text(path: Path) -> str:
         raise TextError(f"pdftotext took longer than {error.timeout} s") from error
     if done.returncode != 0 and not done.stdout:
         raise TextError(f"pdftotext failed: {done.stderr.decode('utf-8', 'replace').strip()[:200]}")
-    return done.stdout.decode("utf-8", "replace")
+    return done.stdout
 
 
 def docx_text(path: Path) -> str:
@@ -66,7 +70,11 @@ def docx_text(path: Path) -> str:
 
 
 def text_of(path: Path) -> str:
-    return docx_text(path) if path.suffix.lower() == ".docx" else pdf_text(path)
+    """The text of a PDF or DOCX, or a text file saved from a PDF's text (an OCR result)."""
+    suffix = path.suffix.lower()
+    if suffix == ".txt":
+        return path.read_bytes().decode("utf-8", "replace")
+    return docx_text(path) if suffix == ".docx" else pdf_text(path)
 
 
 def is_scanned(text: str) -> bool:
