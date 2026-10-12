@@ -142,7 +142,7 @@ def run_downloads(conn, session, root, nids) -> None:
             document_failed(conn, document["id"], str(error))
             print(f"  failed  {document['nombre_archivo']}: {error}")
             continue
-        document_done(conn, document["id"], str(path), size)
+        document_done(conn, document["id"], path.as_posix(), size)
         print(f"  done    {path} ({size / 1e6:.1f} MB)")
 
 
