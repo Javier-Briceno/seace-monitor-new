@@ -1,5 +1,5 @@
 [Unit]
-Description=SEACE monitor: database backup
+Description=SEACE monitor: database backup and disk check
 After=docker.service
 Requires=docker.service
 OnFailure=seace-fallo@%n.service

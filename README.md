@@ -130,7 +130,7 @@ systemctl enable --now seace-avisos.timer seace-lectura.timer seace-backup.timer
 `deploy/update.sh` brings the server to the newest `main` and rebuilds the image.
 
 A run that fails mails its last log lines (`seace-fallo@.service`, through `--fallo`, which needs neither the database
-nor the VPN). `seace-backup.timer` dumps the database every night into `backups/`, keeping the last 14.
+nor the VPN). `seace-backup.timer` dumps the database every night into `backups/`, keeping the last 14. It also mails a warning when the disk has less than 8 GB free.
 
 ## Manual extraction
 
