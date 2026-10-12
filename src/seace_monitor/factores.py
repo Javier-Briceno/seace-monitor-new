@@ -31,7 +31,9 @@ ROW = re.compile(r"^[^\w\n]{0,30}[lI|]?([A-P](?:\.\d)?)(?:\s*[.)]\s*|(?<=\d)\s+|
 # Rows without a letter (group 1 stays empty): a bullet ("o INTEGRIDAD EN LA  5 puntos"), or in Word, which
 # loses the list letters, a short line in capitals.
 BULLETED = re.compile(r"^()[^\w\n]{0,30}[o•·]\s+([A-ZÁÉÍÓÚÑ].*)$", re.M)
-UNLETTERED = re.compile(r"^()\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ,/\-]{5,75})\s*$", re.M)
+# Blanks but not the line break (\r and no-break spaces count): a match must not start on the blank line
+# above the same row read with its letter.
+UNLETTERED = re.compile(r"^()[^\S\n]*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ,/\-]{5,75})[^\S\n]*$", re.M)
 # What the line before an unlettered row ends with: the previous row's figure, "NO CORRESPONDE" or evaluator
 # (COMITÉ, JURADO), or a header
 ROW_BEFORE = re.compile(r"puntos|CORRESPONDE|COMIT|JURADO|EVALUADOR|PUNTAJE|FACULTATIVOS|OBLIGATORIO", re.I)

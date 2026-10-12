@@ -207,3 +207,17 @@ def test_the_table_is_found_without_the_chapter_title():
     # Word files lose "4.2." and OCR can miss the title page
     text = bases("1252316").replace("CAPÍTULO IV", "").replace("4.2.", "")
     assert read(text)["suma"] == 100
+
+
+def test_a_row_whose_letter_lost_its_dot_after_a_blank_line():
+    # OCR of 1255060: "B SOSTENIBILIDAD" was taken as a row twice, once from the blank line before it
+    text = ("CUADRO RESUMEN FACTORES DE EVALUACIÓN\n\n"
+            "                 FACULTATIVOS                  PUNTAJE        EVALUADOR\n\n"
+            "   A EXPERIENCIA ESPECÍFICA\n\n"
+            "      ADICIONAL DEL PERSONAL                   [90] puntos     COMITÉ\n\n"
+            "   B SOSTENIBILIDAD AMBIENTAL\n\n"
+            "                                               [10] puntos     COMITÉ\n\n"
+            "            PUNTAJE TOTAL                      100 puntos\n")
+    result = read(text)
+    assert [(f["letra"], f["puntos"]) for f in result["factores"]] == [("A", 90), ("B", 10)]
+    assert (result["suma"], result["revisar"]) == (100, None)
