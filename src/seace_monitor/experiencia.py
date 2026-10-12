@@ -16,7 +16,7 @@ from . import letras, reading
 from .bases_text import page_of
 from .cuantia import ANY_NUMBER, money
 
-VERSION = "experiencia-2"
+VERSION = "experiencia-3"
 
 # The requirement, not the scoring factor of chapter IV ("Experiencia adicional ... PUNTAJE"). OCR
 # turns "Requisitos:" into "Reguisitos:" or "Regquisios:", or loses it; the sentence that follows stays.
@@ -37,8 +37,11 @@ YEARS = re.compile(r"durante\s+(?:los\s+)?(?:[uú]ltimos\s+)?(\w+)\s*(?:\((\d+)\
 YEARS_WORDS = {"diez": 10, "quince": 15, "veinte": 20, "veinticinco": 25, "treinta": 30}
 # The colon comes out of OCR as ". |", "|:" or "-"; "Especialidad" as "Espacialidad".
 SEPARATOR = r"\s*[:|.\-–—]+[\s:|.+\-–—]*"
-SPECIALTY = re.compile(r"^\s*Esp[ae]cialidad(?:es)?" + SEPARATOR + r"(\w.+)$", re.I | re.M)
-SUBSPECIALTY = re.compile(r"^\s*Sub\s*-?\s*esp[ae]cialidad(?:es)?" + SEPARATOR + r"(\w.+)$", re.I | re.M)
+# A table without colon: "Especialidad          Represas, irrigaciones y afines"; never its header row
+# ("Especialidad   Subespecialidad   Tipologías").
+CELL = r"(?:" + SEPARATOR + r"|[ \t]{2,}(?-i:(?=[A-ZÁÉÍÓÚÑ])))(?!Sub\s*-?\s*esp|Tipolog)"
+SPECIALTY = re.compile(r"^\s*Esp[ae]cialidad(?:es)?" + CELL + r"(\w.+)$", re.I | re.M)
+SUBSPECIALTY = re.compile(r"^\s*Sub\s*-?\s*esp[ae]cialidad(?:es)?" + CELL + r"(?!Tipolog)(\w.+)$", re.I | re.M)
 
 NOT_FOUND = "sin requisito de experiencia del postor"
 NO_AMOUNT = "experiencia sin monto legible"
@@ -109,7 +112,7 @@ def read(text: str, cuantia: Decimal | None = None) -> dict:
     elif re.search(r"conformidad|comprobante\s+de\s+pago", block, re.I):
         result["cuenta_desde"] = "conformidad o comprobante de pago"
     if specialty := SPECIALTY.search(block):
-        result["especialidad"] = squeeze(specialty.group(1))[:160]
+        result["especialidad"] = squeeze(specialty.group(1)).rstrip(" |>]*")[:160]
     if sub := SUBSPECIALTY.search(block):
         result["subespecialidades"] = [s.strip() for s in re.split(r"\s*/\s*|\s*;\s*", squeeze(sub.group(1))) if s.strip()]
     return result
