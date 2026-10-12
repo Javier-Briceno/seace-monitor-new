@@ -1,6 +1,8 @@
-"""Search SEACE, store new licitaciones, re-read the tracked ones, download their documents, write the daily report.
+"""Search SEACE, store new licitaciones, re-read the tracked ones, download and read their bases, write the report.
 
-    python -m seace_monitor [--config config.toml] [--no-mail]
+    python -m seace_monitor [--config config.toml] [--no-mail]   # both parts, then the report
+    python -m seace_monitor --avisos [--no-mail]                 # search, track and report; minutes
+    python -m seace_monitor --lectura                            # download, OCR and read the bases; hours
     python -m seace_monitor --plantilla <nid_proceso>
     python -m seace_monitor --desempaquetar
 """
@@ -216,6 +218,30 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
             print(f"  {document['nid_proceso']}  {line(result)}{' (OCR)' if result['ocr'] else ''}")
 
 
+def run_notices(conn, cfg, proxy, session) -> None:
+    """Store new obras and the changes of the tracked ones; no downloads, so it takes minutes."""
+    alone = []
+    for query in config.queries(cfg, open_since=open_since(conn)):
+        alone += run_search(conn, session, query)
+    read_alone(conn, proxy, alone)
+    # Only after every search went through: an obra skipped by a failed search may have changed.
+    for nid in mark_stalled(conn, datetime.now(LIMA)):
+        print(f"stalled, no longer tracked: {nid}")
+
+
+def run_reading(conn, cfg, session, ocr_budget) -> None:
+    """Download, unpack and read the documents of the obras not reported yet and the tracked ones,
+    whose new documents (bases integradas, absolución) are needed; closed obras are left alone.
+    Readings are reported by the next notices run.
+    """
+    candidates = [i["nid_proceso"] for i in report.pending(
+        conn, config.watched(cfg), config.download_dir(cfg), datetime.now(LIMA))]
+    candidates = sorted(set(candidates) | set(tracked(conn)))
+    run_downloads(conn, session, config.download_dir(cfg), candidates)
+    run_unpacking(conn, candidates)
+    run_extraction(conn, candidates, ocr_budget)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="seace_monitor")
     parser.add_argument("--config", default="config.toml")
@@ -224,6 +250,9 @@ def main() -> int:
     parser.add_argument("--desempaquetar", action="store_true", help="unpack every downloaded archive not unpacked yet and exit")
     parser.add_argument("--extraer", action="store_true", help="read cuantía, experiencia, personal clave and factores of every downloaded bases not read yet and exit")
     parser.add_argument("--pagina", action="store_true", help="write the phone page of the obras open for offers and exit")
+    part = parser.add_mutually_exclusive_group()
+    part.add_argument("--avisos", action="store_true", help="search, track and send the report; bases read by an earlier --lectura show up in it")
+    part.add_argument("--lectura", action="store_true", help="download, unpack, OCR and read the bases of the reported and tracked obras; no report")
     args = parser.parse_args()
 
     cfg = config.load(args.config)
@@ -250,27 +279,18 @@ def main() -> int:
         print(f"page written: {obra_page.write(conn, config.watched(cfg), config.report_dir(cfg), datetime.now(LIMA))}")
         return 0
     try:
-        alone = []
-        for query in config.queries(cfg, open_since=open_since(conn)):
-            alone += run_search(conn, session, query)
-        read_alone(conn, proxy, alone)
-        # Only after every search went through: an obra skipped by a failed search may have changed.
-        for nid in mark_stalled(conn, datetime.now(LIMA)):
-            print(f"stalled, no longer tracked: {nid}")
-        # The obras of today's report and the tracked ones, whose new documents
-        # (bases integradas, absolución) are needed; closed obras are left alone.
-        candidates = [i["nid_proceso"] for i in report.pending(
-            conn, config.watched(cfg), config.download_dir(cfg), datetime.now(LIMA))]
-        candidates = sorted(set(candidates) | set(tracked(conn)))
-        run_downloads(conn, session, config.download_dir(cfg), candidates)
-        run_unpacking(conn, candidates)
-        run_extraction(conn, candidates, OCR_PER_RUN)
+        if not args.lectura:
+            run_notices(conn, cfg, proxy, session)
+        if not args.avisos:
+            run_reading(conn, cfg, session, OCR_PER_RUN)
     except AccessError as error:
         print(f"stopped, SEACE unreachable; no attempts were counted: {error}", file=sys.stderr)
         return 1
     except SearchError as error:
         print(f"search failed: {error}", file=sys.stderr)
         return 1
+    if args.lectura:
+        return 0
     imported, problems = manual.import_ready(conn, config.extraction_dir(cfg))
     for name in imported:
         print(f"manual extraction imported: {name}")
