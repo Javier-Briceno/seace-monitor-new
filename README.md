@@ -113,6 +113,22 @@ Readings from OCR are marked `ocr: true`: OCR misreads digits now and then, so c
 .venv/Scripts/python -m seace_monitor --extraer   # read every downloaded bases not read yet and exit
 ```
 
+## Server
+
+`Dockerfile` builds the monitor with every tool it calls; `docker-compose.yml` runs it as the `monitor` service next
+to `db` and `vpn`, and `deploy/` holds two systemd timers: notices at 07:00, 12:00 and 17:00 and the bases reading
+at 01:00, Lima time. On the server, in `/opt/seace-monitor-new` with its own `.env` and a `config.toml` whose proxy
+is `http://vpn:8888`:
+
+```
+docker compose --profile monitor build monitor
+cp deploy/*.service deploy/*.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now seace-avisos.timer seace-lectura.timer
+```
+
+`deploy/update.sh` brings the server to the newest `main` and rebuilds the image.
+
 ## Manual extraction
 
 For the fields not read automatically yet, a person reads the bases of the obras they pick from the report:
