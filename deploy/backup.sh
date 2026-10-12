@@ -1,0 +1,9 @@
+#!/bin/sh
+# Daily dump of the monitor's database into backups/, keeping the last 14.
+set -eu
+cd /opt/seace-monitor-new
+mkdir -p backups
+out="backups/seace-$(date +%Y-%m-%d).dump"
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$out.part"
+mv "$out.part" "$out"
+ls -1t backups/seace-*.dump | tail -n +15 | xargs -r rm --

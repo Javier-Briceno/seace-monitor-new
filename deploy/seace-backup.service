@@ -1,0 +1,9 @@
+[Unit]
+Description=SEACE monitor: database backup
+After=docker.service
+Requires=docker.service
+OnFailure=seace-fallo@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/seace-monitor-new/deploy/backup.sh

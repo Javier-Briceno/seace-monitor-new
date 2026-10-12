@@ -3,6 +3,7 @@ Description=SEACE monitor: search, track and report
 After=docker.service network-online.target
 Wants=network-online.target
 Requires=docker.service
+OnFailure=seace-fallo@%n.service
 
 [Service]
 Type=oneshot

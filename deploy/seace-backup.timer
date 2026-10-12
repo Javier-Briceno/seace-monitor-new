@@ -1,0 +1,9 @@
+[Unit]
+Description=SEACE monitor database backup, every night (Lima time)
+
+[Timer]
+OnCalendar=*-*-* 00:30:00 America/Lima
+Persistent=true
+
+[Install]
+WantedBy=timers.target
