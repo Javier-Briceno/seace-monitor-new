@@ -32,7 +32,8 @@ def message(subject: str, body: str, attachments: list[Path], sender: str, to: l
     msg["To"] = ", ".join(to)
     msg.set_content(body)
     for attachment in attachments:
-        msg.add_attachment(attachment.read_bytes(), maintype="text", subtype="csv", filename=attachment.name)
+        subtype = "html" if attachment.suffix.lower() == ".html" else "csv"
+        msg.add_attachment(attachment.read_bytes(), maintype="text", subtype=subtype, filename=attachment.name)
     return msg
 
 

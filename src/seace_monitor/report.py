@@ -233,11 +233,12 @@ def write_csv(items: list[dict], path: Path) -> None:
 
 
 def extractions(conn: psycopg.Connection) -> list[dict]:
-    """Extractions not reported yet, with their obra."""
+    """Manual extractions not reported yet, with their obra; automatic readings have their own fields."""
     rows = conn.execute(
+        # 'manual' is manual.VERSION; manual imports this module.
         """SELECT e.id, l.nid_proceso, l.nomenclatura, l.entidad, e.version_extractor, e.campos
            FROM extracciones e JOIN documentos d ON d.id = e.documento_id JOIN licitaciones l USING (nid_proceso)
-           WHERE e.estado = 'done' AND e.informado_en IS NULL ORDER BY e.id"""
+           WHERE e.estado = 'done' AND e.informado_en IS NULL AND e.version_extractor = 'manual' ORDER BY e.id"""
     ).fetchall()
     return [dict(zip(("id", "nid_proceso", "nomenclatura", "entidad", "version", "campos"), r)) for r in rows]
 
