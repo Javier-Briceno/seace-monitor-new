@@ -3,7 +3,7 @@ import re
 from datetime import timedelta
 from decimal import Decimal
 
-from seace_monitor.obra_page import build, warning_text
+from seace_monitor.obra_page import build, place, warning_text, work
 
 from test_report import NOW, add
 
@@ -37,7 +37,7 @@ def test_only_obras_still_open_for_offers_in_the_watched_departamentos(conn):
     add(conn, 3, ["ANCASH"], NOW + timedelta(days=2))
     page = text(build(conn, ["LA LIBERTAD"], NOW))
     assert "LP-ABR-1" in page and "LP-ABR-2" not in page and "LP-ABR-3" not in page
-    assert "1 obras abiertas para ofertas en La Libertad" in page
+    assert "1 obra abierta para ofertas en La Libertad" in page
     assert "Bases todavía no descargadas" in page
 
 
@@ -55,8 +55,8 @@ def test_reading_of_the_newest_bases_with_its_warning(conn):
     bases(conn, 1, tipo="Bases Integradas", lectura=reading(
         avisos=[{"aviso": "limite_inferior", "bases": "120668.94", "exacto": "120668.95"}]))
     page = text(build(conn, ["LA LIBERTAD"], NOW))
-    assert "Cuantía: S/ 127,019.94" in page and "S/ 1.00" not in page
-    assert "Límites en las bases: S/ 120,668.94 a S/ 139,721.93" in page
+    assert "Cuantía S/ 127,019.94 pág. 21" in page and "S/ 1.00" not in page
+    assert "Límites S/ 120,668.94 a S/ 139,721.93" in page
     assert ("Límite inferior: las bases dicen S/ 120,668.94; el 95 % de la cuantía, redondeado hacia arriba, "
             "es S/ 120,668.95. Con el de las bases, una oferta de S/ 120,668.94 queda por debajo del 95 %.") in page
     assert "Bases Integradas, archivo «BASES.pdf», pág. 21" in page
@@ -79,13 +79,13 @@ def test_scanned_bases_ask_for_a_person(conn):
                                    revisar="escaneado", archivo="BASES.pdf"))
     page = text(build(conn, ["LA LIBERTAD"], NOW))
     assert "Bases escaneadas, todavía sin leer: revisar a mano." in page
-    assert "Cuantía en la ficha del SEACE: S/ 1,500,000.00" in page
+    assert "Cuantía S/ 1,500,000.00 ficha del SEACE" in page
 
 
 def test_ocr_reading_asks_to_check_the_figures(conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
     bases(conn, 1, lectura=reading(ocr=True))
-    assert "verificar las cifras en la página" in text(build(conn, ["LA LIBERTAD"], NOW))
+    assert "Cuantía S/ 127,019.94 pág. 21, comprobar la cifra en la página" in text(build(conn, ["LA LIBERTAD"], NOW))
 
 
 def test_warnings_read_through_ocr_ask_for_a_look_first(conn):
@@ -94,7 +94,7 @@ def test_warnings_read_through_ocr_ask_for_a_look_first(conn):
     bases(conn, 1, lectura=reading(ocr=True, pagina=22, avisos=[
         {"aviso": "limite_inferior", "bases": "206938.97", "exacto": "206338.97"}]))
     page = text(build(conn, ["LA LIBERTAD"], NOW))
-    assert "Leído con OCR; antes de consultarlo, comprobar en la página 22:" in page
+    assert "Mirar la página antes de consultarlo Página 22: Límite inferior" in page
     assert "Para revisar o consultar" not in page and "0 con algo que revisar" in page
 
 
@@ -112,9 +112,9 @@ def test_experience_asked_by_the_bases(conn):
                  [doc, json.dumps({"monto": None, "veces": None, "revisar": "sin requisito de experiencia del postor",
                                    "pagina": None, "ocr": False})])
     page = text(build(conn, ["LA LIBERTAD"], NOW))
-    assert ("Experiencia del postor: S/ 800,000.00, 1,02 veces la cuantía, en Edificaciones y Afines — "
-            "Establecimientos de salud, en los últimos 20 años, contados desde acta de recepción (pág. 57).") in page
-    assert "Experiencia del postor: no se pudo leer, revisar a mano." in page
+    assert ("Experiencia del postor S/ 800,000.00 (1,02 veces la cuantía), en Edificaciones y Afines — "
+            "Establecimientos de salud, en los últimos 20 años, contados desde acta de recepción pág. 57") in page
+    assert "Experiencia del postor: no se pudo leer." in page
 
 
 def test_downloaded_bases_not_read_yet(conn):
@@ -144,7 +144,7 @@ def test_experience_whose_words_say_another_amount(conn):
     conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'experiencia-2', %s, 'done')",
                  [doc, json.dumps({"monto": "4823130.47", "monto_letras": "4829130.42", "veces": None, "pagina": 30,
                                    "revisar": None, "ocr": True})])
-    assert "El monto en letras dice S/ 4,829,130.42: mirar la página." in text(build(conn, ["LA LIBERTAD"], NOW))
+    assert "Experiencia del postor: el monto en letras dice S/ 4,829,130.42 (pág. 30)." in text(build(conn, ["LA LIBERTAD"], NOW))
 
 
 def test_experience_figure_out_of_range(conn):
@@ -154,7 +154,7 @@ def test_experience_figure_out_of_range(conn):
                  [doc, json.dumps({"monto": "2338.42", "veces_cuantia": "0.001", "veces": None, "pagina": 44,
                                    "revisar": "monto de experiencia fuera de rango", "ocr": True})])
     assert ("Experiencia del postor: se leyó S/ 2,338.42, que no cuadra con la cuantía; puede ser una cifra mal leída "
-            "(pág. 44): revisar a mano.") in text(build(conn, ["LA LIBERTAD"], NOW))
+            "(pág. 44).") in text(build(conn, ["LA LIBERTAD"], NOW))
 
 
 def test_factors_with_their_points_and_warnings(conn):
@@ -170,10 +170,10 @@ def test_factors_with_their_points_and_warnings(conn):
     conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'factores-1', %s, 'done')",
                  [doc, json.dumps({"pagina": None, "factores": [], "avisos": [], "revisar": "sin cuadro resumen de factores"})])
     page = text(build(conn, ["LA LIBERTAD"], NOW))
-    assert ("Factores de evaluación (pág. 67): Experiencia específica adicional del personal clave 60, "
-            "Sostenibilidad ambiental 45. Total 100.") in page
+    assert ("Factores de evaluación Experiencia específica adicional del personal clave 60 pts "
+            "Sostenibilidad ambiental 45 pts Total 100 pts pág. 67") in page
     assert "Los puntajes del cuadro resumen suman 105, pero el puntaje total dice 100." in page
-    assert "Factores de evaluación: no se pudo leer el cuadro resumen, revisar a mano." in page
+    assert "Factores de evaluación: no se pudo leer el cuadro resumen." in page
     assert "1 con algo que revisar" in page
 
 
@@ -202,17 +202,35 @@ def test_personal_clave_with_its_times(conn):
         conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'personal-1', %s, 'done')",
                      [doc, json.dumps(found)])
     page = text(build(conn, ["LA LIBERTAD"], NOW))
-    assert "Personal clave (pág. 58): Ingeniero Residente de Obra 24 meses; Especialista en Seguridad 1 año." in page
+    assert "Personal clave Ingeniero Residente de Obra 24 meses Especialista en Seguridad 1 año pág. 58" in page
     assert "Ingeniero Residente de Obra: el tiempo en cifras (24) no es el que dicen las letras (36)." in page
-    assert "Personal clave: no se pudo leer el cuadro de cargos (pág. 44), revisar a mano." in page
-    assert "Personal clave: no se encontró en el texto de las bases, revisar a mano." in page
-    assert "Personal clave: Residente de Obra 5 años." in page  # a Word file has no pages
-    assert "Personal clave (pág. 61, leído con OCR): Residente de Obra 24 meses." in page
-    assert "Leído con OCR; antes de consultarlo, comprobar en la página 61:" in page
+    assert "Personal clave: no se pudo leer el cuadro de cargos (pág. 44)." in page
+    assert "Personal clave: no se encontró en el texto de las bases." in page
+    assert "Residente de Obra 5 años" in page and "5 años pág." not in page  # a Word file has no pages
+    assert "Residente de Obra 24 meses pág. 61, comprobar la cifra en la página" in page
+    assert "Mirar la página antes de consultarlo Página 61: Residente de Obra: el tiempo en cifras" in page
     assert "1 con algo que revisar" in page  # the warning read through OCR waits for a look at the page
 
 
 def test_page_escapes_what_comes_from_seace(conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=3))
     conn.execute("UPDATE licitaciones SET descripcion = 'OBRA <script>x</script>'")
-    assert "<script>" not in build(conn, ["LA LIBERTAD"], NOW)
+    page = build(conn, ["LA LIBERTAD"], NOW)
+    assert "&lt;script&gt;x" in page and page.count("<script>") == 1  # only the page's own filter
+
+
+def test_obras_are_grouped_by_when_offers_close(conn):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(hours=1))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=9))
+    page = text(build(conn, ["LA LIBERTAD"], NOW))
+    assert page.index("Cierran hoy 1") < page.index("LP-ABR-1") < page.index("Cierran más adelante 1") < page.index("LP-ABR-2")
+    assert "Cierran mañana" not in page
+
+
+def test_a_row_says_what_is_built_and_who_calls_it():
+    obra = {"entidad": "MUNICIPALIDAD DISTRITAL DE SAN MARCOS",
+            "descripcion": 'CONTRATACIÓN PARA LA EJECUCIÓN DE LA OBRA: "MEJORAMIENTO DEL SERVICIO EDUCATIVO EN LA I.E. 80200" '
+                           "CON CUI N° 2511071"}
+    assert work(obra) == "MEJORAMIENTO DEL SERVICIO EDUCATIVO EN LA I.E. 80200"
+    assert place(obra) == "San Marcos"
+    assert place({"entidad": "GOBIERNO REGIONAL DE LA LIBERTAD-TRANSPORTES"}) == "Gobierno Regional de La Libertad-Transportes"
