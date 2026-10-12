@@ -27,3 +27,11 @@ def test_failing_migration_leaves_no_record(conn, tmp_path):
         pass
     assert conn.execute("SELECT count(*) FROM schema_migrations WHERE version = '901_broken'").fetchone()[0] == 0
     assert conn.execute("SELECT to_regclass('half')").fetchone()[0] is None
+
+
+def test_windows_paths_get_forward_slashes(conn):
+    conn.execute("INSERT INTO licitaciones (nid_proceso, nomenclatura, entidad, objeto, descripcion) VALUES (1, 'LP-1', 'E', 'Obra', 'D')")
+    conn.execute("INSERT INTO documentos (nid_proceso, uuid, etapa, tipo, nombre_archivo, estado, ruta_local)"
+                 " VALUES (1, 'u', 'e', 'Bases', 'B.pdf', 'done', %s)", [r"data\documentos\1\u_B.pdf"])
+    conn.execute((db.MIGRATIONS / "012_rutas_con_barra.sql").read_text(encoding="utf-8"))
+    assert conn.execute("SELECT ruta_local FROM documentos").fetchone()[0] == "data/documentos/1/u_B.pdf"
