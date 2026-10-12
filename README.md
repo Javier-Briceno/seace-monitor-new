@@ -14,6 +14,11 @@ python -m venv .venv
 docker compose up -d --wait             # Postgres
 ```
 
+Unpacking archives needs [7-Zip](https://www.7-zip.org/) and reading PDFs needs Poppler's `pdftotext`
+(`winget install oschwartz10612.Poppler` on Windows, `apt install poppler-utils` on Debian/Ubuntu), both on the PATH.
+Scanned bases are read through [OCRmyPDF](https://ocrmypdf.readthedocs.io/) with Tesseract's Spanish model
+(`spa`) and Ghostscript; without them the text bases are still read and the scanned ones wait.
+
 ## Access from outside Peru
 
 SEACE answers `403 Forbidden` to IPs outside Peru. The `vpn` service runs
@@ -65,9 +70,40 @@ missing mail means something failed.
 .venv/Scripts/python -m pytest
 ```
 
+## Automatic extraction
+
+Each run reads section 1.4 of the downloaded bases (`src/seace_monitor/cuantia.py`): the cuantía, the type of
+economic offer from chapter IV, and the límites of a limited offer, which must be exactly 95 % (rounded up to the
+cent) and 110 % (cut at the cent) of the cuantía. Any other figure, a fixed offer with a límites table, a limited one
+without it, an offer type left as the template's choice and a cuantía that differs from SEACE are warnings. Scanned
+bases, unfilled templates and diseño y construcción amounts per component are left for a person. Results go into
+`extracciones` with their own `version_extractor`; a new version reads every bases again.
+
+A second reader takes the requisito "Experiencia del postor en la especialidad" of chapter III (`experiencia.py`:
+monto or times the cuantía, years, especialidad); a figure outside 0.25 to 3 times the cuantía goes to a person.
+The bases repeat every amount in words; `letras.py` compares them with the digits.
+
+A third reads the factores de evaluación of chapter IV (`factores.py`): each factor with its points from the
+CUADRO RESUMEN. A sum that is not the PUNTAJE TOTAL, a total that is not 100 and a factor's description that gives
+more points than the table are warnings.
+
+A fourth reads the requisito "Experiencia del personal clave" of chapter III (`personal.py`): each cargo with the
+time of experience it asks for. The cargo comes from its column of the table and the rows are paired with the times
+in order; cargos and times that do not pair up, or two cargos run together, go to a person. A time whose words say
+another number than its digits ("treinta y seis (24) meses") is a warning.
+
+When a section is not in the text of an obra's newest bases, its image pages among the first 150 (whole scans,
+or a scanned requerimiento with only the entity's typed header) are OCRed into `<name>-ocr.pdf` next to the
+original, about 4 s per page; a daily run OCRs at most 10 files and leaves the rest for the next run.
+Readings from OCR are marked `ocr: true`: OCR misreads digits now and then, so check their amounts on the page.
+
+```
+.venv/Scripts/python -m seace_monitor --extraer   # read every downloaded bases not read yet and exit
+```
+
 ## Manual extraction
 
-Until automatic extraction exists, a person reads the bases of the obras they pick from the report:
+For the fields not read automatically yet, a person reads the bases of the obras they pick from the report:
 
 ```
 .venv/Scripts/python -m seace_monitor --plantilla <nid_proceso>
