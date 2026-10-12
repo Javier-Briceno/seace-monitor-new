@@ -37,7 +37,8 @@ CHANGE_NAMES = {
 STOPPED = {
     "cerrada": "deja de seguirse: cerrada",
     "reiniciada": "deja de seguirse: reiniciada como obra nueva",
-    "parada": "deja de seguirse: parada, sin cambios en 60 días",
+    "parada": "parada, sin cambios en 60 días; si vuelve a moverse, se avisa",
+    "abierta": "vuelve a seguirse: se movió después de estar parada",
 }
 
 

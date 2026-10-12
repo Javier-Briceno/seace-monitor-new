@@ -12,9 +12,9 @@ from seace_monitor.locate import locate
 from seace_monitor.search import LIMA, parse_results
 from seace_monitor.ficha import parse_documents
 from seace_monitor.store import (
-    MAX_ATTEMPTS, STALLED_DAYS, archives_to_unpack, bases_to_extract, contents_done, contents_failed, document_done,
-    document_failed, ficha_failed, fichas_to_read, link_restarts, mark_stalled, open_since, pending_documents,
-    save_extraction, save_ficha, save_new_licitaciones, tracked,
+    MAX_ATTEMPTS, STALLED_DAYS, STALLED_WATCH_DAYS, archives_to_unpack, bases_to_extract, contents_done,
+    contents_failed, document_done, document_failed, ficha_failed, fichas_to_read, link_restarts, mark_stalled,
+    open_since, pending_documents, save_extraction, save_ficha, save_new_licitaciones, tracked,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -481,6 +481,49 @@ def test_change_seen_by_the_monitor_keeps_the_obra_tracked(conn, rows, documents
     conn.execute("UPDATE licitaciones SET ultimo_cambio_en = %s WHERE nid_proceso = %s",
                  [STALL_CHECK - timedelta(days=1), nid])
     assert mark_stalled(conn, STALL_CHECK) == []
+
+
+def stalled_obra(conn, rows, documents):
+    nid = obra_dated(conn, rows, documents, PUBLISHED + timedelta(days=10), [PUBLISHED])
+    mark_stalled(conn, STALL_CHECK)
+    return nid
+
+
+def test_stalled_obra_is_still_read_until_180_days_after_publication(conn, rows, documents):
+    nid = stalled_obra(conn, rows, documents)
+    conn.execute("UPDATE licitaciones SET ficha_estado = 'done' WHERE nid_proceso = %s", [nid])  # bases listed
+    assert fichas_to_read(conn, [nid], STALL_CHECK) == {nid}
+    assert open_since(conn, STALL_CHECK) == {"LA LIBERTAD": PUBLISHED.date()}
+    late = PUBLISHED + timedelta(days=STALLED_WATCH_DAYS + 1)
+    assert fichas_to_read(conn, [nid], late) == set()
+    assert open_since(conn, late) == {}
+    assert tracked(conn) == []
+
+
+def test_stalled_obra_that_moves_again_is_tracked_again(conn, rows, documents):
+    nid = stalled_obra(conn, rows, documents)
+    integradas = {**documents[0], "uuid": "integradas", "tipo": "Bases Integradas", "nombre_archivo": "bi.pdf"}
+    save_ficha(conn, nid, [{**documents[0], "uuid": f"{documents[0]['uuid']}-0", "publicado_en": PUBLISHED},
+                           integradas], PUBLISHED + timedelta(days=10), ["Convocado"])
+    assert tracking(conn, nid) == ("abierta", False)
+    assert history(conn, nid)[-2:] == [("documento", None, "Bases Integradas: bi.pdf"), ("seguimiento", "parada", "abierta")]
+    assert tracked(conn) == [nid]
+
+
+def test_stalled_obra_read_without_changes_stays_stalled(conn, rows, documents):
+    nid = stalled_obra(conn, rows, documents)
+    save_ficha(conn, nid, [{**documents[0], "uuid": f"{documents[0]['uuid']}-0", "publicado_en": PUBLISHED}],
+               PUBLISHED + timedelta(days=10), ["Convocado"])
+    assert tracking(conn, nid) == ("parada", True)
+    assert history(conn, nid) == [("seguimiento", "abierta", "parada")]
+
+
+def test_stalled_obra_that_closes_is_closed(conn, rows, documents):
+    nid = stalled_obra(conn, rows, documents)
+    save_ficha(conn, nid, [{**documents[0], "uuid": f"{documents[0]['uuid']}-0", "publicado_en": PUBLISHED}],
+               PUBLISHED + timedelta(days=10), ["Desierto"])
+    assert tracking(conn, nid) == ("cerrada", True)
+    assert history(conn, nid)[-2:] == [("estado_items", "Convocado", "Desierto"), ("seguimiento", "parada", "cerrada")]
 
 
 def test_new_document_goes_to_historial(conn, rows, documents):

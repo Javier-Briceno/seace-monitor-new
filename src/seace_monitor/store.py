@@ -15,6 +15,11 @@ MAX_ATTEMPTS = 3
 
 # An obra without any change for this long is stalled and no longer tracked.
 STALLED_DAYS = 60
+# A stalled obra's ficha is still read, and a change reopens it, until this long after its publication.
+STALLED_WATCH_DAYS = 180
+# Tracked, or stalled but still watched: the obras whose fichas every run reads.
+WATCHED = """(seguimiento = 'abierta'
+              OR (seguimiento = 'parada' AND fecha_publicacion > %(now)s - make_interval(days => %(watch)s)))"""
 
 COLUMNS = (
     "nid_proceso", "nomenclatura", "entidad", "objeto", "descripcion",
@@ -73,31 +78,33 @@ def link_restarts(conn: psycopg.Connection) -> list[tuple[int, int]]:
             estado = " / ".join(estados) if estados else "sin leer"
             record_changes(conn, new, [("reinicio", None, f"reiniciada{stage}; antes nid {old}, estado {estado}")])
             stopped = conn.execute(
-                """UPDATE licitaciones SET seguimiento = 'reiniciada', seguimiento_hasta = now()
-                   WHERE nid_proceso = %s AND seguimiento = 'abierta' RETURNING 1""",
+                """UPDATE licitaciones l SET seguimiento = 'reiniciada', seguimiento_hasta = now()
+                   FROM licitaciones before WHERE l.nid_proceso = %s AND before.nid_proceso = l.nid_proceso
+                   AND before.seguimiento IN ('abierta', 'parada') RETURNING before.seguimiento""",
                 [old],
             ).fetchone()
             if stopped:
-                record_changes(conn, old, [("seguimiento", "abierta", "reiniciada")])
+                record_changes(conn, old, [("seguimiento", stopped[0], "reiniciada")])
     return [(old, new) for old, _, new, _ in pairs]
 
 
-def fichas_to_read(conn: psycopg.Connection, nids: list[int]) -> set[int]:
-    """Of these licitaciones, the ones whose document list is still missing or that are still tracked."""
+def fichas_to_read(conn: psycopg.Connection, nids: list[int], now: datetime | None = None) -> set[int]:
+    """Of these licitaciones, the ones whose document list is still missing or that are still watched."""
     rows = conn.execute(
-        """SELECT nid_proceso FROM licitaciones WHERE nid_proceso = ANY(%s)
-           AND (ficha_estado = 'pending' OR (ficha_estado = 'done' AND seguimiento = 'abierta'))""",
-        [nids],
+        f"""SELECT nid_proceso FROM licitaciones WHERE nid_proceso = ANY(%(nids)s)
+            AND (ficha_estado = 'pending' OR (ficha_estado = 'done' AND {WATCHED}))""",
+        {"nids": nids, "now": now or datetime.now(LIMA), "watch": STALLED_WATCH_DAYS},
     ).fetchall()
     return {r[0] for r in rows}
 
 
-def open_since(conn: psycopg.Connection) -> dict[str, date]:
-    """Per search departamento, the publication date (Lima) of the oldest obra still tracked."""
+def open_since(conn: psycopg.Connection, now: datetime | None = None) -> dict[str, date]:
+    """Per search departamento, the publication date (Lima) of the oldest obra still watched."""
     rows = conn.execute(
-        """SELECT departamento_busqueda, min(fecha_publicacion) FROM licitaciones
-           WHERE seguimiento = 'abierta' AND departamento_busqueda IS NOT NULL AND fecha_publicacion IS NOT NULL
-           GROUP BY 1"""
+        f"""SELECT departamento_busqueda, min(fecha_publicacion) FROM licitaciones
+            WHERE {WATCHED} AND departamento_busqueda IS NOT NULL AND fecha_publicacion IS NOT NULL
+            GROUP BY 1""",
+        {"now": now or datetime.now(LIMA), "watch": STALLED_WATCH_DAYS},
     ).fetchall()
     return {d: since.astimezone(LIMA).date() for d, since in rows}
 
@@ -141,8 +148,9 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
     """
     new = 0
     with conn.transaction():
-        stored_estados, stored_deadline = conn.execute(
-            "SELECT estado_items, fecha_limite_ofertas FROM licitaciones WHERE nid_proceso = %s", [nid]
+        stored_estados, stored_deadline, stalled = conn.execute(
+            "SELECT estado_items, fecha_limite_ofertas, seguimiento = 'parada' FROM licitaciones WHERE nid_proceso = %s",
+            [nid],
         ).fetchone()
         read_before = stored_estados is not None
         changes = []
@@ -172,11 +180,16 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
         if closes(estados, documents):
             closed = conn.execute(
                 """UPDATE licitaciones SET seguimiento = 'cerrada', seguimiento_hasta = now()
-                   WHERE nid_proceso = %s AND seguimiento = 'abierta' RETURNING 1""",
+                   WHERE nid_proceso = %s AND seguimiento IN ('abierta', 'parada') RETURNING 1""",
                 [nid],
             ).fetchone()
             if closed and read_before:
-                changes.append(("seguimiento", "abierta", "cerrada"))
+                changes.append(("seguimiento", "parada" if stalled else "abierta", "cerrada"))
+        elif stalled and changes:
+            # A stalled obra moved again (new document, deadline, estado): it is tracked again.
+            conn.execute("UPDATE licitaciones SET seguimiento = 'abierta', seguimiento_hasta = NULL WHERE nid_proceso = %s",
+                         [nid])
+            changes.append(("seguimiento", "parada", "abierta"))
         record_changes(conn, nid, changes)
     return new
 
