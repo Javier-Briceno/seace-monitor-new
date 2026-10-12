@@ -1,0 +1,11 @@
+[Unit]
+Description=SEACE monitor: search, track and report
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/seace-monitor-new
+ExecStartPre=/usr/bin/docker compose --profile vpn up -d --wait db vpn
+ExecStart=/usr/bin/docker compose --profile monitor run --rm monitor --avisos
