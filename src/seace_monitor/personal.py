@@ -15,7 +15,7 @@ from pathlib import Path
 from . import letras, reading
 from .bases_text import page_of
 
-VERSION = "personal-3"
+VERSION = "personal-4"
 
 # The requirement heading followed by "Requisitos", not the scoring factor of chapter IV nor a sentence citing
 # it. OCR leaves noise before "B.2" ("de .B.2", "“iB.2") and puts a second column on the same line;
@@ -304,9 +304,10 @@ def pair(rows: list[dict], times: list[dict]) -> list[dict] | None:
 
 def squeeze(text: str) -> str:
     text = re.sub(r"\s+", " ", COUNTED_FROM.sub(" ", text)).strip(" ,;:-—–.…\"'“”•·")
-    # "ESPECIALISTA DE SEGURIDAD EN OBRA Y SALUD EN EL TRABAJO consignadas": a word of the next column
+    # A cargo in capitals with a lowercase word: a word of another column ("... TRABAJO consignadas",
+    # "ESPECIALISTA DE la SEGURIDAD" with the "la" of "Desde la Colegiatura")
     if sum(c.isupper() for c in text) > 3 * sum(c.islower() for c in text):
-        text = re.sub(r"(?:\s+[a-záéíóúñ]+)+$", "", text)
+        text = " ".join(w for w in text.split() if not re.fullmatch(r"[a-záéíóúñ]+", w))
     return text
 
 

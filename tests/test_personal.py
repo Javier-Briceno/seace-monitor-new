@@ -53,6 +53,9 @@ def cargos(result: dict) -> list[tuple[str, str]]:
     # a Word file: one cell a line, the cargo above the description that opens with the time
     ("1217898", [("Residente de Obra", "5 años"), ("Especialista en Seguridad en Obra y Salud Ocupacional", "4 años"),
                  ("Especialista Ambiental", "3 años"), ("Especialista en Calidad", "2 años")]),
+    # "Desde la / Colegiatura" of the time column: its "la" lands inside "ESPECIALISTA DE SEGURIDAD"
+    ("1255068", [("RESIDENTE DE OBRA", "2 años"), ("ESPECIALISTA DE CALIDAD", "1 año"),
+                 ("ESPECIALISTA DE SEGURIDAD EN OBRA", "1 año")]),
     # "Especialis" on one line, "ta en" on the next
     ("1255345", [("Residente de Obra", "36 meses"), ("Especialista en Medio Ambiente", "12 meses"),
                  ("Especialista en Calidad", "12 meses"), ("Especialista en Seguridad", "12 meses")]),
