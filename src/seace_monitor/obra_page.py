@@ -82,13 +82,16 @@ def warning_text(w: dict) -> str:
     return kind
 
 
-def obras(conn: psycopg.Connection, watched: list[str], now: datetime) -> list[dict]:
-    """Obras still open for offers in the watched departamentos, nearest deadline first."""
+def obras(conn: psycopg.Connection, watched: list[str], now: datetime, closed_too: bool = False) -> list[dict]:
+    """Obras still open for offers in the watched departamentos, nearest deadline first; with `closed_too`,
+    every obra stored there, the closed ones after the open ones."""
     rows = conn.execute(
         """WITH newest AS (
                SELECT DISTINCT ON (nid_proceso) nid_proceso, id, nombre_archivo, tipo
                FROM documentos WHERE estado = 'done' AND tipo ILIKE 'bases%%'
-               ORDER BY nid_proceso, (tipo ILIKE '%%integrad%%') DESC, publicado_en DESC NULLS LAST, id DESC)
+               ORDER BY nid_proceso, (tipo ILIKE '%%integrad%%') DESC, publicado_en DESC NULLS LAST, id DESC),
+           listed AS (
+               SELECT l.*, l.seguimiento = 'abierta' AND l.fecha_limite_ofertas > %s AS abierta FROM licitaciones l)
            SELECT l.nid_proceso, l.nomenclatura, l.entidad, l.descripcion, l.departamentos, l.fecha_limite_ofertas,
                   l.valor_referencial, n.tipo,
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
@@ -98,14 +101,18 @@ def obras(conn: psycopg.Connection, watched: list[str], now: datetime) -> list[d
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
                      AND e.version_extractor LIKE 'factores-%%' ORDER BY e.creado_en DESC LIMIT 1),
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
-                     AND e.version_extractor LIKE 'personal-%%' ORDER BY e.creado_en DESC LIMIT 1)
-           FROM licitaciones l LEFT JOIN newest n USING (nid_proceso)
-           WHERE l.seguimiento = 'abierta' AND l.fecha_limite_ofertas > %s
-           ORDER BY l.fecha_limite_ofertas, l.nid_proceso""",
-        [now],
+                     AND e.version_extractor LIKE 'personal-%%' ORDER BY e.creado_en DESC LIMIT 1),
+                  n.id, l.seguimiento, l.fecha_publicacion, l.abierta
+           FROM listed l LEFT JOIN newest n USING (nid_proceso)
+           WHERE l.abierta OR %s
+           -- open ones by nearest deadline, then the closed ones, latest deadline first
+           ORDER BY l.abierta DESC, CASE WHEN l.abierta THEN l.fecha_limite_ofertas END,
+                    l.fecha_limite_ofertas DESC NULLS LAST, l.nid_proceso""",
+        [now, closed_too],
     ).fetchall()
     keys = ("nid_proceso", "nomenclatura", "entidad", "descripcion", "departamentos", "fecha_limite_ofertas",
-            "valor_referencial", "bases", "lectura", "experiencia", "factores", "personal")
+            "valor_referencial", "bases", "lectura", "experiencia", "factores", "personal",
+            "bases_id", "seguimiento", "fecha_publicacion", "abierta")
     items = [dict(zip(keys, r)) for r in rows if in_watched(r[4], watched)]
     for obra in items:
         for key in ("lectura", "experiencia", "factores", "personal"):
