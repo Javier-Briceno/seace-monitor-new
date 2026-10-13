@@ -8,6 +8,7 @@
 """
 
 import argparse
+import os
 import sys
 import time
 from dataclasses import replace
@@ -308,7 +309,9 @@ def main() -> int:
     imported, problems = manual.import_ready(conn, config.extraction_dir(cfg))
     for name in imported:
         print(f"manual extraction imported: {name}")
-    rep = report.build(conn, config.watched(cfg), config.download_dir(cfg), config.report_dir(cfg), problems=problems)
+    rep = report.build(conn, config.watched(cfg), config.download_dir(cfg), config.report_dir(cfg), problems=problems,
+                       web_url=(cfg.get("web", {}).get("url") or "").rstrip("/"),
+                       recipients=[a.strip() for a in os.environ.get("REPORT_TO", "").split(",") if a.strip()])
     rep.files.append(obra_page.write(conn, config.watched(cfg), config.report_dir(cfg), datetime.now(LIMA)))
     print(f"\n{rep.text}\nreport files: {', '.join(str(f) for f in rep.files)}")
     if args.no_mail:

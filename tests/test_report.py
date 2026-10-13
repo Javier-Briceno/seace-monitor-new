@@ -50,8 +50,9 @@ def test_summary_lists_open_obras_and_counts_the_rest(conn):
     add(conn, 3, ["LA LIBERTAD"], NOW - timedelta(days=30))
     text = summary(pending(conn, ["LA LIBERTAD"], Path("data/documentos"), NOW), NOW, ["LA LIBERTAD"])
     assert "Obras nuevas abiertas: 2, de ellas 1 sin ubicar" in text
-    assert "07/10 (cierra en 4 días) | S/ 1.500.000 | MUNICIPALIDAD DE PRUEBA | LP-ABR-1" in text
-    assert "[sin ubicar]" in text
+    assert "MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n  S/ 1.500.000, cierra en 4 días (07/10)\n" in text
+    assert "MUNICIPALIDAD DE PRUEBA (LP-ABR-2), sin ubicar" in text
+    assert " | " not in text
     assert "Sin plazo para ofertar (reiniciadas, vencidas o sin fecha): 1" in text
 
 
@@ -59,7 +60,7 @@ def test_summary_is_cut_at_top_and_points_to_the_csv(conn):
     for nid in range(TOP + 3):
         add(conn, nid + 1, ["LA LIBERTAD"], NOW + timedelta(days=nid + 1))
     text = summary(pending(conn, ["LA LIBERTAD"], Path("data/documentos"), NOW), NOW, ["LA LIBERTAD"])
-    assert text.count("\n- ") == TOP
+    assert text.count("\n  S/ ") == TOP
     assert "... y 3 más en el CSV adjunto." in text
 
 
@@ -248,7 +249,7 @@ def test_changes_of_watched_obras_go_into_the_mail_and_a_csv(conn, tmp_path):
     assert ("MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n"
             "  documentos nuevos: Bases Integradas, Pliego de absolución de consultas y observaciones\n"
             "  fecha límite de ofertas: 05/10/2026 23:59 → 07/10/2026 09:00") in rep.text
-    assert "Cambios en obras seguidas: 1" in rep.text
+    assert "Cambios en otras obras abiertas: 1" in rep.text
     assert "LP-ABR-2" not in rep.text
     assert rep.files[-1] == tmp_path / "2026-10-03-cambios.csv"
     with open(rep.files[-1], encoding="utf-8-sig", newline="") as f:
@@ -282,8 +283,22 @@ def test_restart_is_shown_with_the_new_obra_not_as_a_change(conn, tmp_path):
     conn.execute("UPDATE licitaciones SET reinicio_de = 1 WHERE nid_proceso = 2")
     change(conn, 2, "reinicio", None, "reiniciada; antes nid 1, estado Nulo")
     text = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW).text
-    assert "LP-ABR-2 | reinicio de una convocatoria anterior" in text
+    assert "(LP-ABR-2), reinicio de una convocatoria anterior" in text
     assert "Cambios" not in text
+
+
+def test_each_obra_links_to_the_search_tool_and_followed_changes_come_first(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=5), informado=NOW - timedelta(days=5))
+    add(conn, 3, ["LA LIBERTAD"], NOW + timedelta(days=6), informado=NOW - timedelta(days=5))
+    change(conn, 2, "estado_items", "Convocado", "Nulo")
+    change(conn, 3, "estado_items", "Convocado", "Desierto")
+    conn.execute("INSERT INTO seguidas (correo, nid_proceso) VALUES ('persona@example.com', 3)")
+    text = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW, web_url="https://b.example.com",
+                 recipients=["Persona@example.com"]).text
+    assert "  https://b.example.com/obras/1\n" in text
+    mine, others = text.split("Cambios en tus obras seguidas: 1")[1].split("Cambios en otras obras abiertas: 1")
+    assert "LP-ABR-3" in mine and "https://b.example.com/obras/3" in mine and "LP-ABR-2" in others
 
 
 def test_soles_are_written_as_s_whatever_the_portal_calls_them():
