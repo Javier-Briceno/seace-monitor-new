@@ -15,6 +15,8 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+from dotenv import find_dotenv, load_dotenv
+
 from . import config, cuantia, db, experiencia, factores, mail, manual, obra_page, personal, report
 from .archives import ArchiveError, MachineError, unpack
 from .bases_text import ToolMissing, bases_files
@@ -142,7 +144,7 @@ def run_downloads(conn, session, root, nids) -> None:
             document_failed(conn, document["id"], str(error))
             print(f"  failed  {document['nombre_archivo']}: {error}")
             continue
-        document_done(conn, document["id"], str(path), size)
+        document_done(conn, document["id"], path.as_posix(), size)
         print(f"  done    {path} ({size / 1e6:.1f} MB)")
 
 
@@ -253,7 +255,19 @@ def main() -> int:
     part = parser.add_mutually_exclusive_group()
     part.add_argument("--avisos", action="store_true", help="search, track and send the report; bases read by an earlier --lectura show up in it")
     part.add_argument("--lectura", action="store_true", help="download, unpack, OCR and read the bases of the reported and tracked obras; no report")
+    parser.add_argument("--fallo", metavar="UNIT", help="mail that this run failed, with the log read from stdin, and exit")
     args = parser.parse_args()
+
+    if args.fallo:
+        # Before the database and the VPN: either may be what failed.
+        load_dotenv(find_dotenv(usecwd=True))
+        log = sys.stdin.read()[-20000:]
+        try:
+            mail.send(f"SEACE monitor: {args.fallo} falló", f"La corrida {args.fallo} terminó con error.\n\n{log}", [])
+        except mail.MailError as error:
+            print(error, file=sys.stderr)
+            return 1
+        return 0
 
     cfg = config.load(args.config)
     proxy = config.proxy(cfg)

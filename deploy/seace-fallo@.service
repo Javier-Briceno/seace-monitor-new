@@ -1,0 +1,7 @@
+[Unit]
+Description=SEACE monitor: mail that %i failed
+
+[Service]
+Type=oneshot
+WorkingDirectory=@APP_DIR@
+ExecStart=/bin/sh -c 'journalctl -u %i -n 80 --no-pager -o cat | /usr/bin/docker compose --profile monitor run --rm -T --no-deps monitor --fallo %i'

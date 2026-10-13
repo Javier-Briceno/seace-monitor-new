@@ -40,6 +40,24 @@ services:
       # Server list, refreshed with: docker compose run --rm vpn update -enduser -providers nordvpn
       - gluetun:/gluetun
 
+  # The monitor itself, for a server: docker compose --profile monitor run --rm monitor --avisos
+  # It reaches Postgres as db and the VPN proxy as vpn:8888 (set proxy = "http://vpn:8888" in config.toml).
+  monitor:
+    build: .
+    profiles: [monitor]
+    env_file: .env
+    # OCR takes every core; under load the other services of the machine come first
+    cpu_shares: 512
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - ./data:/app/data
+
 volumes:
   pgdata:
   gluetun:
