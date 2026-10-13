@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from seace_monitor.fields import KEYS, NAMES
-from seace_monitor.report import TOP, build, pending, summary
+from seace_monitor.report import TOP, build, money, pending, summary
 from seace_monitor.search import LIMA
 
 NOW = datetime(2026, 10, 3, 9, 0, tzinfo=LIMA)
@@ -284,3 +284,9 @@ def test_restart_is_shown_with_the_new_obra_not_as_a_change(conn, tmp_path):
     text = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW).text
     assert "LP-ABR-2 | reinicio de una convocatoria anterior" in text
     assert "Cambios" not in text
+
+
+def test_soles_are_written_as_s_whatever_the_portal_calls_them():
+    assert money(Decimal("119000"), "Nuevos Soles") == "S/ 119.000"
+    assert money(Decimal("975260.4"), "Soles") == "S/ 975.260"
+    assert money(Decimal("5000"), "Dólares") == "Dólares 5.000"

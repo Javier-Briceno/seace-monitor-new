@@ -1,5 +1,5 @@
-"""One page for the phone: every obra still open for offers, what its bases say on cuantía and límites,
-and what is wrong with them, in the bases' own words.
+"""One page for the phone: every obra still open for offers, grouped by when offers close, one short row each
+that opens on tap to what its bases ask and what is wrong with them, in the bases' own words.
 
 Each obra shows the reading of its newest bases (integradas, else administrativas).
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import psycopg
 
-from .report import in_watched, title
+from .report import in_watched
 from .search import LIMA
 
 DAYS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
@@ -116,42 +116,6 @@ def obras(conn: psycopg.Connection, watched: list[str], now: datetime) -> list[d
     return items
 
 
-def experience_lines(found: dict | None) -> list[str]:
-    """The requisito de experiencia del postor; nothing when the bases were not read for it yet."""
-    e = html.escape
-    if found is None:
-        return []
-    page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
-    if found.get("revisar") and not found.get("monto"):
-        return [f'<p class="revisar">Experiencia del postor: no se pudo leer{page}, revisar a mano.</p>']
-    if found.get("revisar"):
-        return [f'<p class="revisar">Experiencia del postor: se leyó {soles(found["monto"])}, que no cuadra con la '
-                f'cuantía; puede ser una cifra mal leída{page}: revisar a mano.</p>']
-    times_word = "vez" if found.get("veces") == "1" else "veces"
-    asked = soles(found["monto"]) if found.get("monto") else f'{found["veces"]} {times_word} la cuantía'
-    times = found.get("veces_cuantia")
-    if times and Decimal(times) != 1:
-        asked += f", {Decimal(times):.2f} veces la cuantía".replace(".", ",", 1)
-    elif times:
-        asked += ", 1 vez la cuantía"
-    where = found.get("especialidad") or ""
-    if found.get("subespecialidades"):
-        where += (" — " if where else "") + ", ".join(found["subespecialidades"])
-    parts = [f"<b>Experiencia del postor:</b> {e(asked)}"]
-    if where:
-        parts.append(f"en {e(where)}")
-    if found.get("anios"):
-        parts.append(f"en los últimos {found['anios']} años")
-    if found.get("cuenta_desde"):
-        parts.append(f"contados desde {e(found['cuenta_desde'])}")
-    how = ", leído de las letras" if found.get("monto_de_letras") else ", leído con OCR" if found.get("ocr") else ""
-    note = f' (pág. {found["pagina"]}{how})' if found.get("pagina") else ""
-    lines = [f'<p>{", ".join(parts)}{note}.</p>']
-    if found.get("monto_letras"):
-        lines.append(f'<p class="revisar">El monto en letras dice {soles(found["monto_letras"])}: mirar la página.</p>')
-    return lines
-
-
 def factor_warning_text(w: dict) -> str:
     kind = w["aviso"]
     if kind == "suma_distinta_total":
@@ -167,89 +131,199 @@ def factor_warning_text(w: dict) -> str:
     return kind
 
 
-def factor_lines(found: dict | None) -> list[str]:
-    """The factores de evaluación with their points; nothing when the bases were not read for them yet."""
+# Closing buckets, in the order the page shows them.
+# Lowercase inside a name; "La", "Los" start place names (La Libertad, Los Olivos), so they stay capitalized.
+SMALL_WORDS = {"de", "del", "y", "e", "en", "para", "con"}
+BUCKETS = (("hoy", "Cierran hoy"), ("manana", "Cierran mañana"), ("semana", "Cierran esta semana"),
+           ("despues", "Cierran más adelante"))
+ENTITY_PREFIXES = ("MUNICIPALIDAD DISTRITAL DE ", "MUNICIPALIDAD PROVINCIAL DE ", "MUNICIPALIDAD DISTRITAL ",
+                   "MUNICIPALIDAD PROVINCIAL ")
+# "CONTRATACIÓN DE LA EJECUCIÓN DE LA OBRA: «MEJORAMIENTO …» CON CUI N° 2511071": only the middle says what it is.
+WORK_PREFIX = re.compile(r"^\W*(?:CONTRATACI[OÓ]N\s+(?:DE|PARA)\s+(?:LA\s+)?)?(?:EJECUCI[OÓ]N\s+DE\s+(?:LA\s+)?)?"
+                         r"(?:OBRA|IOARR)\s*[:\-–]?\W*", re.I)
+CUI_TAIL = re.compile(r"[\s,;\-–(]*(?:CON\s+)?(?:C\.?\s?U\.?\s?I\.?|C[OÓ]DIGO\s+[UÚ]NICO)\b.*$", re.I | re.S)
+
+
+def bucket(limit: datetime, now: datetime) -> str:
+    days = (limit.astimezone(LIMA).date() - now.astimezone(LIMA).date()).days
+    return "hoy" if days <= 0 else "manana" if days == 1 else "semana" if days < 7 else "despues"
+
+
+def place(obra: dict) -> str:
+    """Who calls the licitación, short: «Pataz», «Gobierno Regional La Libertad»."""
+    entidad = obra["entidad"].upper()
+    for prefix in ENTITY_PREFIXES:
+        entidad = entidad.removeprefix(prefix)
+    return proper(entidad)
+
+
+def proper(name: str) -> str:
+    """«GOBIERNO REGIONAL DE LA LIBERTAD» as «Gobierno Regional de La Libertad»: small words stay small."""
+    words = name.lower().split()
+    return " ".join(w if n and w in SMALL_WORDS else "-".join(p[:1].upper() + p[1:] for p in w.split("-"))
+                    for n, w in enumerate(words))
+
+
+def work(obra: dict) -> str:
+    """What is built, without the procedure's wording around it."""
+    text = CUI_TAIL.sub("", WORK_PREFIX.sub("", obra["descripcion"] or "").strip())
+    return text.strip(" \"'“”«»,.;") or obra["descripcion"] or ""
+
+
+def page_note(found: dict, label: str = "pág.") -> str:
+    """Where a value is, and for a scan a reminder to look: OCR misreads a digit now and then."""
+    if not found.get("pagina"):
+        return ""
+    look = ", comprobar la cifra en la página" if found.get("ocr") else ""
+    return f'<span class="pag">{label} {found["pagina"]}{look}</span>'
+
+
+def row(label: str, value: str, note: str = "") -> str:
+    return f'<div class="fila"><dt>{label}</dt><dd>{value}{note}</dd></div>'
+
+
+def cuantia_rows(obra: dict, manual: list[str], consult: list[str], look: list[str]) -> list[str]:
+    e = html.escape
+    reading = obra["lectura"]
+    rows = []
+    if reading.get("cuantia"):
+        rows.append(row("Cuantía", soles(reading["cuantia"]), page_note(reading)))
+    elif obra["valor_referencial"] is not None:
+        rows.append(row("Cuantía", f'{soles(obra["valor_referencial"])} <span class="pag">ficha del SEACE</span>'))
+    rows.append(row("Oferta económica", e(OFFER_TYPES.get(reading.get("tipo_oferta") or "", ""))))
+    if reading.get("limite_inferior") or reading.get("limite_superior"):
+        rows.append(row("Límites", f'{soles(reading.get("limite_inferior"))} a {soles(reading.get("limite_superior"))}',
+                        page_note(reading)))
+    if reading.get("revisar"):
+        manual.append(UNREAD.get(reading["revisar"], "Revisar a mano: " + reading["revisar"]))
+    warnings = [warning_text(w) for w in reading.get("avisos") or []]
+    if warnings and reading.get("ocr"):
+        look.append(f'Página {reading.get("pagina") or ""}: ' + " ".join(warnings))
+    else:
+        consult += warnings
+    return rows
+
+
+def experience_rows(found: dict | None, manual: list[str]) -> list[str]:
+    """The requisito de experiencia del postor; nothing when the bases were not read for it yet."""
     e = html.escape
     if found is None:
         return []
-    page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
+    where_page = f' (pág. {found["pagina"]})' if found.get("pagina") else ""
+    if found.get("revisar") and not found.get("monto"):
+        manual.append(f"Experiencia del postor: no se pudo leer{where_page}.")
+        return []
     if found.get("revisar"):
-        return [f'<p class="revisar">Factores de evaluación: no se pudo leer el cuadro resumen{page}, revisar a mano.</p>']
-    listed = ", ".join(f"{f['factor']} {f['puntos']}" for f in found["factores"])
-    lines = [f'<p><b>Factores de evaluación{e(page)}:</b> {e(listed)}. Total {found["total"]}.</p>']
-    if found.get("avisos"):
-        lines.append("<ul>" + "".join(f"<li>{e(factor_warning_text(w))}</li>" for w in found["avisos"]) + "</ul>")
-    return lines
+        manual.append(f'Experiencia del postor: se leyó {soles(found["monto"])}, que no cuadra con la cuantía; '
+                      f'puede ser una cifra mal leída{where_page}.')
+        return []
+    times_word = "vez" if found.get("veces") == "1" else "veces"
+    asked = soles(found["monto"]) if found.get("monto") else f'{found["veces"]} {times_word} la cuantía'
+    times = found.get("veces_cuantia")
+    if times and Decimal(times) != 1:
+        asked += f" ({Decimal(times):.2f} veces la cuantía)".replace(".", ",", 1)
+    elif times:
+        asked += " (1 vez la cuantía)"
+    parts = [e(asked)]
+    where = found.get("especialidad") or ""
+    if found.get("subespecialidades"):
+        where += (" — " if where else "") + ", ".join(found["subespecialidades"])
+    if where:
+        parts.append(f"en {e(where)}")
+    if found.get("anios"):
+        parts.append(f"en los últimos {found['anios']} años")
+    if found.get("cuenta_desde"):
+        parts.append(f"contados desde {e(found['cuenta_desde'])}")
+    if found.get("monto_letras"):
+        manual.append(f'Experiencia del postor: el monto en letras dice {soles(found["monto_letras"])}{where_page}.')
+    return [row("Experiencia del postor", ", ".join(parts), page_note(found))]
 
 
-def personal_lines(found: dict | None) -> list[str]:
+def personal_rows(found: dict | None, manual: list[str], consult: list[str], look: list[str]) -> list[str]:
     """Each cargo of the personal clave with the time it asks for; nothing when the bases were not read for it yet."""
     e = html.escape
     if found is None:
         return []
-    page = f" (pág. {found['pagina']})" if found.get("pagina") else ""
+    where_page = f' (pág. {found["pagina"]})' if found.get("pagina") else ""
     if found.get("revisar") in ("cargos ilegibles", "personal clave sin tiempos legibles"):
-        return [f'<p class="revisar">Personal clave: no se pudo leer el cuadro de cargos{page}, revisar a mano.</p>']
+        manual.append(f"Personal clave: no se pudo leer el cuadro de cargos{where_page}.")
+        return []
     if found.get("revisar"):
-        return ['<p class="revisar">Personal clave: no se encontró en el texto de las bases, revisar a mano.</p>']
-    notes = [f"pág. {found['pagina']}"] if found.get("pagina") else []
-    notes += ["leído con OCR"] if found.get("ocr") else []
-    listed = "; ".join(f"{p['cargo']} {p['tiempo']}" for p in found["personal"])
-    lines = [f'<p><b>Personal clave{" (" + ", ".join(notes) + ")" if notes else ""}:</b> {e(listed)}.</p>']
+        manual.append("Personal clave: no se encontró en el texto de las bases.")
+        return []
+    items = "".join(f'<li><span>{e(p["cargo"])}</span><span class="cifra">{e(p["tiempo"])}</span></li>'
+                    for p in found["personal"])
     warnings = [f"{w['cargo']}: el tiempo en cifras ({w['cifra']}) no es el que dicen las letras ({w['letras']})."
                 for w in found.get("avisos") or []]
     if warnings and found.get("ocr"):
-        lines.append(f'<p class="ocr">Leído con OCR; antes de consultarlo, comprobar en la página {found["pagina"]}:</p>')
-    if warnings:
-        lines.append("<ul>" + "".join(f"<li>{e(w)}</li>" for w in warnings) + "</ul>")
-    return lines
+        look.append(f'Página {found["pagina"]}: ' + " ".join(warnings))
+    else:
+        consult += warnings
+    return [row("Personal clave", f'<ul class="lista">{items}</ul>', page_note(found))]
+
+
+def factor_rows(found: dict | None, manual: list[str], consult: list[str]) -> list[str]:
+    """The factores de evaluación with their points; nothing when the bases were not read for them yet."""
+    e = html.escape
+    if found is None:
+        return []
+    if found.get("revisar"):
+        where_page = f' (pág. {found["pagina"]})' if found.get("pagina") else ""
+        manual.append(f"Factores de evaluación: no se pudo leer el cuadro resumen{where_page}.")
+        return []
+    items = "".join(f'<li><span>{e(f["factor"])}</span><span class="cifra">{f["puntos"]} pts</span></li>'
+                    for f in found["factores"])
+    items += f'<li class="total"><span>Total</span><span class="cifra">{found["total"]} pts</span></li>'
+    consult += [factor_warning_text(w) for w in found.get("avisos") or []]
+    return [row("Factores de evaluación", f'<ul class="lista">{items}</ul>', page_note(found))]
+
+
+def notes(title_text: str, css: str, lines: list[str]) -> str:
+    e = html.escape
+    if not lines:
+        return ""
+    return (f'<div class="nota {css}"><p class="nota-titulo">{title_text}</p><ul>'
+            + "".join(f"<li>{e(line)}</li>" for line in lines) + "</ul></div>")
 
 
 def card(obra: dict, now: datetime) -> str:
     e = html.escape
+    rows, manual, consult, look = [row("Ofertas hasta", e(deadline(obra["fecha_limite_ofertas"], now)))], [], [], []
     reading = obra["lectura"]
-    lines = [f'<h2>{e(title(obra))}</h2>',
-             f'<p class="desc">{e(obra["descripcion"][:220])}</p>',
-             f'<p><b>Ofertas hasta:</b> {e(deadline(obra["fecha_limite_ofertas"], now))}</p>']
+    source = ""
     if obra["bases"] is None:
-        lines.append('<p class="revisar">Bases todavía no descargadas.</p>')
-        return '<section>' + "".join(lines) + '</section>'
-    if reading is None:
-        lines.append('<p class="revisar">Bases descargadas, todavía sin leer.</p>')
-        return '<section>' + "".join(lines) + '</section>'
-    where = f'{e(obra["bases"])}, archivo «{e(UUID_PREFIX.sub("", reading.get("archivo") or ""))}»'
-    if reading.get("pagina"):
-        where += f', pág. {reading["pagina"]}'
-    if reading.get("cuantia"):
-        lines.append(f'<p><b>Cuantía:</b> {soles(reading["cuantia"])}</p>')
-    elif obra["valor_referencial"] is not None:
-        lines.append(f'<p><b>Cuantía en la ficha del SEACE:</b> {soles(obra["valor_referencial"])}</p>')
-    lines.append(f'<p><b>Oferta económica:</b> {e(OFFER_TYPES.get(reading.get("tipo_oferta") or "", ""))}</p>')
-    if reading.get("limite_inferior") or reading.get("limite_superior"):
-        lines.append(f'<p><b>Límites en las bases:</b> {soles(reading.get("limite_inferior"))} a '
-                     f'{soles(reading.get("limite_superior"))}</p>')
-    if reading.get("revisar"):
-        lines.append(f'<p class="revisar">{e(UNREAD.get(reading["revisar"], "Revisar a mano: " + reading["revisar"]))}</p>')
-    warnings = reading.get("avisos") or []
-    if warnings and reading.get("ocr"):
-        # OCR misreads a digit now and then: a figure off by it is not yet the entity's mistake
-        lines.append(f'<p class="ocr">Leído con OCR; antes de consultarlo, comprobar en la página '
-                     f'{reading.get("pagina") or ""}:</p><ul>')
-        lines += [f'<li>{e(warning_text(w))}</li>' for w in warnings]
-        lines.append('</ul>')
-    elif warnings:
-        lines.append('<p class="aviso-titulo">Para revisar o consultar:</p><ul>')
-        lines += [f'<li>{e(warning_text(w))}</li>' for w in warnings]
-        lines.append('</ul>')
-    elif reading.get("cuantia") and not reading.get("revisar") and reading.get("tipo_oferta") in ("fija", "limitada"):
-        lines.append('<p class="ok">Cuantía y límites sin observaciones.</p>')
-    if reading.get("ocr") and not warnings:
-        lines.append('<p class="ocr">Leído de bases escaneadas con OCR: verificar las cifras en la página.</p>')
-    lines += experience_lines(obra["experiencia"])
-    lines += personal_lines(obra.get("personal"))
-    lines += factor_lines(obra["factores"])
-    lines.append(f'<p class="fuente">{where}</p>')
-    return f'<section{" class=con-aviso" if flagged(obra) else ""}>' + "".join(lines) + '</section>'
+        manual.append("Bases todavía no descargadas.")
+    elif reading is None:
+        manual.append("Bases descargadas, todavía sin leer.")
+    else:
+        rows += cuantia_rows(obra, manual, consult, look)
+        rows += experience_rows(obra["experiencia"], manual)
+        rows += personal_rows(obra.get("personal"), manual, consult, look)
+        rows += factor_rows(obra["factores"], manual, consult)
+        source = f'{e(obra["bases"])}, archivo «{e(UUID_PREFIX.sub("", reading.get("archivo") or ""))}»'
+        if reading.get("pagina"):
+            source += f', pág. {reading["pagina"]}'
+    clear = (reading and reading.get("cuantia") and not reading.get("revisar") and not reading.get("avisos")
+             and reading.get("tipo_oferta") in ("fija", "limitada"))
+    # Only what asks for action shows on the row; what could not be read waits in the detail.
+    status = ('<span class="chip consultar">para consultar</span>' if consult else
+              '<span class="chip revisar">bases sin leer</span>' if reading is None else "")
+    cuantia = (reading or {}).get("cuantia") or obra["valor_referencial"]
+    deps = "|".join(obra["departamentos"] or ["sin ubicar"])
+    return (f'<details class="obra" data-dep="{e(deps)}"><summary>'
+            f'<span class="cabeza"><span class="lugar">{e(place(obra))}</span>{status}</span>'
+            f'<span class="que">{e(work(obra))}</span>'
+            f'<span class="meta"><span class="cifra">{soles(cuantia) if cuantia else "cuantía no publicada"}</span>'
+            f'<span>{e(deadline(obra["fecha_limite_ofertas"], now))}</span></span></summary>'
+            f'<div class="detalle"><p class="nomen">{e(obra["nomenclatura"])} · {e(obra["entidad"])}</p>'
+            f'<p class="desc">{e(obra["descripcion"] or "")}</p>'
+            + notes("Para revisar o consultar", "consultar", consult)
+            + notes("Mirar la página antes de consultarlo", "mirar", look)
+            + notes("Falta revisar a mano", "revisar", manual)
+            + (f'<p class="ok">Cuantía y límites sin observaciones.</p>' if clear and not consult else "")
+            + f'<dl>{"".join(rows)}</dl>'
+            + (f'<p class="fuente">{source}</p>' if source else "")
+            + '</div></details>')
 
 
 def flagged(obra: dict) -> bool:
@@ -260,17 +334,30 @@ def flagged(obra: dict) -> bool:
 
 
 def build(conn: psycopg.Connection, watched: list[str], now: datetime) -> str:
+    e = html.escape
     items = obras(conn, watched, now)
     flagged_count = sum(1 for o in items if flagged(o))
-    head = (f'{len(items)} obras abiertas para ofertas en {e_join(watched)}. '
-            f'{flagged_count} con algo que revisar o consultar en la cuantía, los límites, el personal clave '
-            f'o los factores de evaluación.')
-    return PAGE.format(fecha=f"{now.astimezone(LIMA):%d/%m/%Y}", resumen=html.escape(head),
-                       obras="\n".join(card(o, now) for o in items))
+    word = "obra abierta" if len(items) == 1 else "obras abiertas"
+    head = (f'{len(items)} {word} para ofertas en {e_join(watched)}. {flagged_count} con algo que revisar o '
+            f'consultar en la cuantía, los límites, el personal clave o los factores de evaluación.')
+    groups = {key: [o for o in items if bucket(o["fecha_limite_ofertas"], now) == key] for key, _ in BUCKETS}
+    jumps = "".join(f'<a class="salto" href="#{key}">{name.removeprefix("Cierran ")} <b>{len(groups[key])}</b></a>'
+                    for key, name in BUCKETS if groups[key])
+    deps = sorted({d for o in items for d in (o["departamentos"] or ["sin ubicar"])})
+    filters = ("" if len(deps) < 2 else '<div class="filtros" id="filtros"><button type="button" data-dep="" '
+               'aria-pressed="true">Todos</button>' + "".join(
+                   f'<button type="button" data-dep="{e(d)}" aria-pressed="false">{e(proper(d) if d != "sin ubicar" else "Sin ubicar")}</button>' for d in deps)
+               + "</div>")
+    sections = "".join(
+        f'<section id="{key}"><h2>{name} <span class="cuenta">{len(groups[key])}</span></h2>'
+        + "".join(card(o, now) for o in groups[key]) + "</section>"
+        for key, name in BUCKETS if groups[key])
+    return PAGE.format(fecha=f"{now.astimezone(LIMA):%d/%m/%Y}", resumen=e(head), saltos=jumps, filtros=filters,
+                       secciones=sections or "<p>Ninguna obra abierta para ofertas.</p>")
 
 
 def e_join(names: list[str]) -> str:
-    names = [n.title() for n in names]
+    names = [proper(n) for n in names]
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " y " + names[-1]
 
 
@@ -281,28 +368,102 @@ def write(conn: psycopg.Connection, watched: list[str], folder: Path, now: datet
     return path
 
 
+# Opened from a mail on a phone, maybe offline and without scripts: system fonts, everything readable without
+# the script, which only adds the departamento filter. Rows fold open on tap (<details>).
 PAGE = """<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Obras abiertas {fecha}</title>
 <style>
-body {{ font-family: system-ui, sans-serif; font-size: 17px; line-height: 1.45; margin: 0; padding: 12px 16px;
-       background: #f6f6f4; color: #1d1d1b; overflow-wrap: anywhere; }}
-h1 {{ font-size: 21px; margin: 4px 0 6px; }}
-h2 {{ font-size: 18px; margin: 0 0 4px; }}
-section {{ background: #fff; border-radius: 10px; padding: 12px 14px; margin: 12px 0; border-left: 5px solid #c9c9c4; }}
-section.con-aviso {{ border-left-color: #c2410c; }}
-p {{ margin: 4px 0; }}
-.desc, .fuente {{ color: #5f5f5a; font-size: 15px; }}
-.revisar {{ color: #92400e; font-weight: 600; }}
-.aviso-titulo {{ color: #c2410c; font-weight: 700; margin-top: 8px; }}
-.ok {{ color: #166534; }}
-.ocr {{ color: #92400e; font-size: 15px; }}
-ul {{ margin: 4px 0 4px 18px; padding: 0; }}
-li {{ margin: 4px 0; }}
-</style></head><body>
+:root {{
+  --fondo: #f3f4f1; --hoja: #ffffff; --tinta: #1c211d; --gris: #5b6560; --linea: #dfe3de;
+  --acento: #1f5f4a; --consultar: #b4410f; --consultar-fondo: #fdf0e8; --revisar: #8a5a00; --revisar-fondo: #fbf4e2;
+  --ok: #1f6b3a;
+  --texto: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cifras: ui-monospace, "SF Mono", "Roboto Mono", Consolas, monospace;
+  color-scheme: light;
+}}
+@media (prefers-color-scheme: dark) {{ :root:not([data-theme="light"]) {{
+  --fondo: #141816; --hoja: #1d2320; --tinta: #e7ebe7; --gris: #a1aba5; --linea: #313a35;
+  --acento: #7cc4a6; --consultar: #ff9b6b; --consultar-fondo: #3a2418; --revisar: #e6b55c; --revisar-fondo: #33291a;
+  --ok: #7fd19b; color-scheme: dark; }} }}
+:root[data-theme="dark"] {{
+  --fondo: #141816; --hoja: #1d2320; --tinta: #e7ebe7; --gris: #a1aba5; --linea: #313a35;
+  --acento: #7cc4a6; --consultar: #ff9b6b; --consultar-fondo: #3a2418; --revisar: #e6b55c; --revisar-fondo: #33291a;
+  --ok: #7fd19b; color-scheme: dark; }}
+* {{ box-sizing: border-box; }}
+body {{ margin: 0; padding-block: 12px 32px; padding-inline: 16px; background: var(--fondo); color: var(--tinta);
+       font: 16px/1.45 var(--texto); overflow-wrap: anywhere; }}
+main {{ max-width: 720px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }}
+h1 {{ font-size: 22px; margin: 0; text-wrap: balance; }}
+.resumen {{ margin: 0; color: var(--gris); }}
+.saltos, .filtros {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+.salto, .filtros button {{ font: inherit; font-size: 14px; color: var(--tinta); background: var(--hoja);
+  border: 1px solid var(--linea); border-radius: 999px; padding: 6px 12px; text-decoration: none; cursor: pointer; }}
+.filtros button[aria-pressed="true"] {{ background: var(--acento); border-color: var(--acento); color: var(--hoja); }}
+.salto b {{ color: var(--acento); }}
+section {{ display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }}
+h2 {{ font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--gris); margin: 10px 0 0; }}
+.cuenta {{ color: var(--acento); }}
+details.obra {{ background: var(--hoja); border: 1px solid var(--linea); border-radius: 10px; }}
+details.obra[open] {{ border-color: var(--acento); }}
+summary {{ list-style: none; cursor: pointer; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }}
+summary::-webkit-details-marker {{ display: none; }}
+summary:focus-visible {{ outline: 2px solid var(--acento); outline-offset: 2px; border-radius: 10px; }}
+.cabeza {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }}
+.lugar {{ font-weight: 700; font-size: 17px; }}
+.que {{ color: var(--gris); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden; }}
+.meta {{ display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; }}
+.cifra {{ font-family: var(--cifras); font-variant-numeric: tabular-nums; }}
+.chip {{ font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }}
+.chip.consultar {{ color: var(--consultar); background: var(--consultar-fondo); }}
+.chip.revisar {{ color: var(--revisar); background: var(--revisar-fondo); }}
+.detalle {{ padding: 0 14px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; border-top: 1px solid var(--linea); padding-top: 12px; }}
+.nomen, .desc, .fuente {{ margin: 0; font-size: 14px; color: var(--gris); }}
+dl {{ margin: 0; display: grid; gap: 10px; }}
+.fila {{ display: grid; gap: 2px; }}
+dt {{ font-size: 13px; color: var(--gris); }}
+dd {{ margin: 0; }}
+.pag {{ display: block; font-size: 13px; color: var(--gris); }}
+.lista {{ list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }}
+.lista li {{ display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dotted var(--linea);
+             padding-bottom: 3px; }}
+.lista li.total {{ font-weight: 700; border-bottom: 0; }}
+.lista .cifra {{ white-space: nowrap; }}
+.nota {{ border-radius: 8px; padding: 10px 12px; }}
+.nota ul {{ margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }}
+.nota-titulo {{ margin: 0; font-weight: 700; }}
+.nota.consultar {{ background: var(--consultar-fondo); }}
+.nota.consultar .nota-titulo {{ color: var(--consultar); }}
+.nota.mirar, .nota.revisar {{ background: var(--revisar-fondo); }}
+.nota.mirar .nota-titulo, .nota.revisar .nota-titulo {{ color: var(--revisar); }}
+.ok {{ margin: 0; color: var(--ok); }}
+@media (prefers-reduced-motion: no-preference) {{ details.obra {{ transition: border-color .15s; }} }}
+</style></head><body><main>
 <h1>Obras abiertas, {fecha}</h1>
-<p>{resumen}</p>
-{obras}
+<p class="resumen">{resumen}</p>
+<nav class="saltos">{saltos}</nav>
+{filtros}
+{secciones}
+</main>
+<script>
+(function () {{
+  var bar = document.getElementById("filtros");
+  if (!bar) return;
+  bar.addEventListener("click", function (event) {{
+    var button = event.target.closest("button");
+    if (!button) return;
+    var dep = button.getAttribute("data-dep");
+    bar.querySelectorAll("button").forEach(function (b) {{ b.setAttribute("aria-pressed", String(b === button)); }});
+    document.querySelectorAll("details.obra").forEach(function (obra) {{
+      obra.hidden = dep !== "" && obra.getAttribute("data-dep").split("|").indexOf(dep) < 0;
+    }});
+    document.querySelectorAll("main section").forEach(function (section) {{
+      section.hidden = !section.querySelector("details.obra:not([hidden])");
+    }});
+  }});
+}})();
+</script>
 </body></html>
 """

@@ -147,7 +147,8 @@ def write_changes_csv(obras: list[dict], path: Path) -> None:
 def money(value, currency) -> str:
     if value is None:
         return "cuantía no publicada"
-    prefix = "S/" if (currency or "").lower().startswith("sol") else (currency or "")
+    # the portal says "Soles" or "Nuevos Soles"
+    prefix = "S/" if "sol" in (currency or "").lower() else (currency or "")
     return f"{prefix} {value:,.0f}".replace(",", ".")
 
 
