@@ -65,10 +65,20 @@ missing mail means something failed.
 ## Run
 
 ```
-.venv/Scripts/python -m seace_monitor             # search, download, report, send
+.venv/Scripts/python -m seace_monitor             # search, download, read the bases, report, send
 .venv/Scripts/python -m seace_monitor --no-mail   # write the report to data/informes without sending or marking
 .venv/Scripts/python -m pytest
 ```
+
+The run has two parts that can also be started on their own, so a long OCR never holds back the report:
+
+```
+.venv/Scripts/python -m seace_monitor --avisos    # search, track, report, send; minutes
+.venv/Scripts/python -m seace_monitor --lectura   # download, unpack, OCR and read the bases; no report
+```
+
+Readings made by `--lectura` go into the next report. Run the notices several times a day and the reading
+once a night.
 
 ## Automatic extraction
 
