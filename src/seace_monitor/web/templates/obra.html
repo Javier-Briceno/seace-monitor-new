@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}{{ s.lugar }}: {{ s.nomenclatura }}{% endblock %}
+{% block main_class %}ficha{% endblock %}
+{% macro pagina(item) %}{% if item.enlace %}<a class="pag" href="{{ item.enlace }}" target="_blank" rel="noopener">{% if item.pagina %}Ver pág. {{ item.pagina }}{% else %}Abrir archivo{% endif %}</a>{% elif item.pagina %}<span class="pag">pág. {{ item.pagina }}</span>{% endif %}{% endmacro %}
+{% macro notas(titulo, clase, items, pie="") %}
+{% if items %}
+<section class="nota nota-{{ clase }}">
+  <h2>{{ titulo }}</h2>
+  <ul>
+    {% for n in items %}<li><span>{{ n.texto }}</span>{{ pagina(n) }}</li>{% endfor %}
+  </ul>
+  {% if pie %}<p class="nota-pie">{{ pie }}</p>{% endif %}
+</section>
+{% endif %}
+{% endmacro %}
+{% block content %}
+<nav class="volver"><a href="{{ volver or '/' }}">Volver a la lista</a></nav>
+
+<header class="ficha-cabeza">
+  <p class="ficha-lugar">{{ s.lugar }}</p>
+  <h1>{{ s.que }}</h1>
+  <form method="post" action="/obras/{{ s.nid }}/seguir" class="seguir">
+    <input type="hidden" name="csrf" value="{{ sesion.csrf }}">
+    <input type="hidden" name="volver" value="/obras/{{ s.nid }}">
+    {% if s.seguida %}
+    <input type="hidden" name="accion" value="dejar">
+    <button type="submit" class="boton boton-claro">Siguiendo. Dejar de seguir</button>
+    {% else %}
+    <input type="hidden" name="accion" value="seguir">
+    <button type="submit" class="boton">Seguir esta obra</button>
+    {% endif %}
+  </form>
+</header>
+
+<dl class="cajetin">
+  <div class="cajetin-entidad"><dt>Entidad</dt><dd>{{ s.entidad }}</dd></div>
+  <div><dt>Nomenclatura</dt><dd>{{ o.nomenclatura }}</dd></div>
+  <div><dt>Cuantía</dt><dd class="cifra">{{ s.cuantia }}</dd></div>
+  <div><dt>{% if s.abierta %}Ofertas hasta{% else %}Estado{% endif %}</dt><dd{% if s.grupo == 'hoy' %} class="urgente"{% endif %}>{{ s.cierre }}</dd></div>
+  <div><dt>Departamento</dt><dd>{{ s.departamentos|join(", ") or "Sin ubicar" }}</dd></div>
+  <div><dt>Publicada</dt><dd>{{ publicada.strftime("%d/%m/%Y") if publicada else "—" }}</dd></div>
+</dl>
+
+{{ notas("Para consultar con la entidad", "consultar", d.consultar) }}
+{{ notas("Mirar la página antes de consultar", "mirar", d.mirar, "Leído de un escaneo: una cifra puede estar mal leída.") }}
+{{ notas("Falta revisar a mano", "revisar", d.revisar) }}
+{% if d.sin_observaciones %}<p class="sin-obs">Cuantía, oferta y límites sin observaciones.</p>{% endif %}
+
+{% if d.valores %}
+<section class="bloque">
+  <h2>Lo que piden las bases</h2>
+  <dl class="valores">
+    {% for v in d.valores %}
+    <div class="valor">
+      <dt>{{ v.etiqueta }}</dt>
+      <dd>
+        {% if v.lista %}
+        <ul class="tabla">
+          {% for nombre, cifra in v.lista %}<li{% if loop.last and v.etiqueta == "Factores de evaluación" %} class="total"{% endif %}><span>{{ nombre or "Cargo sin nombre" }}</span><span class="cifra">{{ cifra }}</span></li>{% endfor %}
+        </ul>
+        {% else %}{{ v.valor }}{% endif %}
+        <span class="valor-fuente">{{ pagina(v) }}{% if v.ocr %}<span class="escaneo">leído de un escaneo, comprobar la cifra</span>{% endif %}</span>
+      </dd>
+    </div>
+    {% endfor %}
+  </dl>
+</section>
+{% endif %}
+
+<section class="bloque">
+  <h2>Documentos</h2>
+  {% if documentos %}
+  <ul class="documentos">
+    {% for doc in documentos %}
+    <li>
+      <span class="doc-tipo">{{ doc.tipo }}</span>
+      {% if doc.disponible %}<a href="/obras/{{ s.nid }}/documentos/{{ doc.id }}">{{ doc.nombre }}</a>{% else %}<span>{{ doc.nombre }}</span><span class="archivado">Archivado, no está en el servidor</span>{% endif %}
+      {% if doc.publicado %}<span class="doc-fecha">{{ doc.publicado.strftime("%d/%m/%Y") }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="suave">Todavía no hay documentos descargados.</p>
+  {% endif %}
+</section>
+
+{% if historial %}
+<section class="bloque">
+  <h2>Cambios vistos</h2>
+  <ol class="historial">
+    {% for h in historial %}<li><time datetime="{{ h.cuando.isoformat() }}">{{ h.cuando.strftime("%d/%m/%Y") }}</time><span>{{ h.texto }}</span></li>{% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+<section class="bloque">
+  <h2>Descripción del SEACE</h2>
+  <p class="descripcion">{{ o.descripcion }}</p>
+</section>
+{% endblock %}

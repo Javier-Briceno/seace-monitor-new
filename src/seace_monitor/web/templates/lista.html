@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block main_class %}buscador{% endblock %}
+{% macro fila(o) %}
+<li>
+  <a class="obra" href="/obras/{{ o.nid }}">
+    <span class="obra-lugar">{{ o.lugar }}</span>
+    <span class="obra-que">{{ o.que }}</span>
+    <span class="obra-cifras">
+      <span class="cifra">{{ o.cuantia }}</span>
+      <span class="obra-cierre{% if o.grupo == 'hoy' %} urgente{% endif %}">{{ o.cierre }}</span>
+    </span>
+    {% if o.consultar or o.sin_leer or o.seguida %}
+    <span class="marcas">
+      {% if o.consultar %}<span class="marca-consultar">Para consultar</span>{% endif %}
+      {% if o.sin_leer %}<span class="marca-revisar">Bases sin leer</span>{% endif %}
+      {% if o.seguida %}<span class="marca-seguida">Siguiendo</span>{% endif %}
+    </span>
+    {% endif %}
+  </a>
+</li>
+{% endmacro %}
+{% block content %}
+<form method="get" action="/" class="filtros" role="search">
+  <div class="filtros-base">
+    <div class="campo campo-q">
+      <label for="q">Buscar</label>
+      <input id="q" name="q" type="search" value="{{ f.q }}" placeholder="Entidad, obra o nomenclatura">
+    </div>
+    <div class="campo">
+      <label for="dep">Departamento</label>
+      <select id="dep" name="dep">
+        <option value="">Todos</option>
+        {% for d in r.departamentos %}<option value="{{ d }}"{% if f.dep == d %} selected{% endif %}>{{ proper(d) }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo">
+      <label for="cierre">Cierre de ofertas</label>
+      <select id="cierre" name="cierre">
+        <option value="">Cualquier fecha</option>
+        {% for k, v in cierres.items() %}<option value="{{ k }}"{% if f.cierre == k %} selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <input type="checkbox" id="mas" class="mas-interruptor"{% if f.active() %} checked{% endif %}>
+  <label for="mas" class="mas-etiqueta">Más filtros{% if f.active() %} ({{ f.active() }}){% endif %}</label>
+  <div class="filtros-mas">
+    <fieldset>
+      <legend>Cuantía</legend>
+      <div class="rango">
+        <input name="cuantia_min" inputmode="numeric" value="{{ f.cuantia_min if f.cuantia_min is not none else '' }}" placeholder="Desde S/" aria-label="Cuantía desde">
+        <input name="cuantia_max" inputmode="numeric" value="{{ f.cuantia_max if f.cuantia_max is not none else '' }}" placeholder="Hasta S/" aria-label="Cuantía hasta">
+      </div>
+    </fieldset>
+    <div class="campo">
+      <label for="tipo">Oferta económica</label>
+      <select id="tipo" name="tipo">
+        <option value="">Fija o limitada</option>
+        {% for k, v in tipos.items() %}<option value="{{ k }}"{% if f.tipo == k %} selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select>
+    </div>
+    <fieldset>
+      <legend>Lo que piden las bases</legend>
+      <div class="campo">
+        <label for="exp_max">Experiencia del postor hasta</label>
+        <input id="exp_max" name="exp_max" inputmode="numeric" value="{{ f.exp_max if f.exp_max is not none else '' }}" placeholder="S/">
+      </div>
+      <div class="campo">
+        <label for="especialidad">Especialidad</label>
+        <input id="especialidad" name="especialidad" value="{{ f.especialidad }}" placeholder="Edificaciones, saneamiento…">
+      </div>
+      <div class="campo">
+        <label for="cargo">Cargo del personal clave</label>
+        <input id="cargo" name="cargo" value="{{ f.cargo }}" placeholder="Residente, ingeniero ambiental…">
+      </div>
+    </fieldset>
+    <fieldset class="casillas">
+      <legend>Mostrar</legend>
+      <label><input type="checkbox" name="consultar" value="1"{% if f.consultar %} checked{% endif %}> Solo con algo para consultar</label>
+      <label><input type="checkbox" name="seguidas" value="1"{% if f.seguidas %} checked{% endif %}> Solo las que sigo</label>
+      <label><input type="checkbox" name="cerradas" value="1"{% if f.cerradas %} checked{% endif %}> Incluir las cerradas</label>
+    </fieldset>
+    <div class="campo">
+      <label for="orden">Ordenar por</label>
+      <select id="orden" name="orden">
+        {% for k, v in ordenes.items() %}<option value="{{ k }}"{% if f.orden == k %} selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="filtros-acciones">
+    <button type="submit" class="boton">Buscar</button>
+    {% if query %}<a href="/" class="quitar">Quitar filtros</a>{% endif %}
+  </div>
+</form>
+
+<section class="resultados" aria-live="polite">
+  <p class="cuenta">
+    {% set n = r.found|length %}
+    {{ n }} {{ "obra" if n == 1 else "obras" }}{% if not f.cerradas %} {{ "abierta" if n == 1 else "abiertas" }} para ofertas{% endif %}{% if r.unread %}, y {{ r.unread|length }} sin leer más abajo{% endif %}
+  </p>
+
+  {% if not r.found and not r.unread %}
+  <div class="vacio">
+    <p>Ninguna obra cumple estos filtros.</p>
+    <a href="/" class="boton">Quitar filtros</a>
+  </div>
+  {% endif %}
+
+  {% if f.orden == "cierre" %}
+    {% for key, titulo in grupos.items() %}
+      {% set grupo = r.found | selectattr("grupo", "equalto", key) | list %}
+      {% if grupo %}
+      <h2 class="grupo">{{ titulo }} <span>{{ grupo|length }}</span></h2>
+      <ul class="lista-obras">{% for o in grupo %}{{ fila(o) }}{% endfor %}</ul>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <ul class="lista-obras">{% for o in r.found %}{{ fila(o) }}{% endfor %}</ul>
+  {% endif %}
+
+  {% if r.unread %}
+  <h2 class="grupo grupo-sin-leer">Sin leer en las bases <span>{{ r.unread|length }}</span></h2>
+  <p class="aclaracion">No se sabe si cumplen el filtro de lo que piden las bases, porque ese dato no se pudo leer. Revísalas antes de descartarlas.</p>
+  <ul class="lista-obras">{% for o in r.unread %}{{ fila(o) }}{% endfor %}</ul>
+  {% endif %}
+</section>
+{% endblock %}
