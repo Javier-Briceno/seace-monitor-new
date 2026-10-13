@@ -37,9 +37,11 @@ def message(subject: str, body: str, attachments: list[Path], sender: str, to: l
     return msg
 
 
-def send(subject: str, body: str, attachments: list[Path]) -> list[str]:
-    """Send and return the recipients. Raises MailError unless the server accepted every recipient."""
+def send(subject: str, body: str, attachments: list[Path], to: list[str] | None = None) -> list[str]:
+    """Send to `to`, by default the report's recipients, and return them. Raises MailError unless the server
+    accepted every recipient."""
     s = settings()
+    s["to"] = to or s["to"]
     msg = message(subject, body, attachments, s["sender"], s["to"])
     try:
         if s["port"] == 465:
