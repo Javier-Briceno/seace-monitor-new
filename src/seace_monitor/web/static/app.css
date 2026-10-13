@@ -99,6 +99,9 @@ label, legend { font-size: 13px; font-weight: 500; color: var(--grafito); }
 .busqueda-cuerpo { display: grid; gap: 16px; }
 
 .panel-interruptor { position: absolute; opacity: 0; pointer-events: none; }
+/* the hidden switch takes the keyboard focus; its visible labels show it */
+.panel-interruptor:focus-visible ~ .resultados .abrir-filtros,
+.panel-interruptor:focus-visible:checked ~ .panel .panel-cabeza label { outline: 2px solid var(--plano); outline-offset: 2px; }
 .panel { display: none; }
 .panel-cabeza { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 17px; }
 .panel fieldset { border: 0; margin: 0; padding: 14px 0; border-top: 1px solid var(--regla-suave); display: grid; gap: 6px; min-width: 0; }
