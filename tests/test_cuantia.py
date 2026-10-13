@@ -82,13 +82,20 @@ def test_typo_in_the_upper_limit():
     assert warnings(result) == [{"aviso": "limite_superior", "bases": "1622638.31", "exacto": "1662638.31"}]
 
 
-@pytest.mark.parametrize("nid, low, high", [("1253596", "3835250.54", "4440816.41"),
-                                            ("1251678", "45795975.67", "53026919.18")])
-def test_limits_are_the_con_igv_columns(nid, low, high):
+@pytest.mark.parametrize("nid, low, high, low_sin, high_sin", [
+    ("1253596", "3835250.54", "4440816.41", "3250212.33", "3763403.73"),
+    ("1251678", "45795975.67", "53026919.18", "38810148.87", "44938067.10")])
+def test_limits_are_the_con_igv_columns_and_the_sin_igv_ones_are_kept(nid, low, high, low_sin, high_sin):
     # "Con IGV" and "Sin IGV" under each límite: the sin-IGV lower figure sits between the two límites.
     result = read(bases(nid))
     assert (result["limite_inferior"], result["limite_superior"]) == (low, high)
+    assert (result["sin_igv_inferior"], result["sin_igv_superior"]) == (low_sin, high_sin)
     assert warnings(result) == []
+
+
+def test_a_table_without_sin_igv_columns_has_no_sin_igv_limits():
+    result = read(bases("1252404"))
+    assert "sin_igv_inferior" not in result and "sin_igv_superior" not in result
 
 
 def test_unfilled_limits_table_of_a_fixed_offer_is_no_table():
