@@ -7,6 +7,6 @@ OnFailure=seace-fallo@%n.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/seace-monitor-new
+WorkingDirectory=@APP_DIR@
 ExecStartPre=/usr/bin/docker compose --profile vpn up -d --wait db vpn
 ExecStart=/usr/bin/docker compose --profile monitor run --rm monitor --lectura

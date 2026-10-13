@@ -6,4 +6,4 @@ OnFailure=seace-fallo@%n.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/seace-monitor-new/deploy/backup.sh
+ExecStart=@APP_DIR@/deploy/backup.sh
