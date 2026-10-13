@@ -22,7 +22,7 @@ from ..report import CHANGE_NAMES, STOPPED
 ORDERS = {"cierre": "Cierre más cercano", "cuantia": "Cuantía más alta", "publicacion": "Publicación más reciente"}
 CLOSING = {"hoy": "Cierran hoy", "semana": "Cierran en 7 días", "mes": "Cierran en 30 días"}
 CLOSING_DAYS = {"hoy": 0, "semana": 7, "mes": 30}
-PUBLISHED = {"semana": "Publicadas en los últimos 7 días", "mes": "Publicadas en los últimos 30 días"}
+PUBLISHED = {"semana": "Últimos 7 días", "mes": "Últimos 30 días"}
 PUBLISHED_DAYS = {"semana": 7, "mes": 30}
 OFFER_FILTER = {"fija": "Fija", "limitada": "Limitada"}
 
@@ -152,7 +152,7 @@ class Filters:
         if self.cierre:
             out.append((CLOSING[self.cierre], without("cierre")))
         if self.publicada:
-            out.append((PUBLISHED[self.publicada], without("publicada")))
+            out.append((f"Publicadas: {PUBLISHED[self.publicada].lower()}", without("publicada")))
         if self.cuantia_min is not None:
             out.append((f"Cuantía desde {op.soles(self.cuantia_min)}", without("cuantia_min")))
         if self.cuantia_max is not None:
