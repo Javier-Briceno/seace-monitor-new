@@ -27,13 +27,16 @@ def allowed(correo: str, allowlist: list[str]) -> bool:
 def new_link(conn: psycopg.Connection, correo: str, now: datetime) -> str | None:
     """A fresh sign-in token for this address, or None when it asked too often in the last hour."""
     correo = correo.strip().lower()
-    recent = conn.execute("SELECT count(*) FROM web_accesos WHERE correo = %s AND creado_en > %s",
-                          [correo, now - timedelta(hours=1)]).fetchone()[0]
-    if recent >= LINKS_PER_HOUR:
-        return None
-    token = secrets.token_urlsafe(32)
-    conn.execute("INSERT INTO web_accesos (token_hash, correo, creado_en, vence_en) VALUES (%s, %s, %s, %s)",
-                 [digest(token), correo, now, now + timedelta(minutes=LINK_MINUTES)])
+    with conn.transaction():
+        # one request per address at a time, or simultaneous requests would all count fewer than the limit
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('web_accesos:' || %s))", [correo])
+        recent = conn.execute("SELECT count(*) FROM web_accesos WHERE correo = %s AND creado_en > %s",
+                              [correo, now - timedelta(hours=1)]).fetchone()[0]
+        if recent >= LINKS_PER_HOUR:
+            return None
+        token = secrets.token_urlsafe(32)
+        conn.execute("INSERT INTO web_accesos (token_hash, correo, creado_en, vence_en) VALUES (%s, %s, %s, %s)",
+                     [digest(token), correo, now, now + timedelta(minutes=LINK_MINUTES)])
     return token
 
 

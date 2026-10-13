@@ -72,6 +72,22 @@ def test_an_address_gets_few_links_per_hour(web):
     assert len(web.sent) == auth.LINKS_PER_HOUR
 
 
+def test_simultaneous_requests_still_get_few_links(test_dbname):
+    from concurrent.futures import ThreadPoolExecutor
+    from seace_monitor import db
+
+    def ask(_):
+        with db.connect(test_dbname) as own:
+            return auth.new_link(own, "simultanea@example.com", NOW)
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            tokens = [t for t in pool.map(ask, range(16)) if t]
+        assert len(tokens) == auth.LINKS_PER_HOUR
+    finally:
+        with db.connect(test_dbname) as own:
+            own.execute("DELETE FROM web_accesos WHERE correo = 'simultanea@example.com'")
+
+
 def test_the_list_shows_open_obras_and_finds_by_text(web, conn):
     signed_in(web, conn)
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
@@ -164,6 +180,18 @@ def test_files_come_only_from_the_download_folder(web, conn, tmp_path):
     assert web.get(f"/obras/1/bases/{bad}/fuera.pdf").status_code == 404
     assert web.get(f"/obras/1/documentos/{bad}").status_code == 404
     assert web.get(f"/obras/2/documentos/{good}").status_code == 404   # another obra's document
+
+
+def test_signing_out_needs_the_form_token(web, conn):
+    session = signed_in(web, conn)
+    forged = web.post("/salir", data={"csrf": "otro"}, follow_redirects=False)
+    assert forged.status_code == 403 and "set-cookie" not in forged.headers
+    assert web.get("/", follow_redirects=False).status_code == 200      # still signed in
+    out = web.post("/salir", data={"csrf": session["csrf"]}, follow_redirects=False)
+    assert out.headers["location"] == "/entrar" and COOKIE in out.headers["set-cookie"]
+    assert auth.session_of(conn, None, NOW) is None
+    web.cookies.clear()
+    assert "set-cookie" not in web.post("/salir", data={"csrf": "x"}, follow_redirects=False).headers
 
 
 def test_pages_carry_security_headers(web):

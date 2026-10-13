@@ -106,10 +106,14 @@ def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.co
     @app.post("/salir")
     def sign_out(request: Request, csrf: str = Form(""), conn: psycopg.Connection = Depends(conn_dep),
                  session: dict | None = Depends(session_dep)):
-        if session and auth.same_csrf(session, csrf):
-            auth.end_session(conn, request.cookies[COOKIE])
+        # a form posted from another site must not sign anyone out: the cookie goes only with the right token
+        if session is None:
+            return to_login()
+        if not auth.same_csrf(session, csrf):
+            raise HTTPException(403)
+        auth.end_session(conn, request.cookies[COOKIE])
         response = to_login()
-        response.delete_cookie(COOKIE)
+        response.delete_cookie(COOKIE, httponly=True, secure=secure, samesite="lax")
         return response
 
     @app.get("/", response_class=HTMLResponse)
