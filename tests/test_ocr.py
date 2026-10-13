@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from seace_monitor.bases_text import ToolMissing, is_scanned, text_of
-from seace_monitor.ocr import image_pages, make_ocr, ocr_path, ocrmypdf, page_ranges
+from seace_monitor.ocr import image_pages, make_ocr, ocr_path, ocr_pdf_path, ocrmypdf, page_ranges
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -34,10 +34,10 @@ def test_scanned_page_gets_a_text_layer_next_to_the_original(tmp_path):
     original.write_bytes((FIXTURES / "bases_scanned_page.pdf").read_bytes())
     before = original.read_bytes()
     out = make_ocr(original, [1])
-    assert out == ocr_path(original) == tmp_path / "bases-ocr.pdf"
+    assert out == ocr_path(original) == tmp_path / "bases-ocr.txt"
     assert not is_scanned(text_of(out))
     assert original.read_bytes() == before
-    assert not list(tmp_path.glob("*.part"))
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["bases-ocr.txt", "bases.pdf"]
 
 
 @needs_ocr
@@ -63,3 +63,21 @@ def test_an_existing_copy_is_not_made_again(tmp_path):
     original.write_bytes((FIXTURES / "bases_scanned_page.pdf").read_bytes())
     ocr_path(original).write_bytes(b"made before")
     assert make_ocr(original, [1]).read_bytes() == b"made before"
+
+
+def test_an_ocred_pdf_of_an_earlier_run_gives_its_text_without_recognizing_again(tmp_path):
+    original = tmp_path / "bases.pdf"
+    original.write_bytes((FIXTURES / "bases_scanned_page.pdf").read_bytes())
+    earlier = ocr_pdf_path(original)
+    earlier.write_bytes((FIXTURES / "bases_cuantia_alto_trujillo.pdf").read_bytes())
+    out = make_ocr(original, [1])
+    assert text_of(out) == text_of(earlier)
+    assert earlier.exists()
+
+
+def test_the_saved_text_reads_byte_for_byte_like_the_pdf(tmp_path):
+    # pdftotext ends lines with CR LF on Windows; the readers must get them unchanged
+    original = tmp_path / "bases.pdf"
+    original.write_bytes(b"")
+    ocr_pdf_path(original).write_bytes((FIXTURES / "bases_cuantia_alto_trujillo.pdf").read_bytes())
+    assert make_ocr(original, [1]).read_bytes().decode("utf-8") == text_of(ocr_pdf_path(original))
