@@ -101,7 +101,26 @@ def test_a_requisito_filter_keeps_unread_bases_apart(web, conn):
 def test_matching_reads_amounts_and_words_as_people_type_them():
     assert data.amount("S/ 1,500,000.50") == Decimal("1500000.50") and data.amount("1 500 000") == Decimal("1500000")
     assert data.amount("mucho") is None and data.amount("-5") is None
+    assert data.amount("NaN") is None and data.amount("Infinity") is None
     assert data.plain("Edificación") == "edificacion"
+
+
+def test_a_typed_nonsense_amount_is_ignored_not_an_error(web, conn):
+    signed_in(web, conn)
+    assert web.get("/", params={"cuantia_min": "NaN", "exp_max": "inf"}).status_code == 200
+
+
+def test_an_address_taken_off_the_list_loses_its_session_and_its_links(conn, tmp_path):
+    session = auth.use_link(conn, auth.new_link(conn, ALLOWED, NOW), NOW)
+    pending = auth.new_link(conn, ALLOWED, NOW)
+    settings = {"search": {"departamentos": ["LA LIBERTAD"]}, "download": {"dir": str(tmp_path)},
+                "web": {"url": "https://buscador.example.com", "correos": []}}
+    app = create_app(settings, connect=lambda: contextlib.nullcontext(conn), send=lambda *a, **k: [],
+                     clock=lambda: NOW)
+    client = TestClient(app, base_url="https://buscador.example.com")
+    client.cookies.set(COOKIE, session)
+    assert client.get("/", follow_redirects=False).headers["location"] == "/entrar"
+    assert COOKIE not in client.post(f"/entrar/{pending}", follow_redirects=False).cookies
 
 
 def test_following_needs_the_form_token(web, conn):

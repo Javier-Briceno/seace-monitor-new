@@ -63,7 +63,9 @@ def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.co
             yield conn
 
     def session_dep(request: Request, conn: psycopg.Connection = Depends(conn_dep)) -> dict | None:
-        return auth.session_of(conn, request.cookies.get(COOKIE), clock())
+        # an address taken off the allowlist loses its open sessions too
+        session = auth.session_of(conn, request.cookies.get(COOKIE), clock())
+        return session if session and auth.allowed(session["correo"], allowlist) else None
 
     def to_login() -> RedirectResponse:
         return RedirectResponse("/entrar", status_code=303)
@@ -93,7 +95,7 @@ def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.co
 
     @app.post("/entrar/{token}")
     def sign_in(token: str, conn: psycopg.Connection = Depends(conn_dep)):
-        session = auth.use_link(conn, token, clock())
+        session = auth.use_link(conn, token, clock(), allowlist)
         if session is None:
             return RedirectResponse(f"/entrar/{token}", status_code=303)
         response = RedirectResponse("/", status_code=303)
@@ -194,5 +196,8 @@ def file_response(path: Path, inline: bool) -> FileResponse:
 
 
 def default_app() -> FastAPI:
+    # the search tool may start before any monitor run has applied the newest migrations
+    with db.connect() as conn:
+        db.migrate(conn)
     return create_app(cfg.load(os.environ.get("SEACE_CONFIG", "config.toml")))
 

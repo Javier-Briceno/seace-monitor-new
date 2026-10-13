@@ -43,14 +43,15 @@ def link_is_valid(conn: psycopg.Connection, token: str, now: datetime) -> bool:
     return row is not None
 
 
-def use_link(conn: psycopg.Connection, token: str, now: datetime) -> str | None:
-    """Spend a sign-in token once and open a session; returns the session token, or None."""
+def use_link(conn: psycopg.Connection, token: str, now: datetime, allowlist: list[str] | None = None) -> str | None:
+    """Spend a sign-in token once and open a session; returns the session token, or None. With `allowlist`,
+    a link sent before its address was taken off the list opens nothing."""
     with conn.transaction():
         row = conn.execute(
             """UPDATE web_accesos SET usado_en = %s
                WHERE token_hash = %s AND usado_en IS NULL AND vence_en > %s RETURNING correo""",
             [now, digest(token), now]).fetchone()
-        if row is None:
+        if row is None or (allowlist is not None and not allowed(row[0], allowlist)):
             return None
         session = secrets.token_urlsafe(32)
         conn.execute("INSERT INTO web_sesiones (token_hash, correo, csrf, creado_en, vence_en) VALUES (%s, %s, %s, %s, %s)",

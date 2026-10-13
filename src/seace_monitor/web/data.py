@@ -73,7 +73,7 @@ def amount(value: str | None) -> Decimal | None:
         number = Decimal(digits)
     except InvalidOperation:
         return None
-    return number if number >= 0 else None
+    return number if number.is_finite() and number >= 0 else None
 
 
 @dataclass
