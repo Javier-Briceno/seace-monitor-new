@@ -318,7 +318,7 @@ def main() -> int:
         print("not sent (--no-mail); nothing marked as reported")
         return 0
     try:
-        to = mail.send(rep.text.splitlines()[0], rep.text, rep.files)
+        to = mail.send(rep.text.splitlines()[0], rep.text, rep.files, html=rep.html)
     except mail.MailError as error:
         print(f"{error}; the same obras go into tomorrow's report", file=sys.stderr)
         return 1

@@ -305,3 +305,12 @@ def test_soles_are_written_as_s_whatever_the_portal_calls_them():
     assert money(Decimal("119000"), "Nuevos Soles") == "S/ 119.000"
     assert money(Decimal("975260.4"), "Soles") == "S/ 975.260"
     assert money(Decimal("5000"), "Dólares") == "Dólares 5.000"
+
+
+def test_the_html_report_links_each_obra_and_escapes_names(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4))
+    conn.execute("UPDATE licitaciones SET entidad = 'MUNICIPALIDAD <B>&</B> PRUEBA' WHERE nid_proceso = 1")
+    page = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW, web_url="https://b.example.com").html
+    assert 'href="https://b.example.com/obras/1"' in page and "LP-ABR-1" in page
+    assert "<b>" not in page.lower() and "&lt;b&gt;" in page.lower()
+    assert "S/ 1.500.000" in page and "cierra en 4 días" in page

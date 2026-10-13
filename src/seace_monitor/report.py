@@ -350,6 +350,7 @@ class Report:
     nids: list[int]
     extraction_ids: list[int] = field(default_factory=list)
     change_ids: list[int] = field(default_factory=list)
+    html: str = ""
 
 
 def build(conn: psycopg.Connection, watched: list[str], download_dir: Path, report_dir: Path,
@@ -376,5 +377,7 @@ def build(conn: psycopg.Connection, watched: list[str], download_dir: Path, repo
     if changed:
         files.append(stem.parent / f"{stem.name}-cambios.csv")
         write_changes_csv(changed, files[-1])
+    from .mail_html import summary_html  # it builds on this module's helpers
+    page = summary_html(items, now, watched, changed, web_url, followed)
     return Report(text, files, [i["nid_proceso"] for i in items], [e["id"] for e in extracted],
-                  [c["id"] for o in changed for c in o["cambios"]])
+                  [c["id"] for o in changed for c in o["cambios"]], page)
