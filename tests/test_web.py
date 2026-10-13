@@ -121,6 +121,38 @@ def test_matching_reads_amounts_and_words_as_people_type_them():
     assert data.plain("Edificación") == "edificacion"
 
 
+@pytest.mark.parametrize("seace, shown", [
+    ("REMODELACION DE INFRAESTRUCTURA DEPORTIVA; EN EL(LA) SECTOR VI-D SANTA CAMILA DISTRITO DE HUANCHACO",
+     "Remodelacion de infraestructura deportiva, en el sector VI-D Santa Camila distrito de Huanchaco"),
+    ("CONSTRUCCIÓN DE COBERTURA EN LA I.E. 80666 DEPARTAMENTO LA LIBERTAD¿ ¿ II ETAPA",
+     "Construcción de cobertura en la I.E. 80666 departamento La Libertad II etapa"),
+    ("CENTRO POBLADO CAÑA BRAVA DISTRITO DE ONGÓN DE LA PROVINCIA DE PATAZ",
+     "Centro poblado Caña Brava distrito de Ongón de la provincia de Pataz"),
+    ("Ya escrito en minúsculas; por la entidad", "Ya escrito en minúsculas, por la entidad"),
+])
+def test_seace_descriptions_read_as_sentences(seace, shown):
+    assert data.sentence(seace) == shown
+
+
+def test_dates_are_written_out():
+    from seace_monitor.search import LIMA
+    from datetime import datetime
+    assert data.long_date(datetime(2026, 10, 13, 23, 59, tzinfo=LIMA)) == "martes 13 de octubre, 23:59"
+    assert data.short_date(datetime(2026, 10, 1, 9, 0, tzinfo=LIMA)) == "1 oct 2026"
+
+
+def test_several_departamentos_and_a_removable_chip_per_filter(web, conn):
+    signed_in(web, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    add(conn, 2, ["ANCASH"], NOW + timedelta(days=2))
+    add(conn, 3, ["CAJAMARCA"], NOW + timedelta(days=2))
+    web_page = web.get("/", params=[("dep", "LA LIBERTAD"), ("dep", "ANCASH"), ("q", "prueba")])
+    # only LA LIBERTAD is watched in this app, so only obra 1 is listed at all
+    assert "/obras/1" in web_page.text and "/obras/3" not in web_page.text
+    assert 'href="/?dep=LA+LIBERTAD&amp;dep=ANCASH"' in web_page.text   # the chip that removes «prueba»
+    assert 'href="/?dep=ANCASH&amp;q=prueba"' in web_page.text          # the chip that removes La Libertad
+
+
 def test_a_typed_nonsense_amount_is_ignored_not_an_error(web, conn):
     signed_in(web, conn)
     assert web.get("/", params={"cuantia_min": "NaN", "exp_max": "inf"}).status_code == 200
@@ -156,7 +188,7 @@ def test_the_obra_page_links_each_value_to_its_page(web, conn):
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
     bases(conn, 1, lectura=reading(avisos=[{"aviso": "fija_con_limites"}], tipo_oferta="fija"))
     page = web.get("/obras/1").text
-    assert "Para consultar con la entidad" in page and "Ver pág. 21" in page
+    assert "Para consultar con la entidad" in page and "pág. 21" in page
     assert re.search(r'href="/obras/1/bases/\d+/BASES.pdf#page=21"', page)
     assert web.get("/obras/999").status_code == 404
 

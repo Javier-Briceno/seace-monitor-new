@@ -1,127 +1,132 @@
 {% extends "base.html" %}
-{% block main_class %}buscador{% endblock %}
-{% macro fila(o) %}
-<li>
-  <a class="obra" href="/obras/{{ o.nid }}">
-    <span class="obra-lugar">{{ o.lugar }}</span>
-    <span class="obra-que">{{ o.que }}</span>
-    <span class="obra-cifras">
-      <span class="cifra">{{ o.cuantia }}</span>
-      <span class="obra-cierre{% if o.grupo == 'hoy' %} urgente{% endif %}">{{ o.cierre }}</span>
-    </span>
-    {% if o.consultar or o.sin_leer or o.seguida %}
-    <span class="marcas">
-      {% if o.consultar %}<span class="marca-consultar">Para consultar</span>{% endif %}
-      {% if o.sin_leer %}<span class="marca-revisar">Bases sin leer</span>{% endif %}
-      {% if o.seguida %}<span class="marca-seguida">Siguiendo</span>{% endif %}
-    </span>
-    {% endif %}
-  </a>
-</li>
+{% block main_class %}ancho{% endblock %}
+{% macro fila(o, agrupada) %}
+<article class="fila">
+  <p class="fila-id"><span class="nomen">{{ o.nomenclatura }}</span><span class="fila-entidad">{{ o.entidad }}</span></p>
+  <h3 class="fila-titulo"><a href="/obras/{{ o.nid }}">{{ o.que }}</a></h3>
+  <dl class="fila-datos">
+    <div><dt>Cuantía</dt><dd class="cifra">{{ o.cuantia }}</dd></div>
+    <div><dt>{% if o.abierta %}Ofertas hasta{% else %}Cerró{% endif %}</dt>
+      <dd{% if o.grupo == 'hoy' %} class="urgente"{% endif %}>{% if o.abierta %}{{ o.cierre }}{% if not agrupada and o.dias is not none and o.dias <= 1 %} ({{ "hoy" if o.dias == 0 else "mañana" }}){% endif %}{% else %}{{ o.cierre_corto }}{% endif %}</dd></div>
+    <div><dt>Publicada</dt><dd>{{ o.publicada }}</dd></div>
+    <div><dt>Oferta</dt><dd>{{ o.oferta }}</dd></div>
+    <div><dt>Experiencia pedida</dt><dd class="cifra">{{ o.experiencia }}</dd></div>
+    <div><dt>Departamento</dt><dd>{{ o.departamentos|join(", ") or "Sin ubicar" }}</dd></div>
+  </dl>
+  {% if o.consultar or o.sin_leer or o.seguida %}
+  <p class="marcas">
+    {% if o.consultar %}<span class="marca-consultar">{{ o.consultas }} para consultar</span>{% endif %}
+    {% if o.sin_leer %}<span class="marca-revisar">Bases sin leer</span>{% endif %}
+    {% if o.seguida %}<span class="marca-seguida">Siguiendo</span>{% endif %}
+  </p>
+  {% endif %}
+</article>
 {% endmacro %}
 {% block content %}
-<form method="get" action="/" class="filtros" role="search">
-  <div class="filtros-base">
-    <div class="campo campo-q">
-      <label for="q">Buscar</label>
-      <input id="q" name="q" type="search" value="{{ f.q }}" placeholder="Entidad, obra o nomenclatura">
-    </div>
-    <div class="campo">
-      <label for="dep">Departamento</label>
-      <select id="dep" name="dep">
-        <option value="">Todos</option>
-        {% for d in r.departamentos %}<option value="{{ d }}"{% if f.dep == d %} selected{% endif %}>{{ proper(d) }}</option>{% endfor %}
-      </select>
-    </div>
-    <div class="campo">
-      <label for="cierre">Cierre de ofertas</label>
-      <select id="cierre" name="cierre">
-        <option value="">Cualquier fecha</option>
-        {% for k, v in cierres.items() %}<option value="{{ k }}"{% if f.cierre == k %} selected{% endif %}>{{ v }}</option>{% endfor %}
-      </select>
-    </div>
-  </div>
+<form method="get" action="/" class="busqueda" role="search">
+  <div class="busqueda-cuerpo">
+    <input type="checkbox" id="panel" class="panel-interruptor">
+    <aside class="panel" aria-label="Filtros">
+      <div class="panel-cabeza"><span>Filtros</span><label for="panel" class="enlace">Cerrar</label></div>
 
-  <input type="checkbox" id="mas" class="mas-interruptor"{% if f.active() %} checked{% endif %}>
-  <label for="mas" class="mas-etiqueta">Más filtros{% if f.active() %} ({{ f.active() }}){% endif %}</label>
-  <div class="filtros-mas">
-    <fieldset>
-      <legend>Cuantía</legend>
-      <div class="rango">
-        <input name="cuantia_min" inputmode="numeric" value="{{ f.cuantia_min if f.cuantia_min is not none else '' }}" placeholder="Desde S/" aria-label="Cuantía desde">
-        <input name="cuantia_max" inputmode="numeric" value="{{ f.cuantia_max if f.cuantia_max is not none else '' }}" placeholder="Hasta S/" aria-label="Cuantía hasta">
-      </div>
-    </fieldset>
-    <div class="campo">
-      <label for="tipo">Oferta económica</label>
-      <select id="tipo" name="tipo">
-        <option value="">Fija o limitada</option>
-        {% for k, v in tipos.items() %}<option value="{{ k }}"{% if f.tipo == k %} selected{% endif %}>{{ v }}</option>{% endfor %}
-      </select>
-    </div>
-    <fieldset>
-      <legend>Lo que piden las bases</legend>
-      <div class="campo">
+      <fieldset>
+        <legend>Departamento</legend>
+        {% for d in r.departamentos %}
+        <label class="casilla"><input type="checkbox" name="dep" value="{{ d }}"{% if d in f.deps %} checked{% endif %}> {{ proper(d) }}</label>
+        {% endfor %}
+      </fieldset>
+
+      <fieldset>
+        <legend>Cierre de ofertas</legend>
+        <label class="casilla"><input type="radio" name="cierre" value=""{% if not f.cierre %} checked{% endif %}> Cualquier fecha</label>
+        {% for k, v in cierres.items() %}<label class="casilla"><input type="radio" name="cierre" value="{{ k }}"{% if f.cierre == k %} checked{% endif %}> {{ v }}</label>{% endfor %}
+      </fieldset>
+
+      <fieldset>
+        <legend>Publicación</legend>
+        <label class="casilla"><input type="radio" name="publicada" value=""{% if not f.publicada %} checked{% endif %}> Cualquier fecha</label>
+        {% for k, v in publicadas.items() %}<label class="casilla"><input type="radio" name="publicada" value="{{ k }}"{% if f.publicada == k %} checked{% endif %}> {{ v }}</label>{% endfor %}
+      </fieldset>
+
+      <fieldset>
+        <legend>Cuantía</legend>
+        <div class="rango">
+          <input name="cuantia_min" inputmode="numeric" value="{{ f.cuantia_min if f.cuantia_min is not none else '' }}" placeholder="Desde S/" aria-label="Cuantía desde">
+          <input name="cuantia_max" inputmode="numeric" value="{{ f.cuantia_max if f.cuantia_max is not none else '' }}" placeholder="Hasta S/" aria-label="Cuantía hasta">
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Oferta económica</legend>
+        {% for k, v in tipos.items() %}<label class="casilla"><input type="checkbox" name="tipo" value="{{ k }}"{% if k in f.tipos %} checked{% endif %}> {{ v }}</label>{% endfor %}
+      </fieldset>
+
+      <fieldset>
+        <legend>Lo que piden las bases</legend>
         <label for="exp_max">Experiencia del postor hasta</label>
         <input id="exp_max" name="exp_max" inputmode="numeric" value="{{ f.exp_max if f.exp_max is not none else '' }}" placeholder="S/">
-      </div>
-      <div class="campo">
         <label for="especialidad">Especialidad</label>
         <input id="especialidad" name="especialidad" value="{{ f.especialidad }}" placeholder="Edificaciones, saneamiento…">
-      </div>
-      <div class="campo">
         <label for="cargo">Cargo del personal clave</label>
         <input id="cargo" name="cargo" value="{{ f.cargo }}" placeholder="Residente, ingeniero ambiental…">
+      </fieldset>
+
+      <fieldset>
+        <legend>Mostrar</legend>
+        <label class="casilla"><input type="checkbox" name="consultar" value="1"{% if f.consultar %} checked{% endif %}> Solo con algo para consultar</label>
+        <label class="casilla"><input type="checkbox" name="seguidas" value="1"{% if f.seguidas %} checked{% endif %}> Solo las que sigo</label>
+        <label class="casilla"><input type="checkbox" name="cerradas" value="1"{% if f.cerradas %} checked{% endif %}> Incluir las cerradas</label>
+      </fieldset>
+
+      <div class="panel-pie"><button type="submit" class="boton">Aplicar filtros</button>{% if query %}<a href="/" class="quitar">Quitar todos</a>{% endif %}</div>
+    </aside>
+
+    <section class="resultados" aria-live="polite">
+      <div class="busqueda-cabeza">
+        <label for="q" class="oculto">Buscar</label>
+        <input id="q" name="q" type="search" value="{{ f.q }}" placeholder="Buscar por entidad, obra o nomenclatura">
+        <button type="submit" class="boton">Buscar</button>
+        <label for="panel" class="boton boton-claro abrir-filtros">Filtros{% if f.active() %} ({{ f.active() }}){% endif %}</label>
+        <div class="orden">
+          <label for="orden">Ordenar</label>
+          <select id="orden" name="orden">
+            {% for k, v in ordenes.items() %}<option value="{{ k }}"{% if f.orden == k %} selected{% endif %}>{{ v }}</option>{% endfor %}
+          </select>
+        </div>
       </div>
-    </fieldset>
-    <fieldset class="casillas">
-      <legend>Mostrar</legend>
-      <label><input type="checkbox" name="consultar" value="1"{% if f.consultar %} checked{% endif %}> Solo con algo para consultar</label>
-      <label><input type="checkbox" name="seguidas" value="1"{% if f.seguidas %} checked{% endif %}> Solo las que sigo</label>
-      <label><input type="checkbox" name="cerradas" value="1"{% if f.cerradas %} checked{% endif %}> Incluir las cerradas</label>
-    </fieldset>
-    <div class="campo">
-      <label for="orden">Ordenar por</label>
-      <select id="orden" name="orden">
-        {% for k, v in ordenes.items() %}<option value="{{ k }}"{% if f.orden == k %} selected{% endif %}>{{ v }}</option>{% endfor %}
-      </select>
-    </div>
-  </div>
-  <div class="filtros-acciones">
-    <button type="submit" class="boton">Buscar</button>
-    {% if query %}<a href="/" class="quitar">Quitar filtros</a>{% endif %}
+      {% if chips %}
+      <ul class="chips" aria-label="Filtros activos">
+        {% for label, link in chips %}<li><a href="{{ link }}" title="Quitar este filtro">{{ label }}<span aria-hidden="true">×</span></a></li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% set n = r.found|length %}
+      <p class="cuenta"><strong>{{ n }}</strong> {{ "obra" if n == 1 else "obras" }}{% if not f.cerradas %} {{ "abierta" if n == 1 else "abiertas" }} para ofertas{% endif %}{% if r.unread %}, y {{ r.unread|length }} sin leer más abajo{% endif %}</p>
+
+      {% if not r.found and not r.unread %}
+      <div class="vacio">
+        <p>Ninguna obra cumple estos filtros.</p>
+        <a href="/" class="boton">Quitar filtros</a>
+      </div>
+      {% endif %}
+
+      {% if f.orden == "cierre" %}
+        {% for key, titulo in grupos.items() %}
+          {% set grupo = r.found | selectattr("grupo", "equalto", key) | list %}
+          {% if grupo %}
+          <h2 class="grupo">{{ titulo }} <span>{{ grupo|length }}</span></h2>
+          <div class="filas">{% for o in grupo %}{{ fila(o, true) }}{% endfor %}</div>
+          {% endif %}
+        {% endfor %}
+      {% elif r.found %}
+        <div class="filas">{% for o in r.found %}{{ fila(o, false) }}{% endfor %}</div>
+      {% endif %}
+
+      {% if r.unread %}
+      <h2 class="grupo grupo-sin-leer">Sin leer en las bases <span>{{ r.unread|length }}</span></h2>
+      <p class="aclaracion">No se sabe si cumplen el filtro de lo que piden las bases, porque ese dato no se pudo leer. Revísalas antes de descartarlas.</p>
+      <div class="filas">{% for o in r.unread %}{{ fila(o, false) }}{% endfor %}</div>
+      {% endif %}
+    </section>
   </div>
 </form>
-
-<section class="resultados" aria-live="polite">
-  <p class="cuenta">
-    {% set n = r.found|length %}
-    {{ n }} {{ "obra" if n == 1 else "obras" }}{% if not f.cerradas %} {{ "abierta" if n == 1 else "abiertas" }} para ofertas{% endif %}{% if r.unread %}, y {{ r.unread|length }} sin leer más abajo{% endif %}
-  </p>
-
-  {% if not r.found and not r.unread %}
-  <div class="vacio">
-    <p>Ninguna obra cumple estos filtros.</p>
-    <a href="/" class="boton">Quitar filtros</a>
-  </div>
-  {% endif %}
-
-  {% if f.orden == "cierre" %}
-    {% for key, titulo in grupos.items() %}
-      {% set grupo = r.found | selectattr("grupo", "equalto", key) | list %}
-      {% if grupo %}
-      <h2 class="grupo">{{ titulo }} <span>{{ grupo|length }}</span></h2>
-      <ul class="lista-obras">{% for o in grupo %}{{ fila(o) }}{% endfor %}</ul>
-      {% endif %}
-    {% endfor %}
-  {% else %}
-    <ul class="lista-obras">{% for o in r.found %}{{ fila(o) }}{% endfor %}</ul>
-  {% endif %}
-
-  {% if r.unread %}
-  <h2 class="grupo grupo-sin-leer">Sin leer en las bases <span>{{ r.unread|length }}</span></h2>
-  <p class="aclaracion">No se sabe si cumplen el filtro de lo que piden las bases, porque ese dato no se pudo leer. Revísalas antes de descartarlas.</p>
-  <ul class="lista-obras">{% for o in r.unread %}{{ fila(o) }}{% endfor %}</ul>
-  {% endif %}
-</section>
 {% endblock %}

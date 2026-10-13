@@ -9,6 +9,7 @@ import os
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlencode, urlsplit
 
 import psycopg
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -123,13 +124,19 @@ def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.co
         if session is None:
             return to_login()
         now = clock()
-        f = data.Filters.parse(dict(request.query_params))
+        params = request.query_params
+        f = data.Filters.parse(params)
         followed = data.followed_by(conn, session["correo"])
         result = data.listing(op.obras(conn, watched, now, closed_too=f.cerradas), f, followed, now)
+
+        def without(key: str, value: str | None = None) -> str:
+            kept = [(k, v) for k, v in params.multi_items() if not (k == key and (value is None or v == value))]
+            return "/?" + urlencode(kept) if kept else "/"
         return pages.TemplateResponse(request, "lista.html", {
             "f": f, "r": result, "sesion": session, "ordenes": data.ORDERS, "cierres": data.CLOSING,
-            "tipos": data.OFFER_FILTER, "grupos": dict(op.BUCKETS) | {"cerrada": "Cerradas"},
-            "proper": op.proper, "query": str(request.url.query)})
+            "publicadas": data.PUBLISHED, "tipos": data.OFFER_FILTER, "chips": f.chips(without),
+            "grupos": dict(op.BUCKETS) | {"cerrada": "Cerradas"}, "proper": op.proper,
+            "query": str(request.url.query)})
 
     @app.get("/obras/{nid}", response_class=HTMLResponse)
     def obra(request: Request, nid: int, conn: psycopg.Connection = Depends(conn_dep),
@@ -144,8 +151,7 @@ def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.co
         return pages.TemplateResponse(request, "obra.html", {
             "o": found, "s": data.summary(found, followed, now), "d": data.detail(found), "sesion": session,
             "historial": data.history(conn, nid), "documentos": data.documents(conn, nid),
-            "publicada": found["fecha_publicacion"].astimezone(LIMA) if found["fecha_publicacion"] else None,
-            "volver": request.headers.get("referer", "") if "?" in request.headers.get("referer", "") else ""})
+            "publicada": data.long_date(found["fecha_publicacion"], time=False), "volver": back_to_list(request)})
 
     @app.post("/obras/{nid}/seguir")
     def follow(nid: int, accion: str = Form(...), csrf: str = Form(""), volver: str = Form(""),
@@ -201,6 +207,14 @@ def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.co
                                       status_code=404)
 
     return app
+
+
+def back_to_list(request: Request) -> str:
+    """The search the obra was opened from, so going back keeps its filters; only a page of this site."""
+    referer = urlsplit(request.headers.get("referer", ""))
+    if referer.netloc == request.url.netloc and referer.path == "/" and referer.query:
+        return "/?" + referer.query
+    return "/"
 
 
 def file_response(path: Path, inline: bool) -> FileResponse:

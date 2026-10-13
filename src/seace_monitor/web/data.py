@@ -20,7 +20,10 @@ from ..bases_text import bases_files
 from ..report import CHANGE_NAMES, STOPPED
 
 ORDERS = {"cierre": "Cierre más cercano", "cuantia": "Cuantía más alta", "publicacion": "Publicación más reciente"}
-CLOSING = {"hoy": "Cierran hoy", "semana": "Cierran en 7 días"}
+CLOSING = {"hoy": "Cierran hoy", "semana": "Cierran en 7 días", "mes": "Cierran en 30 días"}
+CLOSING_DAYS = {"hoy": 0, "semana": 7, "mes": 30}
+PUBLISHED = {"semana": "Publicadas en los últimos 7 días", "mes": "Publicadas en los últimos 30 días"}
+PUBLISHED_DAYS = {"semana": 7, "mes": 30}
 OFFER_FILTER = {"fija": "Fija", "limitada": "Limitada"}
 
 
@@ -33,16 +36,28 @@ PLACE_MARKERS = re.compile(r"\b(distrito|provincia|departamento|centro poblado|c
                            r"comunidad campesina|urbanizaci[oó]n|asentamiento humano)( de| del)?\s+", re.I)
 CONNECTORS = {"de", "del", "y", "e", "en", "para", "con", "a", "al"}
 ARTICLES = {"la", "el", "los", "las"}
+ROMAN = re.compile(r"^(?:i{1,3}|iv|vi{0,3}|ix|x{1,3})(?:-[a-z])?$")
 # a place name ends where the next place word begins: «Caña Brava distrito de Ongón»
 MARKER_WORDS = {"distrito", "provincia", "departamento", "centro", "caserio", "caserío", "localidad", "anexo",
                 "sector", "comunidad", "urbanizacion", "urbanización", "asentamiento", "region", "región"}
 
 
+def tidy(text: str) -> str:
+    """The template junk SEACE descriptions carry: «EN EL(LA)», a «;» where a comma goes, a stray «?» at the end."""
+    if "?" not in text:
+        text = text.replace("¿", " ")  # a quote mark broken by SEACE's encoding, not a question
+    text = re.sub(r"\b(EL|LA|LOS|LAS)\s*\((?:EL|LA|LOS|LAS)\)", r"\1", text, flags=re.I)
+    text = re.sub(r"\s*;\s*", ", ", text)
+    text = re.sub(r"\s+,", ",", re.sub(r"\s{2,}", " ", text))
+    return text.strip(" ,.;¿?\"'“”«»")
+
+
 def sentence(text: str) -> str:
     """SEACE writes descriptions in capitals; read as a sentence, with the place names after «distrito de»,
     «centro poblado», … still capitalized."""
+    text = tidy(text or "")
     if not text or text != text.upper():
-        return text or ""
+        return text
     low = text.lower()
     out, pos = [], 0
     for m in PLACE_MARKERS.finditer(low):
@@ -55,12 +70,20 @@ def sentence(text: str) -> str:
         for n, word in enumerate(words.group(1).split()):
             if word in CONNECTORS or word in MARKER_WORDS or (word in ARTICLES and n > 0):
                 break
+            if ROMAN.match(word):
+                if n > 0:  # «La Libertad II etapa»: the numeral belongs to the obra, not to the place
+                    break
+                name.append(word.upper())  # «sector VI-D»
+                continue
             name.append(word[:1].upper() + word[1:])
         if name:
             out.append(" ".join(name))
             pos += len(" ".join(words.group(1).split()[:len(name)]))
     out.append(low[pos:])
     joined = "".join(out).rstrip(" ¿?")
+    # abbreviations and numerals that stay in capitals: «I.E.», «II etapa», «SS.HH.»
+    joined = re.sub(r"\b(?:[a-zñ]{1,2}\.){2,}|\b(?:i{2,3}|iv|vi{1,3}|ix|xi{0,3})\b",
+                    lambda m: m.group(0).upper(), joined)
     return joined[:1].upper() + joined[1:]
 
 
@@ -79,12 +102,13 @@ def amount(value: str | None) -> Decimal | None:
 @dataclass
 class Filters:
     q: str = ""
-    dep: str = ""
+    deps: list[str] = field(default_factory=list)
     cerradas: bool = False
     cierre: str = ""
+    publicada: str = ""
     cuantia_min: Decimal | None = None
     cuantia_max: Decimal | None = None
-    tipo: str = ""
+    tipos: list[str] = field(default_factory=list)
     consultar: bool = False
     seguidas: bool = False
     exp_max: Decimal | None = None
@@ -93,13 +117,17 @@ class Filters:
     orden: str = "cierre"
 
     @classmethod
-    def parse(cls, params: dict) -> "Filters":
+    def parse(cls, params) -> "Filters":
+        """From the query string; `params` may repeat a key (departamentos, offer types)."""
         get = lambda key: (params.get(key) or "").strip()[:120]
+        many = (lambda key: [v.strip()[:60] for v in params.getlist(key) if v.strip()]) if hasattr(
+            params, "getlist") else (lambda key: [get(key)] if get(key) else [])
         return cls(
-            q=get("q"), dep=get("dep"), cerradas=get("cerradas") == "1",
+            q=get("q"), deps=many("dep")[:30], cerradas=get("cerradas") == "1",
             cierre=get("cierre") if get("cierre") in CLOSING else "",
+            publicada=get("publicada") if get("publicada") in PUBLISHED else "",
             cuantia_min=amount(get("cuantia_min")), cuantia_max=amount(get("cuantia_max")),
-            tipo=get("tipo") if get("tipo") in OFFER_FILTER else "",
+            tipos=[t for t in many("tipo") if t in OFFER_FILTER],
             consultar=get("consultar") == "1", seguidas=get("seguidas") == "1",
             exp_max=amount(get("exp_max")), especialidad=get("especialidad"), cargo=get("cargo"),
             orden=get("orden") if get("orden") in ORDERS else "cierre",
@@ -109,10 +137,38 @@ class Filters:
         return self.exp_max is not None or bool(self.especialidad) or bool(self.cargo)
 
     def active(self) -> int:
-        """How many filters beyond the defaults are set, for the «Más filtros (n)» label."""
-        return sum(bool(x) for x in (self.cuantia_min is not None, self.cuantia_max is not None, self.tipo,
-                                     self.consultar, self.seguidas, self.exp_max is not None, self.especialidad,
-                                     self.cargo, self.cerradas))
+        """How many filters beyond the defaults are set, for the «Filtros (n)» button."""
+        return len(self.chips(lambda key, value=None: ""))
+
+    def chips(self, without) -> list[tuple[str, str]]:
+        """Each active filter as a label and the address of the same search without it.
+        `without(key, value)` builds that address."""
+        out = []
+        if self.q:
+            out.append((f"«{self.q}»", without("q")))
+        out += [(op.proper(d), without("dep", d)) for d in self.deps]
+        if self.cerradas:
+            out.append(("Incluye cerradas", without("cerradas")))
+        if self.cierre:
+            out.append((CLOSING[self.cierre], without("cierre")))
+        if self.publicada:
+            out.append((PUBLISHED[self.publicada], without("publicada")))
+        if self.cuantia_min is not None:
+            out.append((f"Cuantía desde {op.soles(self.cuantia_min)}", without("cuantia_min")))
+        if self.cuantia_max is not None:
+            out.append((f"Cuantía hasta {op.soles(self.cuantia_max)}", without("cuantia_max")))
+        out += [(f"Oferta {OFFER_FILTER[t].lower()}", without("tipo", t)) for t in self.tipos]
+        if self.consultar:
+            out.append(("Con algo para consultar", without("consultar")))
+        if self.seguidas:
+            out.append(("Las que sigo", without("seguidas")))
+        if self.exp_max is not None:
+            out.append((f"Experiencia hasta {op.soles(self.exp_max)}", without("exp_max")))
+        if self.especialidad:
+            out.append((f"Especialidad «{self.especialidad}»", without("especialidad")))
+        if self.cargo:
+            out.append((f"Cargo «{self.cargo}»", without("cargo")))
+        return out
 
 
 def cuantia(obra: dict) -> Decimal | None:
@@ -153,27 +209,34 @@ def consults(obra: dict) -> bool:
     return op.flagged(obra)
 
 
+def days_until(when: datetime, now: datetime) -> int:
+    return (when.astimezone(op.LIMA).date() - now.astimezone(op.LIMA).date()).days
+
+
 def matches(obra: dict, f: Filters, followed: set[int], now: datetime) -> str:
     """'si', 'no', or 'sin_leer' when only an unread requisito keeps it from matching."""
-    if f.dep and f.dep not in (obra["departamentos"] or []):
+    if f.deps and not set(f.deps) & set(obra["departamentos"] or []):
         return "no"
     if f.q:
         words = plain(f.q).split()
         hay = plain(" ".join([obra["entidad"], obra["nomenclatura"], obra["descripcion"] or ""]))
         if not all(w in hay for w in words):
             return "no"
-    if f.cierre and obra["abierta"]:
-        days = (obra["fecha_limite_ofertas"].astimezone(op.LIMA).date() - now.astimezone(op.LIMA).date()).days
-        if (f.cierre == "hoy" and days > 0) or (f.cierre == "semana" and days > 7):
+    if f.cierre:
+        if not obra["abierta"]:
             return "no"
-    elif f.cierre:
-        return "no"
+        if days_until(obra["fecha_limite_ofertas"], now) > CLOSING_DAYS[f.cierre]:
+            return "no"
+    if f.publicada:
+        published = obra["fecha_publicacion"]
+        if published is None or -days_until(published, now) > PUBLISHED_DAYS[f.publicada]:
+            return "no"
     value = cuantia(obra)
     if f.cuantia_min is not None and (value is None or value < f.cuantia_min):
         return "no"
     if f.cuantia_max is not None and (value is None or value > f.cuantia_max):
         return "no"
-    if f.tipo and (obra["lectura"] or {}).get("tipo_oferta") != f.tipo:
+    if f.tipos and (obra["lectura"] or {}).get("tipo_oferta") not in f.tipos:
         return "no"
     if f.consultar and not consults(obra):
         return "no"
@@ -208,22 +271,59 @@ class Listing:
     departamentos: list[str] = field(default_factory=list)
 
 
+WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
+          "noviembre", "diciembre")
+
+
+def long_date(when: datetime | None, time: bool = True) -> str:
+    """«martes 13 de octubre, 23:59», in Lima's time."""
+    if when is None:
+        return "—"
+    local = when.astimezone(op.LIMA)
+    text = f"{WEEKDAYS[local.weekday()]} {local.day} de {MONTHS[local.month - 1]}"
+    return f"{text}, {local:%H:%M}" if time else text
+
+
+def short_date(when: datetime | None) -> str:
+    """«13 oct 2026», for dense rows."""
+    if when is None:
+        return "—"
+    local = when.astimezone(op.LIMA)
+    return f"{local.day} {MONTHS[local.month - 1][:3]} {local.year}"
+
+
+def consult_count(obra: dict) -> int:
+    reading, personal_found = obra["lectura"] or {}, obra.get("personal") or {}
+    n = len(reading.get("avisos") or []) if not reading.get("ocr") else 0
+    n += len((obra["factores"] or {}).get("avisos") or [])
+    n += len(personal_found.get("avisos") or []) if not personal_found.get("ocr") else 0
+    return n
+
+
 def summary(obra: dict, followed: set[int], now: datetime) -> dict:
     """What one row of the list shows."""
     value = cuantia(obra)
     limit = obra["fecha_limite_ofertas"]
+    reading = obra["lectura"] or {}
+    asked = experience_amount(obra)
     return {
         "nid": obra["nid_proceso"],
         "lugar": op.place(obra),
         "que": sentence(op.work(obra)),
         "nomenclatura": obra["nomenclatura"],
         "entidad": op.proper(obra["entidad"]),
-        "cuantia": op.soles(value) if value is not None else "Cuantía no publicada",
-        "cierre": op.deadline(limit, now) if limit and obra["abierta"] else (
-            f"Cerró el {limit.astimezone(op.LIMA):%d/%m/%Y}" if limit else "Sin fecha de ofertas"),
+        "cuantia": op.soles(value) if value is not None else "No publicada",
+        "cierre": long_date(limit) if limit else "Sin fecha de ofertas",
+        "cierre_corto": short_date(limit),
+        "publicada": short_date(obra["fecha_publicacion"]),
         "grupo": op.bucket(limit, now) if limit and obra["abierta"] else "cerrada",
         "abierta": obra["abierta"],
+        "dias": days_until(limit, now) if limit and obra["abierta"] else None,
+        "oferta": {"fija": "Fija", "limitada": "Limitada"}.get(reading.get("tipo_oferta") or "", "—"),
+        "experiencia": op.soles(asked) if asked is not None else "—",
         "consultar": consults(obra),
+        "consultas": consult_count(obra),
         "sin_leer": obra["lectura"] is None,
         "seguida": obra["nid_proceso"] in followed,
         "departamentos": [op.proper(d) for d in obra["departamentos"] or []],
