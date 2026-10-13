@@ -182,6 +182,28 @@ def test_files_come_only_from_the_download_folder(web, conn, tmp_path):
     assert web.get(f"/obras/2/documentos/{good}").status_code == 404   # another obra's document
 
 
+@pytest.mark.parametrize("answer, expected", [
+    ("https://alfprod.seace.gob.pe/alfresco/service/api/node/content/x/BASES.pdf", 302),
+    ("https://otro.example.com/alfresco/BASES.pdf", 404),
+    (None, 404)])
+def test_a_file_no_longer_here_is_fetched_from_seace(conn, tmp_path, answer, expected):
+    def resolve(uuid):
+        if answer is None:
+            raise ConnectionError("VPN down")
+        return answer
+    settings = {"search": {"departamentos": ["LA LIBERTAD"]}, "download": {"dir": str(tmp_path)},
+                "web": {"url": "https://buscador.example.com", "correos": [ALLOWED]}}
+    client = TestClient(create_app(settings, connect=lambda: contextlib.nullcontext(conn), send=lambda *a, **k: [],
+                                   clock=lambda: NOW, resolve=resolve), base_url="https://buscador.example.com")
+    signed_in(client, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW - timedelta(days=20))
+    doc = bases(conn, 1, archivo="BASES.pdf")   # its file is not in the download folder
+    response = client.get(f"/obras/1/documentos/{doc}", follow_redirects=False)
+    assert response.status_code == expected
+    if expected == 302:
+        assert response.headers["location"] == answer
+
+
 def test_signing_out_needs_the_form_token(web, conn):
     session = signed_in(web, conn)
     forged = web.post("/salir", data={"csrf": "otro"}, follow_redirects=False)

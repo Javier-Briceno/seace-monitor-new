@@ -402,6 +402,13 @@ def document_path(conn: psycopg.Connection, nid: int, doc_id: int, root: Path) -
     return inside(Path(row[0]), root) if row and row[0] else None
 
 
+def document_uuid(conn: psycopg.Connection, nid: int, doc_id: int) -> str | None:
+    """The SEACE id of one document of this obra, to fetch it from SEACE when it is no longer here."""
+    row = conn.execute("SELECT uuid FROM documentos WHERE id = %s AND nid_proceso = %s AND uuid IS NOT NULL",
+                       [doc_id, nid]).fetchone()
+    return row[0] if row else None
+
+
 def bases_file(conn: psycopg.Connection, nid: int, doc_id: int, name: str, root: Path) -> Path | None:
     """One PDF or DOCX of a bases document by its file name: the download itself, or a file unpacked from it."""
     row = conn.execute("SELECT ruta_local FROM documentos WHERE id = %s AND nid_proceso = %s AND estado = 'done'",

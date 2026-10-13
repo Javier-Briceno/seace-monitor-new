@@ -74,7 +74,8 @@
     {% for doc in documentos %}
     <li>
       <span class="doc-tipo">{{ doc.tipo }}</span>
-      {% if doc.disponible %}<a href="/obras/{{ s.nid }}/documentos/{{ doc.id }}">{{ doc.nombre }}</a>{% else %}<span>{{ doc.nombre }}</span><span class="archivado">Archivado, no está en el servidor</span>{% endif %}
+      <a href="/obras/{{ s.nid }}/documentos/{{ doc.id }}">{{ doc.nombre }}</a>
+      {% if not doc.disponible %}<span class="archivado">Se descarga desde el SEACE</span>{% endif %}
       {% if doc.publicado %}<span class="doc-fecha">{{ doc.publicado.strftime("%d/%m/%Y") }}</span>{% endif %}
     </li>
     {% endfor %}

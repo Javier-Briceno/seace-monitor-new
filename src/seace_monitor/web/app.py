@@ -17,9 +17,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import config as cfg
-from .. import db, mail
+from .. import db, download, mail
 from .. import obra_page as op
-from ..search import LIMA
+from ..search import LIMA, make_session
 from . import auth, data
 
 HERE = Path(__file__).parent
@@ -37,7 +37,8 @@ SECURITY_HEADERS = {
 
 def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.connect,
                send: Callable[..., list[str]] = mail.send, clock: Callable[[], datetime] = lambda: datetime.now(LIMA),
-               ) -> FastAPI:
+               resolve: Callable[[str], str] | None = None) -> FastAPI:
+    """`resolve` turns a document's SEACE id into its download address, for files no longer on this server."""
     web = settings.get("web", {})
     base_url = (web.get("url") or "").rstrip("/")
     allowlist = list(web.get("correos") or [])
@@ -178,14 +179,25 @@ def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.co
         if session is None:
             return to_login()
         path = data.document_path(conn, nid, doc_id, root)
-        if path is None:
+        if path is not None:
+            return file_response(path, inline=False)
+        # Closed obras' files leave the server: ask SEACE where the file is now and send the browser there.
+        uuid = data.document_uuid(conn, nid, doc_id)
+        if uuid is None or resolve is None:
             raise HTTPException(404)
-        return file_response(path, inline=False)
+        try:
+            url = resolve(uuid)
+        except Exception:  # SEACE or the VPN not answering: the page says the file is archived
+            raise HTTPException(404)
+        if not url.startswith((download.STORE + "/", download.STORE_ON_PREMISE + "/")):
+            raise HTTPException(404)
+        return RedirectResponse(url, status_code=302)
 
     @app.exception_handler(404)
     def not_found(request: Request, _exc) -> Response:
         return pages.TemplateResponse(request, "error.html", {"titulo": "No está aquí",
-                                      "texto": "La obra o el archivo no existe, o el archivo ya no está en el servidor."},
+                                      "texto": "La obra o el archivo no existe, o el archivo ya no está en el servidor "
+                                               "y el SEACE no respondió. Prueba de nuevo en unos minutos."},
                                       status_code=404)
 
     return app
@@ -203,5 +215,7 @@ def default_app() -> FastAPI:
     # the search tool may start before any monitor run has applied the newest migrations
     with db.connect() as conn:
         db.migrate(conn)
-    return create_app(cfg.load(os.environ.get("SEACE_CONFIG", "config.toml")))
+    settings = cfg.load(os.environ.get("SEACE_CONFIG", "config.toml"))
+    proxy = cfg.proxy(settings)
+    return create_app(settings, resolve=lambda uuid: download.file_url(make_session(proxy), uuid))
 
