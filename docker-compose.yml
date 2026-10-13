@@ -10,6 +10,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    # the search tool reads it at any hour, so it comes back after a reboot
+    restart: unless-stopped
     healthcheck:
       # Over TCP: while schema.sql loads, Postgres runs a temporary server on the
       # unix socket only, which would otherwise already count as healthy.
@@ -57,6 +59,27 @@ services:
     volumes:
       - ./config.toml:/app/config.toml:ro
       - ./data:/app/data
+
+  # The search tool: docker compose --profile web up -d web. A reverse proxy with HTTPS forwards to
+  # 127.0.0.1:${WEB_PORT}; the app reads [web] in config.toml and the same documents, read-only.
+  web:
+    build: .
+    profiles: [web]
+    env_file: .env
+    entrypoint: ["uvicorn", "--factory", "seace_monitor.web.app:default_app", "--host", "0.0.0.0", "--port", "8000",
+                 "--proxy-headers", "--forwarded-allow-ips", "*"]
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8091}:8000"
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - ./data:/app/data:ro
+    restart: unless-stopped
 
 volumes:
   pgdata:
