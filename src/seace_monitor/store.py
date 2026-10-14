@@ -158,7 +158,7 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
             if read_before:
                 changes.append(("estado_items", " / ".join(stored_estados), " / ".join(estados)))
             conn.execute("UPDATE licitaciones SET estado_items = %s WHERE nid_proceso = %s", [estados, nid])
-        moved = save_cronograma(conn, nid, cronograma) if cronograma else []
+        moved = save_cronograma(conn, nid, cronograma) if cronograma is not None else []
         changes += [change for _, change in moved]
         if deadline and deadline != stored_deadline:
             # A moved offer stage already says so in its cronograma row.

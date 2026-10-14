@@ -412,6 +412,15 @@ def test_added_and_removed_stages_are_changes(conn, rows, documents):
     ]
 
 
+def test_emptied_cronograma_removes_every_stage(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages())
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=[])
+    assert stored_cronograma(conn, nid) == []
+    assert [new for _, _, new in history(conn, nid)] == [None, None, None]
+
+
 def test_new_place_alone_is_no_change(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     nid = rows[0]["nid_proceso"]
