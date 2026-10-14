@@ -64,6 +64,23 @@
     </section>
     {% endfor %}
 
+    {% if cronograma %}
+    <section class="bloque">
+      <h2>Cronograma</h2>
+      <table class="tabla tabla-cronograma">
+        <thead><tr><th scope="col">Etapa</th><th scope="col">Fechas</th></tr></thead>
+        <tbody>
+          {% for c in cronograma %}
+          <tr>
+            <td>{{ c.etapa }}{% if c.lugar %}<span class="etapa-lugar">{{ c.lugar }}</span>{% endif %}</td>
+            <td class="fecha">{{ c.fechas or "—" }}{% if c.antes %}<span class="etapa-cambio"><del>{{ c.antes }}</del> cambió el {{ c.cambio.strftime("%d/%m") }}</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
     <section class="bloque">
       <h2>Documentos</h2>
       {% if documentos %}

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from seace_monitor.store import save_cronograma
 from seace_monitor.web import auth, data
 from seace_monitor.web.app import COOKIE, create_app
 
@@ -191,6 +192,21 @@ def test_the_obra_page_links_each_value_to_its_page(web, conn):
     assert "Para consultar con la entidad" in page and "pág. 21" in page
     assert re.search(r'href="/obras/1/bases/\d+/BASES.pdf#page=21"', page)
     assert web.get("/obras/999").status_code == 404
+
+
+def test_the_obra_page_shows_the_cronograma_with_moved_dates_struck(web, conn):
+    signed_in(web, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    stages = [{"etapa": "Convocatoria", "lugar": None, "inicio": "28/09/2026", "fin": "28/09/2026"},
+              {"etapa": "Absolución de consultas", "lugar": "SEACE", "inicio": "12/10/2026", "fin": "12/10/2026"}]
+    save_cronograma(conn, 1, stages)
+    save_cronograma(conn, 1, [stages[0], {**stages[1], "inicio": "19/10/2026", "fin": "19/10/2026"}])
+    conn.execute("INSERT INTO historial (nid_proceso, campo, valor_anterior, valor_nuevo) VALUES (1, %s, %s, %s)",
+                 ["cronograma", "Absolución de consultas: 12/10/2026", "19/10/2026"])
+    page = text(web.get("/obras/1").text)
+    assert "Convocatoria 28/09/2026" in page
+    assert "Absolución de consultas SEACE 19/10/2026 12/10/2026 cambió el" in page
+    assert "<del>12/10/2026</del>" in web.get("/obras/1").text
 
 
 def test_files_come_only_from_the_download_folder(web, conn, tmp_path):

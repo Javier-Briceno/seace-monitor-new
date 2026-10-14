@@ -245,6 +245,10 @@ label, legend { font-size: 13px; font-weight: 500; color: var(--grafito); }
 .tabla-documentos .fecha { white-space: nowrap; width: 1%; color: var(--grafito); }
 .doc-tipo { display: block; font-size: 12px; color: var(--grafito); }
 .archivado { display: block; font-size: 12px; color: var(--grafito); }
+.tabla-cronograma .fecha { font-variant-numeric: tabular-nums; }
+.etapa-lugar { display: block; font-size: 12px; color: var(--grafito); }
+.etapa-cambio { display: block; font-size: 12px; color: var(--grafito); }
+.etapa-cambio del { color: var(--grafito); }
 .escaneo { display: block; font-size: 12.5px; color: var(--ocre); margin-top: 2px; }
 .descripcion { color: var(--grafito); max-width: 75ch; font-size: 14px; }
 @media (max-width: 559px) {
