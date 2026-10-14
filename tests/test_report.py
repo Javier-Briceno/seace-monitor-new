@@ -249,7 +249,7 @@ def test_changes_of_watched_obras_go_into_the_mail_and_a_csv(conn, tmp_path):
     assert ("MUNICIPALIDAD DE PRUEBA (LP-ABR-1)\n"
             "  documentos nuevos: Bases Integradas, Pliego de absolución de consultas y observaciones\n"
             "  fecha límite de ofertas: 05/10/2026 23:59 → 07/10/2026 09:00") in rep.text
-    assert "Cambios en otras obras abiertas: 1" in rep.text
+    assert "Fechas que cambiaron en otras obras: 1" in rep.text
     assert "LP-ABR-2" not in rep.text
     assert rep.files[-1] == tmp_path / "2026-10-03-cambios.csv"
     with open(rep.files[-1], encoding="utf-8-sig", newline="") as f:
@@ -297,8 +297,24 @@ def test_each_obra_links_to_the_search_tool_and_followed_changes_come_first(conn
     text = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW, web_url="https://b.example.com",
                  recipients=["Persona@example.com"]).text
     assert "  https://b.example.com/obras/1\n" in text
-    mine, others = text.split("Cambios en tus obras seguidas: 1")[1].split("Cambios en otras obras abiertas: 1")
-    assert "LP-ABR-3" in mine and "https://b.example.com/obras/3" in mine and "LP-ABR-2" in others
+    mine, summary_part = text.split("Cambios en tus obras seguidas: 1")[1].split("Resumen del día")
+    assert "LP-ABR-3" in mine and "https://b.example.com/obras/3" in mine and "LP-ABR-2" not in mine
+    new, others = summary_part.split("Otros cambios: 1")
+    assert "Obras nuevas abiertas: 1" in new and "LP-ABR-2" in others
+
+
+def test_moved_dates_of_unfollowed_obras_come_before_other_changes(conn, tmp_path):
+    for nid in (1, 2, 3):
+        add(conn, nid, ["LA LIBERTAD"], NOW + timedelta(days=4), informado=NOW - timedelta(days=5))
+    change(conn, 1, "estado_items", "Convocado", "Nulo")
+    change(conn, 2, "cronograma", "Absolución de consultas: 12/10/2026", "19/10/2026")
+    change(conn, 3, "cronograma", None, "Elevación de observaciones: 15/10/2026")
+    text = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW).text
+    assert "Resumen del día" not in text  # nothing followed: the whole mail is the summary
+    dated, rest = text.split("Fechas que cambiaron en otras obras: 2")[1].split("Otros cambios: 1")
+    assert "cronograma: Absolución de consultas: 12/10/2026 → 19/10/2026" in dated
+    assert "cronograma: — → Elevación de observaciones: 15/10/2026" in dated
+    assert "LP-ABR-1" in rest and "LP-ABR-1" not in dated
 
 
 def test_soles_are_written_as_s_whatever_the_portal_calls_them():
@@ -314,3 +330,14 @@ def test_the_html_report_links_each_obra_and_escapes_names(conn, tmp_path):
     assert 'href="https://b.example.com/obras/1"' in page and "LP-ABR-1" in page
     assert "<b>" not in page.lower() and "&lt;b&gt;" in page.lower()
     assert "S/ 1.500.000" in page and "cierra en 4 días" in page
+
+
+def test_the_html_report_puts_followed_changes_above_the_summary(conn, tmp_path):
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=4))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=5), informado=NOW - timedelta(days=5))
+    change(conn, 2, "cronograma", "Absolución de consultas: 12/10/2026", "19/10/2026")
+    conn.execute("INSERT INTO seguidas (correo, nid_proceso) VALUES ('persona@example.com', 2)")
+    page = build(conn, ["LA LIBERTAD"], Path("data/documentos"), tmp_path, NOW,
+                 recipients=["persona@example.com"]).html
+    assert page.index("Cambios en tus obras seguidas: 1") < page.index("Resumen del día") \
+        < page.index("Obras nuevas abiertas: 1")
