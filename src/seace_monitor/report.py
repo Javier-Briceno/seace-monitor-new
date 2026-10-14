@@ -169,7 +169,8 @@ def consultas(campos: dict) -> int:
 
 
 def summary(items: list[dict], now: datetime, watched: list[str],
-            extracted: list[dict] = (), problems: list[str] = (), changed: list[dict] = ()) -> str:
+            extracted: list[dict] = (), problems: list[str] = (), changed: list[dict] = (),
+            web_url: str = "", followed: frozenset[int] | set[int] = frozenset()) -> str:
     abiertas = [i for i in items if i["estado"] == "abierta"]
     otras = [i for i in items if i["estado"] != "abierta"]
     lines = [
@@ -181,21 +182,30 @@ def summary(items: list[dict], now: datetime, watched: list[str],
         lines.append("Ninguna obra nueva desde el último informe.")
     for i in abiertas[:TOP]:
         dias = i["dias_restantes"]
-        plazo = "cierra hoy" if dias == 0 else f"cierra en {dias} días"
-        lugar = "" if i["ubicacion"] != "sin ubicar" else " [sin ubicar]"
-        reinicio = " | reinicio de una convocatoria anterior" if i["reinicio_de"] else ""
-        lines.append(f"- {i['fecha_limite_ofertas'].astimezone(LIMA):%d/%m} ({plazo}) | "
-                     f"{money(i['valor_referencial'], i['moneda'])} | {i['entidad']}{lugar} | {i['nomenclatura']}{reinicio}")
+        plazo = "cierra hoy" if dias == 0 else "cierra mañana" if dias == 1 else f"cierra en {dias} días"
+        lugar = ", sin ubicar" if i["ubicacion"] == "sin ubicar" else ""
+        reinicio = ", reinicio de una convocatoria anterior" if i["reinicio_de"] else ""
+        lines += ["", f"{title(i)}{lugar}{reinicio}",
+                  f"  {money(i['valor_referencial'], i['moneda'])}, {plazo} "
+                  f"({i['fecha_limite_ofertas'].astimezone(LIMA):%d/%m})"]
+        if web_url:
+            lines.append(f"  {web_url}/obras/{i['nid_proceso']}")
     if len(abiertas) > TOP:
-        lines.append(f"... y {len(abiertas) - TOP} más en el CSV adjunto.")
+        lines += ["", f"... y {len(abiertas) - TOP} más en el CSV adjunto."]
     if otras:
         lines += ["", f"Sin plazo para ofertar (reiniciadas, vencidas o sin fecha): {len(otras)}, detalle en el CSV."]
-    if changed:
-        lines += ["", f"Cambios en obras seguidas: {len(changed)}"]
-        for o in changed[:TOP]:
+    mine = [o for o in changed if o["nid_proceso"] in followed]
+    others = [o for o in changed if o["nid_proceso"] not in followed]
+    for heading, group in (("Cambios en tus obras seguidas", mine), ("Cambios en otras obras abiertas", others)):
+        if not group:
+            continue
+        lines += ["", f"{heading}: {len(group)}"]
+        for o in group[:TOP]:
             lines += ["", title(o)] + [f"  {line}" for line in change_lines(o)]
-        if len(changed) > TOP:
-            lines += ["", f"... y {len(changed) - TOP} más en el CSV de cambios."]
+            if web_url:
+                lines.append(f"  {web_url}/obras/{o['nid_proceso']}")
+        if len(group) > TOP:
+            lines += ["", f"... y {len(group) - TOP} más en el CSV de cambios."]
     if extracted:
         lines += ["", f"Extraídas a mano desde el último informe: {len(extracted)} (todos los campos en el CSV de extracciones)"]
         for e in extracted:
@@ -340,16 +350,22 @@ class Report:
     nids: list[int]
     extraction_ids: list[int] = field(default_factory=list)
     change_ids: list[int] = field(default_factory=list)
+    html: str = ""
 
 
 def build(conn: psycopg.Connection, watched: list[str], download_dir: Path, report_dir: Path,
-          now: datetime | None = None, problems: list[str] = ()) -> Report:
-    """Write today's summary (.md) and CSV files; return what to send and what to mark once sent."""
+          now: datetime | None = None, problems: list[str] = (), web_url: str = "",
+          recipients: list[str] = ()) -> Report:
+    """Write today's summary (.md) and CSV files; return what to send and what to mark once sent.
+
+    The changes of the obras the recipients follow in the search tool come first."""
     now = now or datetime.now(LIMA)
     items = pending(conn, watched, download_dir, now)
     extracted = extractions(conn)
     changed = changes(conn, watched)
-    text = summary(items, now, watched, extracted, problems, changed)
+    followed = {r[0] for r in conn.execute("SELECT nid_proceso FROM seguidas WHERE correo = ANY(%s)",
+                                           [[a.lower() for a in recipients]]).fetchall()}
+    text = summary(items, now, watched, extracted, problems, changed, web_url, followed)
     stem = report_dir / f"{now.astimezone(LIMA):%Y-%m-%d}"
     stem.parent.mkdir(parents=True, exist_ok=True)
     stem.with_suffix(".md").write_text(text, encoding="utf-8")
@@ -361,5 +377,7 @@ def build(conn: psycopg.Connection, watched: list[str], download_dir: Path, repo
     if changed:
         files.append(stem.parent / f"{stem.name}-cambios.csv")
         write_changes_csv(changed, files[-1])
+    from .mail_html import summary_html  # it builds on this module's helpers
+    page = summary_html(items, now, watched, changed, web_url, followed)
     return Report(text, files, [i["nid_proceso"] for i in items], [e["id"] for e in extracted],
-                  [c["id"] for o in changed for c in o["cambios"]])
+                  [c["id"] for o in changed for c in o["cambios"]], page)

@@ -16,7 +16,7 @@ from . import letras, reading
 from .bases_text import page_of
 from .reading import SCANNED
 
-VERSION = "cuantia-4"
+VERSION = "cuantia-5"
 
 TITLE = re.compile(r"CUANT[IÍ]A\s+DE\s+LA\s+CONTRATACI[OÓ]N", re.I)
 # Not the footnote of 1.4 ("indicada en esta sección"): it can fall between the cuantía and the límites table.
@@ -50,6 +50,8 @@ TYPE = re.compile(r"presente\s+procedimiento\s+de\s+selecci[oó]n\s+es\s*:?(.{0,
 TABLE_LINES = 14
 # A límite this far from the cuantía is a misread column, not a figure an entity would write.
 PLAUSIBLE = (Decimal("0.70"), Decimal("1.30"))
+# A sin-IGV límite is the con-IGV one divided by 1.18 (0.847), give or take the entity's rounding.
+SIN_IGV_RATIO = (Decimal("0.84"), Decimal("0.855"))
 
 # Why a person has to read the section instead (and SCANNED, from reading).
 NO_SECTION = "sin sección 1.4"
@@ -122,8 +124,9 @@ def offer_type(text: str) -> str:
     return ""
 
 
-def limits_by_column(block: str) -> tuple[Decimal | None, Decimal | None] | None:
-    """The first amount under each of the LÍMITE INFERIOR and LÍMITE SUPERIOR headers.
+def limits_by_column(block: str) -> tuple[Decimal | None, Decimal | None, Decimal | None, Decimal | None] | None:
+    """The first amount under each of the LÍMITE INFERIOR and LÍMITE SUPERIOR headers, then the sin-IGV
+    figures of each when the table has them (Ley 27037), else None.
 
     None when no line carries both headers (a DOCX has no layout). An amount belongs to the
     header whose centre is nearest to its own; one left of the límites columns is the cuantía.
@@ -145,7 +148,7 @@ def limits_by_column(block: str) -> tuple[Decimal | None, Decimal | None] | None
         if heading:
             centres["cuantia"] = centre_of(heading)
         cuantia_edge = centres["low"] - (centres["high"] - centres["low"]) / 2 if not heading else -1
-        found = {"low": None, "high": None}
+        found = {"low": None, "high": None} | {c: None for c in centres if c.startswith("sin")}
         for below in lines[i + 1: i + 1 + TABLE_LINES]:
             if LOWER.search(below):
                 break  # the next table
@@ -158,7 +161,7 @@ def limits_by_column(block: str) -> tuple[Decimal | None, Decimal | None] | None
                     found[column] = money(m.group(1))
             if all(found.values()):
                 break
-        return found["low"], found["high"]
+        return found["low"], found["high"], found.get("sin0"), found.get("sin1")
     return None
 
 
@@ -237,7 +240,9 @@ def read(text: str, valor_seace: Decimal | None = None) -> dict:
 
     exact = {"inferior": lower_limit(cuantia), "superior": upper_limit(cuantia)}
     result["inferior_exacto"], result["superior_exacto"] = str(exact["inferior"]), str(exact["superior"])
-    columns = limits_by_column(block)
+    columns, without_igv = limits_by_column(block), (None, None)
+    if columns is not None:
+        columns, without_igv = columns[:2], columns[2:]
     if columns is None or None in columns:
         amounts = [money(a) for a in ANY_NUMBER.findall(block)]
         spread = cuantia * Decimal("0.01")
@@ -249,4 +254,8 @@ def read(text: str, valor_seace: Decimal | None = None) -> dict:
         result[f"limite_{side}"] = str(stated)
         if stated != exact[side]:
             warnings.append({"aviso": f"limite_{side}", "bases": str(stated), "exacto": str(exact[side])})
+        # shown next to the con-IGV límite only when it is that figure without the 18 %
+        without = without_igv[0 if side == "inferior" else 1]
+        if without is not None and SIN_IGV_RATIO[0] <= without / stated <= SIN_IGV_RATIO[1]:
+            result[f"sin_igv_{side}"] = str(without)
     return result

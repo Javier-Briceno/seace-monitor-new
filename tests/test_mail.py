@@ -98,3 +98,13 @@ def test_marked_obras_leave_the_next_report(conn):
     assert [i["nid_proceso"] for i in pending(conn, ["LA LIBERTAD"], Path("data"), now)] == [1]
     mark_reported(conn, [1])
     assert pending(conn, ["LA LIBERTAD"], Path("data"), now) == []
+
+
+def test_a_report_with_html_goes_as_text_and_html_with_its_files(tmp_path):
+    csv_file = tmp_path / "informe.csv"
+    csv_file.write_text("a;b\n", encoding="utf-8")
+    msg = mail.message("Informe", "texto", [csv_file], "m@example.org", ["a@example.org"], "<p>html</p>")
+    kinds = [part.get_content_type() for part in msg.walk()]
+    assert msg.get_content_type() == "multipart/mixed"
+    assert "multipart/alternative" in kinds and "text/plain" in kinds and "text/html" in kinds
+    assert "text/csv" in kinds

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Entrar a {{ nombre }}{% endblock %}
+{% block main_class %}estrecho{% endblock %}
+{% block content %}
+<section class="hoja entrar">
+  {% if paso == "pedir" %}
+  <h1>Entrar</h1>
+  <p>Escribe tu correo y te mandamos un enlace para entrar. No hace falta contraseña.</p>
+  <form method="post" action="/entrar" class="pila">
+    <label for="correo">Correo</label>
+    <input id="correo" name="correo" type="email" autocomplete="email" required autofocus>
+    <button type="submit" class="boton">Enviar enlace</button>
+  </form>
+  {% elif paso == "enviado" %}
+  <h1>Revisa tu correo</h1>
+  <p>Si <strong>{{ correo }}</strong> tiene acceso, te llegó un enlace para entrar. Vale 20 minutos.</p>
+  <p class="suave">¿No llega? Mira en spam o <a href="/entrar">pide otro</a>.</p>
+  {% elif paso == "confirmar" %}
+  <h1>Entrar a {{ nombre }}</h1>
+  <p>Este aparato quedará con la sesión abierta durante 90 días.</p>
+  <form method="post" action="/entrar/{{ token }}">
+    <button type="submit" class="boton">Entrar</button>
+  </form>
+  {% else %}
+  <h1>Este enlace ya no sirve</h1>
+  <p>Venció o ya se usó. Cada enlace sirve una sola vez durante 20 minutos.</p>
+  <p><a class="boton" href="/entrar">Pedir otro enlace</a></p>
+  {% endif %}
+</section>
+{% endblock %}

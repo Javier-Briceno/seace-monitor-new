@@ -131,6 +131,22 @@ systemctl enable --now seace-avisos.timer seace-lectura.timer seace-backup.timer
 A run that fails mails its last log lines (`seace-fallo@.service`, through `--fallo`, which needs neither the database
 nor the VPN). `seace-backup.timer` dumps the database every night into `backups/`, keeping the last 14. It also mails a warning when the disk has less than 8 GB free.
 
+## Search tool
+
+A web page to search the watched obras: filters by text, departamento, closing date, cuantía, offer type and what the
+bases ask; one page per obra with what to consult, every value linked to its page in the bases, the documents, the
+history, and a button to follow it. The daily report links each obra to its page and lists the changes of the obras
+its recipients follow first.
+
+Only the addresses in `[web] correos` can sign in: they ask for a link by mail, valid 20 minutes and once, and the
+browser keeps the session for 90 days. Set `[web] url` to the public address, then:
+
+```
+docker compose --profile web up -d --build web
+```
+
+The app listens on `127.0.0.1:8091` (`WEB_PORT` in `.env` changes it); put a reverse proxy with HTTPS in front of it.
+
 ## Manual extraction
 
 For the fields not read automatically yet, a person reads the bases of the obras they pick from the report:

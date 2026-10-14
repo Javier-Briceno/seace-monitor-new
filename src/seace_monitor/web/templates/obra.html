@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ s.nomenclatura }}: {{ s.lugar }}{% endblock %}
+{% block main_class %}ancho{% endblock %}
+{% macro fuente(item) %}{% if item.enlace %}<a class="pag" href="{{ item.enlace }}" target="_blank" rel="noopener">{% if item.pagina %}pág. {{ item.pagina }}{% else %}abrir{% endif %}</a>{% elif item.pagina %}<span class="pag">pág. {{ item.pagina }}</span>{% endif %}{% endmacro %}
+{% macro notas(titulo, clase, items, pie="") %}
+{% if items %}
+<section class="nota nota-{{ clase }}">
+  <h2>{{ titulo }} <span>{{ items|length }}</span></h2>
+  <ul>
+    {% for n in items %}<li><span>{{ n.texto }}</span>{{ fuente(n) }}</li>{% endfor %}
+  </ul>
+  {% if pie %}<p class="nota-pie">{{ pie }}</p>{% endif %}
+</section>
+{% endif %}
+{% endmacro %}
+{% block content %}
+<nav class="miga" aria-label="Ruta"><a href="{{ volver }}">Buscar</a><span aria-hidden="true">/</span><span>{{ s.nomenclatura }}</span></nav>
+
+<header class="ficha-cabeza">
+  <p class="ficha-id">{{ s.nomenclatura }}</p>
+  <h1>{{ s.que }}</h1>
+  <p class="ficha-estado">
+    {% if s.abierta %}<span class="estado estado-abierta">Abierta</span>
+    <span{% if s.grupo == 'hoy' %} class="urgente"{% endif %}>Ofertas hasta el {{ s.cierre }}</span>
+    {% else %}<span class="estado estado-cerrada">Cerrada</span><span>Ofertas hasta el {{ s.cierre }}</span>{% endif %}
+  </p>
+</header>
+
+<div class="ficha-cuerpo">
+  <div class="ficha-principal">
+    {{ notas("Para consultar con la entidad", "consultar", d.consultar) }}
+    {{ notas("Mirar la página antes de consultar", "mirar", d.mirar, "Leído de un escaneo: una cifra puede estar mal leída.") }}
+    {{ notas("Falta revisar a mano", "revisar", d.revisar) }}
+    {% if d.sin_observaciones %}<p class="sin-obs">Cuantía, oferta y límites sin observaciones.</p>{% endif %}
+
+    {% set simples = d.valores | rejectattr("lista") | list %}
+    {% set tablas = d.valores | selectattr("lista") | list %}
+    {% if simples %}
+    <section class="bloque">
+      <h2>Lo que piden las bases</h2>
+      <table class="tabla tabla-valores">
+        <thead><tr><th scope="col">Concepto</th><th scope="col">Valor</th><th scope="col">En las bases</th></tr></thead>
+        <tbody>
+          {% for v in simples %}
+          <tr><th scope="row">{{ v.etiqueta }}</th><td>{{ v.valor }}{% if v.ocr %}<span class="escaneo">Leído de un escaneo, comprobar la cifra</span>{% endif %}</td><td>{{ fuente(v) }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    {% for v in tablas %}
+    <section class="bloque">
+      <h2>{{ v.etiqueta }} {{ fuente(v) }}</h2>
+      {% set es_factor = v.etiqueta == "Factores de evaluación" %}
+      <table class="tabla">
+        <thead><tr><th scope="col">{{ "Factor" if es_factor else "Cargo" }}</th><th scope="col" class="num">{{ "Puntos" if es_factor else "Experiencia" }}</th></tr></thead>
+        <tbody>
+          {% for nombre, cifra in (v.lista[:-1] if es_factor else v.lista) %}<tr><td>{{ nombre or "Cargo sin nombre" }}</td><td class="num cifra">{{ cifra }}</td></tr>{% endfor %}
+        </tbody>
+        {% if es_factor %}<tfoot><tr><th scope="row">Total</th><td class="num cifra">{{ v.lista[-1][1] }}</td></tr></tfoot>{% endif %}
+      </table>
+      {% if v.ocr %}<p class="escaneo">Leído de un escaneo, comprobar las cifras.</p>{% endif %}
+    </section>
+    {% endfor %}
+
+    <section class="bloque">
+      <h2>Documentos</h2>
+      {% if documentos %}
+      <table class="tabla tabla-documentos">
+        <thead><tr><th scope="col">Documento</th><th scope="col">Publicado</th></tr></thead>
+        <tbody>
+          {% for doc in documentos %}
+          <tr>
+            <td><span class="doc-tipo">{{ doc.tipo }}</span><a href="/obras/{{ s.nid }}/documentos/{{ doc.id }}">{{ doc.nombre }}</a>{% if not doc.disponible %}<span class="archivado">Se descarga desde el SEACE</span>{% endif %}</td>
+            <td class="fecha">{{ doc.publicado.strftime("%d/%m/%Y") if doc.publicado else "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="suave">Todavía no hay documentos descargados.</p>
+      {% endif %}
+    </section>
+
+    <section class="bloque">
+      <h2>Descripción del SEACE</h2>
+      <p class="descripcion">{{ o.descripcion }}</p>
+    </section>
+  </div>
+
+  <aside class="ficha-lateral">
+    <div class="cajetin">
+      <dl>
+        <div><dt>Entidad</dt><dd>{{ s.entidad }}</dd></div>
+        <div><dt>Cuantía</dt><dd class="cifra">{{ s.cuantia }}</dd></div>
+        <div><dt>Oferta económica</dt><dd>{{ s.oferta }}</dd></div>
+        <div><dt>Experiencia pedida</dt><dd class="cifra">{{ s.experiencia }}</dd></div>
+        <div><dt>Publicada</dt><dd>{{ publicada }}</dd></div>
+        <div><dt>Departamento</dt><dd>{{ s.departamentos|join(", ") or "Sin ubicar" }}</dd></div>
+      </dl>
+      <form method="post" action="/obras/{{ s.nid }}/seguir" class="seguir">
+        <input type="hidden" name="csrf" value="{{ sesion.csrf }}">
+        <input type="hidden" name="volver" value="/obras/{{ s.nid }}">
+        {% if s.seguida %}
+        <input type="hidden" name="accion" value="dejar">
+        <button type="submit" class="boton boton-claro boton-ancho">Dejar de seguir</button>
+        <p class="seguir-nota">Los cambios de esta obra llegan primero en el correo diario.</p>
+        {% else %}
+        <input type="hidden" name="accion" value="seguir">
+        <button type="submit" class="boton boton-ancho">Seguir esta obra</button>
+        <p class="seguir-nota">Sus cambios llegarán primero en el correo diario.</p>
+        {% endif %}
+      </form>
+    </div>
+
+    <section class="historial-caja">
+      <h2>Cambios vistos</h2>
+      {% if historial %}
+      <ol class="historial">
+        {% for h in historial %}<li><time datetime="{{ h.cuando.isoformat() }}">{{ h.cuando.strftime("%d/%m/%Y") }}</time><span>{{ h.texto }}</span></li>{% endfor %}
+      </ol>
+      {% else %}
+      <p class="suave">Ningún cambio desde que se publicó.</p>
+      {% endif %}
+    </section>
+  </aside>
+</div>
+{% endblock %}

@@ -35,3 +35,9 @@ dir = "data/informes"
 [extract]
 # Manual extraction templates, one TOML file per obra (python -m seace_monitor --plantilla <nid_proceso>).
 dir = "data/extracciones"
+
+[web]
+# The search tool (docker compose --profile web up -d web). url is where people open it; links in mails use it.
+url = "https://buscador.example.com"
+# Only these addresses can ask for a sign-in link.
+correos = ["persona@example.com"]
