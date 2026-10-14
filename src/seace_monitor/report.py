@@ -30,6 +30,7 @@ CHANGE_COLUMNS = ("nid_proceso", "nomenclatura", "entidad", "campo", "antes", "a
 CHANGE_NAMES = {
     "estado_items": "estado",
     "fecha_limite_ofertas": "fecha límite de ofertas",
+    "cronograma": "cronograma",
     "documento": "documento nuevo",
     "seguimiento": "seguimiento",
 }

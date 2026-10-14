@@ -345,6 +345,84 @@ def test_same_ficha_again_is_not_a_change(conn, rows, documents):
     assert history(conn, nid) == []
 
 
+def stages(offers_end="29/10/2026 23:59", absolution="12/10/2026"):
+    return [
+        {"etapa": "Convocatoria", "lugar": None, "inicio": "28/09/2026", "fin": "28/09/2026"},
+        {"etapa": "Absolución de consultas y observaciones(Electronica)", "lugar": None,
+         "inicio": absolution, "fin": absolution},
+        {"etapa": "Presentación de propuestas(Electronica)", "lugar": None,
+         "inicio": "29/10/2026 00:01", "fin": offers_end},
+    ]
+
+
+def stored_cronograma(conn, nid):
+    return conn.execute("SELECT etapa, inicio, fin FROM cronograma WHERE nid_proceso = %s ORDER BY orden",
+                        [nid]).fetchall()
+
+
+def test_first_cronograma_is_stored_without_a_change(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages())
+    assert [s[0] for s in stored_cronograma(conn, nid)] == [s["etapa"] for s in stages()]
+    assert history(conn, nid) == []
+
+
+def test_moved_stage_keeps_its_old_dates_in_historial(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages())
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages(absolution="19/10/2026"))
+    assert stored_cronograma(conn, nid)[1][1:] == ("19/10/2026", "19/10/2026")
+    assert history(conn, nid) == [
+        ("cronograma", "Absolución de consultas y observaciones(Electronica): 12/10/2026", "19/10/2026")]
+
+
+def test_moved_offer_stage_is_one_change_not_two(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    first, later = datetime(2026, 10, 29, 23, 59, tzinfo=LIMA), datetime(2026, 11, 5, 23, 59, tzinfo=LIMA)
+    save_ficha(conn, nid, documents, first, ["Convocado"], stages())
+    save_ficha(conn, nid, documents, later, ["Convocado"], stages(offers_end="05/11/2026 23:59"))
+    assert conn.execute("SELECT fecha_limite_ofertas FROM licitaciones WHERE nid_proceso = %s",
+                        [nid]).fetchone()[0] == later
+    assert history(conn, nid) == [(
+        "cronograma", "Presentación de propuestas(Electronica): 29/10/2026 00:01 al 29/10/2026 23:59",
+        "29/10/2026 00:01 al 05/11/2026 23:59")]
+
+
+def test_obra_read_before_the_cronograma_existed_still_reports_its_deadline(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, datetime(2026, 10, 29, 23, 59, tzinfo=LIMA), ["Convocado"])
+    save_ficha(conn, nid, documents, datetime(2026, 11, 5, 23, 59, tzinfo=LIMA), ["Convocado"],
+               stages(offers_end="05/11/2026 23:59"))
+    assert history(conn, nid) == [("fecha_limite_ofertas", "29/10/2026 23:59", "05/11/2026 23:59")]
+
+
+def test_added_and_removed_stages_are_changes(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages())
+    extra = {"etapa": "Elevación de observaciones", "lugar": None, "inicio": "15/10/2026", "fin": "15/10/2026"}
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages()[:2] + [extra])
+    assert history(conn, nid) == [
+        ("cronograma", "Presentación de propuestas(Electronica): 29/10/2026 00:01 al 29/10/2026 23:59", None),
+        ("cronograma", None, "Elevación de observaciones: 15/10/2026"),
+    ]
+
+
+def test_new_place_alone_is_no_change(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages())
+    placed = [{**s, "lugar": "SEACE"} for s in stages()]
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=placed)
+    assert history(conn, nid) == []
+    assert conn.execute("SELECT count(*) FROM cronograma WHERE nid_proceso = %s AND lugar = 'SEACE'",
+                        [nid]).fetchone()[0] == 3
+
+
 def test_estado_change_and_closing_go_to_historial(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     nid = rows[0]["nid_proceso"]

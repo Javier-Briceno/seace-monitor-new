@@ -96,7 +96,7 @@ def read_ficha(conn, session, result, row, line) -> bool:
         ficha_failed(conn, nid, str(error))
         print(f"{line}  ficha failed: {error}")
         return True
-    added = save_ficha(conn, nid, documents, deadline, estados)
+    added = save_ficha(conn, nid, documents, deadline, estados, cronograma)
     until = f"offers until {deadline:%d/%m %H:%M}" if deadline else "no offer deadline in the cronograma"
     print(f"{line}  documents: {len(documents)} ({added} new), {until}, {'/'.join(estados)}")
     return True
