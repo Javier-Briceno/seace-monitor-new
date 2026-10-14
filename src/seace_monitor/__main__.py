@@ -23,7 +23,7 @@ from .archives import ArchiveError, MachineError, unpack
 from .bases_text import ToolMissing, bases_files
 from .ocr import make_ocr, ocr_path, ocrmypdf
 from .download import DocumentError, download
-from .ficha import FichaError, StaleTable, open_ficha, parse_deadline, parse_estados, read_documents
+from .ficha import FichaError, StaleTable, offer_deadline, open_ficha, parse_cronograma, parse_estados, read_documents
 from .locate import locate
 from .search import LIMA, AccessError, Query, SearchError, make_session, search_pages, search_split
 from .store import (
@@ -86,7 +86,8 @@ def read_ficha(conn, session, result, row, line) -> bool:
     try:
         page = open_ficha(session, result, row)
         documents = read_documents(session, page)
-        deadline = parse_deadline(page)
+        cronograma = parse_cronograma(page)
+        deadline = offer_deadline(cronograma)
         estados = parse_estados(page)
     except StaleTable:
         print(f"{line}  documents on several pages; read again in a new session")

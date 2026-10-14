@@ -7,7 +7,8 @@ import pytest
 import requests
 
 from seace_monitor.ficha import (
-    DOCUMENT_TABLE, FichaError, StaleTable, has_bases, parse_deadline, parse_documents, parse_estados, read_documents,
+    DOCUMENT_TABLE, FichaError, StaleTable, has_bases, offer_deadline, parse_cronograma, parse_documents, parse_estados,
+    read_documents,
 )
 from seace_monitor.search import LIMA
 
@@ -152,25 +153,44 @@ def test_ficha_without_document_count_is_an_error():
         read_documents(FakeSession([]), page)
 
 
+def deadline(page: str):
+    return offer_deadline(parse_cronograma(page))
+
+
+def test_cronograma_keeps_every_stage_as_the_ficha_writes_it():
+    stages = parse_cronograma(read("ficha_rar.html"))
+    assert len(stages) == 8
+    assert stages[0] == {"etapa": "Convocatoria", "lugar": None, "inicio": "28/09/2026", "fin": "28/09/2026"}
+    assert stages[1]["inicio"] == "29/09/2026 00:01" and stages[1]["fin"] == "28/10/2026 23:59"
+    assert stages[7]["etapa"] == "Otorgamiento de la Buena Pro"
+    assert stages[7]["lugar"] == "SEACE"
+
+
+def test_stage_place_is_kept_apart_from_its_name():
+    stages = parse_cronograma(read("ficha_two_documents.html"))
+    assert stages[4]["etapa"] == "Integración de las Bases"
+    assert stages[4]["lugar"].startswith("of. abastecimiento y control patrimonial")
+
+
 def test_deadline_is_the_end_of_the_offer_stage():
     # Stage name arrives with a broken accent ("Presentaci�n de propuestas") in these pages.
-    assert parse_deadline(read("ficha_two_documents.html")) == datetime(2026, 10, 9, 23, 59, tzinfo=LIMA)
-    assert parse_deadline(read("ficha_rar.html")) == datetime(2026, 10, 29, 23, 59, tzinfo=LIMA)
+    assert deadline(read("ficha_two_documents.html")) == datetime(2026, 10, 9, 23, 59, tzinfo=LIMA)
+    assert deadline(read("ficha_rar.html")) == datetime(2026, 10, 29, 23, 59, tzinfo=LIMA)
 
 
 def test_date_without_time_lasts_until_the_end_of_the_day():
     page = read("ficha_rar.html").replace("29/10/2026 23:59", "29/10/2026", 1)
-    assert parse_deadline(page) == datetime(2026, 10, 29, 23, 59, tzinfo=LIMA)
+    assert deadline(page) == datetime(2026, 10, 29, 23, 59, tzinfo=LIMA)
 
 
 def test_no_offer_stage_gives_none():
     page = re.sub(r"Presentaci\S* de propuestas", "Otra etapa", read("ficha_rar.html"))
-    assert parse_deadline(page) is None
+    assert deadline(page) is None
 
 
 def test_missing_cronograma_is_an_error():
     with pytest.raises(FichaError):
-        parse_deadline("<html></html>")
+        parse_cronograma("<html></html>")
 
 
 def test_estado_of_the_item():
