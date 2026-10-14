@@ -200,7 +200,7 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
 def save_cronograma(conn: psycopg.Connection, nid: int, stages: list[dict]) -> list[tuple[dict, tuple]]:
     """Keep the ficha's current cronograma; return each stage whose dates changed with its historial row.
 
-    Stages are matched by name. The first cronograma stored for an obra is no change, nor is a new place alone.
+    Stages are matched by name, which parse_cronograma keeps unique. A new place alone is no change.
     """
     stored = [dict(zip(("etapa", "lugar", "inicio", "fin"), row)) for row in conn.execute(
         "SELECT etapa, lugar, inicio, fin FROM cronograma WHERE nid_proceso = %s ORDER BY orden", [nid]).fetchall()]
@@ -211,7 +211,9 @@ def save_cronograma(conn: psycopg.Connection, nid: int, stages: list[dict]) -> l
         cur.executemany(
             "INSERT INTO cronograma (nid_proceso, orden, etapa, lugar, inicio, fin) VALUES (%s, %s, %s, %s, %s, %s)",
             [(nid, i, s["etapa"], s["lugar"], s["inicio"], s["fin"]) for i, s in enumerate(stages, 1)])
-    if not stored:
+    # Only the very first cronograma is no change; one that comes back after an emptied table is.
+    if not stored and not conn.execute(
+            "SELECT 1 FROM historial WHERE nid_proceso = %s AND campo = 'cronograma' LIMIT 1", [nid]).fetchone():
         return []
     before = {s["etapa"]: s for s in stored}
     now = {s["etapa"]: s for s in stages}

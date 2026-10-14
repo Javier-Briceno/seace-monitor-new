@@ -23,7 +23,7 @@ from .archives import ArchiveError, MachineError, unpack
 from .bases_text import ToolMissing, bases_files
 from .ocr import make_ocr, ocr_path, ocrmypdf
 from .download import DocumentError, download
-from .ficha import FichaError, StaleTable, offer_deadline, open_ficha, parse_cronograma, parse_estados, read_documents
+from .ficha import CronogramaError, FichaError, StaleTable, offer_deadline, open_ficha, parse_cronograma, parse_estados, read_documents
 from .locate import locate
 from .search import LIMA, AccessError, Query, SearchError, make_session, search_pages, search_split
 from .store import (
@@ -86,8 +86,12 @@ def read_ficha(conn, session, result, row, line) -> bool:
     try:
         page = open_ficha(session, result, row)
         documents = read_documents(session, page)
-        cronograma = parse_cronograma(page)
-        deadline = offer_deadline(cronograma)
+        try:
+            cronograma = parse_cronograma(page)
+        except CronogramaError as error:
+            print(f"{line}  cronograma and deadline kept as stored: {error}")
+            cronograma = None
+        deadline = offer_deadline(cronograma or [])
         estados = parse_estados(page)
     except StaleTable:
         print(f"{line}  documents on several pages; read again in a new session")

@@ -421,6 +421,16 @@ def test_emptied_cronograma_removes_every_stage(conn, rows, documents):
     assert [new for _, _, new in history(conn, nid)] == [None, None, None]
 
 
+def test_cronograma_coming_back_after_an_emptied_table_is_a_change(conn, rows, documents):
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages())
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=[])
+    save_ficha(conn, nid, documents, estados=["Convocado"], cronograma=stages())
+    assert [old for _, old, _ in history(conn, nid)[3:]] == [None, None, None]
+    assert len(stored_cronograma(conn, nid)) == 3
+
+
 def test_new_place_alone_is_no_change(conn, rows, documents):
     save_new_licitaciones(conn, rows[:1])
     nid = rows[0]["nid_proceso"]

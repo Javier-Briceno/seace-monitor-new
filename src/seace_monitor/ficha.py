@@ -30,6 +30,10 @@ class FichaError(Exception):
     pass
 
 
+class CronogramaError(FichaError):
+    """The cronograma table is there but cannot be trusted; the stored one is kept."""
+
+
 class StaleTable(FichaError):
     """The portal answered with the document table of a ficha paged earlier in this session."""
 
@@ -162,6 +166,8 @@ def parse_cronograma(page: str) -> list[dict]:
     """Every stage of the ficha's cronograma in order, with inicio and fin written as the ficha writes them.
 
     Under the stage name the ficha sometimes adds where it takes place ("SEACE" or an office address).
+    Storing it replaces the old stages, so a row that is not a stage, a repeated stage name or rows that
+    vanish without the portal's empty-table message stop it here.
     """
     body = page.find("tbFicha:dtCronograma_data")
     if body < 0:
@@ -171,7 +177,7 @@ def parse_cronograma(page: str) -> list[dict]:
     for raw in re.findall(r"<tr[^>]*data-ri[^>]*>(.*?)</tr>", table, re.S):
         cells = re.findall(r"<td[^>]*>(.*?)</td>", raw, re.S)
         if len(cells) < 3:
-            continue
+            raise CronogramaError(f"cronograma row with {len(cells)} cells")
         name, _, place = cells[0].partition("<br")
         stages.append({
             "etapa": cell_text(name),
@@ -179,6 +185,11 @@ def parse_cronograma(page: str) -> list[dict]:
             "inicio": cell_text(cells[1]) or None,
             "fin": cell_text(cells[2]) or None,
         })
+    names = [s["etapa"] for s in stages]
+    if not all(names) or len(set(names)) < len(names):
+        raise CronogramaError("cronograma stage without a name or named twice")
+    if not stages and "ui-datatable-empty-message" not in table:
+        raise CronogramaError("cronograma without rows and without the empty-table message")
     return stages
 
 

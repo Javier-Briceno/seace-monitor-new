@@ -7,7 +7,7 @@ import pytest
 import requests
 
 from seace_monitor.ficha import (
-    DOCUMENT_TABLE, FichaError, StaleTable, has_bases, offer_deadline, parse_cronograma, parse_documents, parse_estados,
+    CronogramaError, DOCUMENT_TABLE, FichaError, StaleTable, has_bases, offer_deadline, parse_cronograma, parse_documents, parse_estados,
     read_documents,
 )
 from seace_monitor.search import LIMA
@@ -186,6 +186,34 @@ def test_date_without_time_lasts_until_the_end_of_the_day():
 def test_no_offer_stage_gives_none():
     page = re.sub(r"Presentaci\S* de propuestas", "Otra etapa", read("ficha_rar.html"))
     assert deadline(page) is None
+
+
+def test_a_row_that_is_not_a_stage_stops_the_cronograma():
+    page = read("ficha_rar.html").replace('<td role="gridcell">28/09/2026 </td>', "", 1)
+    with pytest.raises(CronogramaError, match="2 cells"):
+        parse_cronograma(page)
+
+
+def test_a_repeated_stage_name_stops_the_cronograma():
+    page = read("ficha_rar.html").replace("Convocatoria<br/>", "Integración de las Bases<br/>", 1)
+    page = re.sub(r"Integraci\S* de las Bases<br/>", "Integración de las Bases<br/>", page)
+    with pytest.raises(CronogramaError, match="twice"):
+        parse_cronograma(page)
+
+
+def cronograma_rows_replaced(page: str, rows: str) -> str:
+    body = page.index(">", page.index('id="tbFicha:dtCronograma_data"')) + 1
+    return page[:body] + rows + page[page.index("</tbody>", body):]
+
+
+def test_rows_gone_without_the_empty_message_stop_the_cronograma():
+    with pytest.raises(CronogramaError, match="without rows"):
+        parse_cronograma(cronograma_rows_replaced(read("ficha_rar.html"), ""))
+
+
+def test_the_portals_empty_table_is_an_empty_cronograma():
+    empty = '<tr class="ui-widget-content ui-datatable-empty-message"><td colspan="3">No se encontraron Datos</td></tr>'
+    assert parse_cronograma(cronograma_rows_replaced(read("ficha_rar.html"), empty)) == []
 
 
 def test_missing_cronograma_is_an_error():
