@@ -1,4 +1,4 @@
-"""The daily report as an HTML mail next to its text: one table of new obras, then the changes, each obra linked
+"""The daily report as an HTML mail next to its text: the followed obras' changes, then the day's summary, each obra linked
 to its page in the search tool. Mail clients only keep inline styles and tables, so the layout is built from them.
 """
 
@@ -6,7 +6,7 @@ import html
 from datetime import datetime
 
 from . import obra_page as op
-from .report import TOP, change_lines, money
+from .report import TOP, change_groups, change_lines, money
 from .search import LIMA
 
 INK, MUTED, RULE, ACCENT, PAPER = "#1d232a", "#5a626c", "#ece9e2", "#1c4f8a", "#f6f5f1"
@@ -47,11 +47,32 @@ def row(left: str, sub: str, right: str = "", right_sub: str = "") -> str:
             f'<div style="font-size:12.5px;color:{MUTED};padding-top:2px;">{e(right_sub)}</div></td></tr>')
 
 
+def divider(text: str) -> str:
+    return (f'<tr><td colspan="2" style="padding:32px 0 0;border-bottom:2px solid {INK};{FONT}font-size:12px;'
+            f'font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:{INK};">{html.escape(text)}</td></tr>')
+
+
+def change_rows(name: str, group: list[dict], web_url: str) -> list[str]:
+    if not group:
+        return []
+    rows = [heading(f"{name}: {len(group)}")]
+    for o in group[:TOP]:
+        rows.append(row(link(web_url, o["nid_proceso"], op.place(o)),
+                        html.escape(o["nomenclatura"]) + "<br>" + "<br>".join(html.escape(c) for c in change_lines(o))))
+    if len(group) > TOP:
+        rows.append(row(f"Y {len(group) - TOP} más en el CSV de cambios.", ""))
+    return rows
+
+
 def summary_html(items: list[dict], now: datetime, watched: list[str], changed: list[dict] = (),
                  web_url: str = "", followed: frozenset[int] | set[int] = frozenset()) -> str:
     e = html.escape
     abiertas = [i for i in items if i["estado"] == "abierta"]
-    rows = [heading(f"Obras nuevas abiertas: {len(abiertas)}")]
+    (mine_name, mine), *rest = change_groups(changed, followed)
+    rows = change_rows(mine_name, mine, web_url)
+    if mine:
+        rows.append(divider("Resumen del día"))
+    rows.append(heading(f"Obras nuevas abiertas: {len(abiertas)}"))
     if not abiertas:
         rows.append(row("Ninguna obra nueva desde el último informe.", ""))
     for i in abiertas[:TOP]:
@@ -64,17 +85,8 @@ def summary_html(items: list[dict], now: datetime, watched: list[str], changed: 
                         money(i["valor_referencial"], i["moneda"]), deadline(i)))
     if len(abiertas) > TOP:
         rows.append(row(f"Y {len(abiertas) - TOP} más en el buscador y en el CSV adjunto.", ""))
-    mine = [o for o in changed if o["nid_proceso"] in followed]
-    others = [o for o in changed if o["nid_proceso"] not in followed]
-    for name, group in (("Cambios en tus obras seguidas", mine), ("Cambios en otras obras abiertas", others)):
-        if not group:
-            continue
-        rows.append(heading(f"{name}: {len(group)}"))
-        for o in group[:TOP]:
-            rows.append(row(link(web_url, o["nid_proceso"], op.place(o)),
-                            e(o["nomenclatura"]) + "<br>" + "<br>".join(e(c) for c in change_lines(o))))
-        if len(group) > TOP:
-            rows.append(row(f"Y {len(group) - TOP} más en el CSV de cambios.", ""))
+    for name, group in rest:
+        rows += change_rows(name, group, web_url)
     button = ("" if not web_url else
               f'<tr><td colspan="2" style="padding:28px 0 0;"><a href="{e(web_url)}" style="display:inline-block;'
               f'background:{ACCENT};color:#ffffff;{FONT}font-size:14px;font-weight:600;text-decoration:none;'

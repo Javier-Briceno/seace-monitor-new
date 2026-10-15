@@ -128,10 +128,23 @@ def change_lines(obra: dict) -> list[str]:
         elif c["campo"] == "seguimiento":
             lines.append(STOPPED.get(c["ahora"], f"seguimiento: {c['ahora']}"))
         else:
-            lines.append(f"{CHANGE_NAMES.get(c['campo'], c['campo'])}: {c['antes']} → {c['ahora']}")
+            lines.append(f"{CHANGE_NAMES.get(c['campo'], c['campo'])}: {c['antes'] or '—'} → {c['ahora'] or '—'}")
     if documentos:
         lines.insert(0, f"{'documentos nuevos' if len(documentos) > 1 else 'documento nuevo'}: {', '.join(documentos)}")
     return lines
+
+
+# Changes that move a date the bidder plans around.
+DATE_FIELDS = {"cronograma", "fecha_limite_ofertas"}
+
+
+def change_groups(changed: list[dict], followed: frozenset[int] | set[int]) -> list[tuple[str, list[dict]]]:
+    """The followed obras' changes, then the others' moved dates, then everything else."""
+    others = [o for o in changed if o["nid_proceso"] not in followed]
+    dated = [o for o in others if any(c["campo"] in DATE_FIELDS for c in o["cambios"])]
+    return [("Cambios en tus obras seguidas", [o for o in changed if o["nid_proceso"] in followed]),
+            ("Fechas que cambiaron en otras obras", dated),
+            ("Otros cambios", [o for o in others if o not in dated])]
 
 
 def write_changes_csv(obras: list[dict], path: Path) -> None:
@@ -174,8 +187,12 @@ def summary(items: list[dict], now: datetime, watched: list[str],
             web_url: str = "", followed: frozenset[int] | set[int] = frozenset()) -> str:
     abiertas = [i for i in items if i["estado"] == "abierta"]
     otras = [i for i in items if i["estado"] != "abierta"]
-    lines = [
-        f"Informe SEACE, {now.astimezone(LIMA):%d/%m/%Y} ({', '.join(watched)})",
+    (mine_name, mine), *rest = change_groups(changed, followed)
+    lines = [f"Informe SEACE, {now.astimezone(LIMA):%d/%m/%Y} ({', '.join(watched)})"]
+    lines += change_block(mine_name, mine, web_url)
+    if mine:
+        lines += ["", "Resumen del día"]
+    lines += [
         "",
         f"Obras nuevas abiertas: {len(abiertas)}" + (f", de ellas {sum(1 for i in abiertas if i['ubicacion'] == 'sin ubicar')} sin ubicar" if abiertas else ""),
     ]
@@ -195,18 +212,8 @@ def summary(items: list[dict], now: datetime, watched: list[str],
         lines += ["", f"... y {len(abiertas) - TOP} más en el CSV adjunto."]
     if otras:
         lines += ["", f"Sin plazo para ofertar (reiniciadas, vencidas o sin fecha): {len(otras)}, detalle en el CSV."]
-    mine = [o for o in changed if o["nid_proceso"] in followed]
-    others = [o for o in changed if o["nid_proceso"] not in followed]
-    for heading, group in (("Cambios en tus obras seguidas", mine), ("Cambios en otras obras abiertas", others)):
-        if not group:
-            continue
-        lines += ["", f"{heading}: {len(group)}"]
-        for o in group[:TOP]:
-            lines += ["", title(o)] + [f"  {line}" for line in change_lines(o)]
-            if web_url:
-                lines.append(f"  {web_url}/obras/{o['nid_proceso']}")
-        if len(group) > TOP:
-            lines += ["", f"... y {len(group) - TOP} más en el CSV de cambios."]
+    for name, group in rest:
+        lines += change_block(name, group, web_url)
     if extracted:
         lines += ["", f"Extraídas a mano desde el último informe: {len(extracted)} (todos los campos en el CSV de extracciones)"]
         for e in extracted:
@@ -228,6 +235,19 @@ def summary(items: list[dict], now: datetime, watched: list[str],
     if problems:
         lines += ["", "Problemas:"] + [f"- {p}" for p in problems]
     return "\n".join(lines) + "\n"
+
+
+def change_block(heading: str, group: list[dict], web_url: str) -> list[str]:
+    if not group:
+        return []
+    lines = ["", f"{heading}: {len(group)}"]
+    for o in group[:TOP]:
+        lines += ["", title(o)] + [f"  {line}" for line in change_lines(o)]
+        if web_url:
+            lines.append(f"  {web_url}/obras/{o['nid_proceso']}")
+    if len(group) > TOP:
+        lines += ["", f"... y {len(group) - TOP} más en el CSV de cambios."]
+    return lines
 
 
 def write_csv(items: list[dict], path: Path) -> None:
