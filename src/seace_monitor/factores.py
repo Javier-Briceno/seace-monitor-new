@@ -15,9 +15,11 @@ from . import reading
 from .bases_text import page_of
 
 VERSION = "factores-5"
-# letters are compared as points only: entities reletter the factors between the summary table and the detail
+# each factor by its standard name with its points, not by letter: entities reletter the factors between the
+# summary table and the detail, and two readings may give the same points to different factors
 VALUES = {"total": lambda r: r.get("total"),
-          "puntos": lambda r: sorted(f["puntos"] for f in r.get("factores") or [] if f.get("puntos") is not None)}
+          "puntos": lambda r: sorted(f"{f['factor']} {f['puntos']}" for f in r.get("factores") or []
+                                     if f.get("puntos") is not None)}
 
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".

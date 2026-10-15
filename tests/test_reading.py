@@ -122,3 +122,15 @@ def test_every_file_with_a_model_text_is_read_not_only_the_first_few(tmp_path):
         files.append(path)
     result = reading.read_files(files, read, MISSING, None, VALUES)
     assert (result["cuantia"], result["archivo"]) == ("7.00", "ANEXO 3.pdf")
+
+
+def test_points_moved_to_another_factor_and_months_moved_to_another_cargo_differ():
+    from seace_monitor import factores, personal
+    first = {"revisar": None, "total": 100, "factores": [{"factor": "Gestión de calidad", "puntos": 40},
+                                                         {"factor": "Seguridad y salud", "puntos": 30}]}
+    swapped = {"revisar": None, "total": 100, "factores": [{"factor": "Gestión de calidad", "puntos": 30},
+                                                           {"factor": "Seguridad y salud", "puntos": 40}]}
+    assert reading.second_reading(first, swapped, factores.VALUES, MISSING)["difieren"] == ["puntos"]
+    one = {"revisar": None, "personal": [{"cargo": "Residente", "meses": 24}, {"cargo": "Especialista", "meses": 12}]}
+    other = {"revisar": None, "personal": [{"cargo": None, "meses": 12}, {"cargo": None, "meses": 24}]}
+    assert reading.second_reading(one, other, personal.VALUES, MISSING)["difieren"] == ["meses"]

@@ -16,7 +16,9 @@ from . import letras, reading
 from .bases_text import page_of
 
 VERSION = "personal-5"
-VALUES = {"meses": lambda r: sorted(p["meses"] for p in r.get("personal") or [] if p.get("meses") is not None)}
+# the months in the order of the cargos (both readings keep the table's order): a time moved to another cargo
+# differs. The cargo names are not compared, Tesseract garbles them.
+VALUES = {"meses": lambda r: [p["meses"] for p in r.get("personal") or [] if p.get("meses") is not None]}
 
 # The requirement heading followed by "Requisitos", not the scoring factor of chapter IV nor a sentence citing
 # it. OCR leaves noise before "B.2" ("de .B.2", "“iB.2") and puts a second column on the same line;
