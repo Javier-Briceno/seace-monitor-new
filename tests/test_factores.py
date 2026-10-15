@@ -221,3 +221,35 @@ def test_a_row_whose_letter_lost_its_dot_after_a_blank_line():
     result = read(text)
     assert [(f["letra"], f["puntos"]) for f in result["factores"]] == [("A", 90), ("B", 10)]
     assert (result["suma"], result["revisar"]) == (100, None)
+
+
+def test_a_row_crossed_out_by_hand_gives_no_points():
+    # obra 1247797 as a vision model transcribes it: the entity struck sostenibilidad social out
+    text = ("CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            "FACTORES DE EVALUACIÓN FACULTATIVOS   PUNTAJE   TIPO DE EVALUADOR\n"
+            "A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE   [35] puntos   COMITÉ/JURADO\n"
+            "B. SOSTENIBILIDAD AMBIENTAL   [5] puntos   COMITÉ/JURADO\n"
+            "[TACHADO] C. SOSTENIBILIDAD SOCIAL   [5] puntos   COMITÉ/JURADO\n"
+            "D. INTEGRIDAD EN LA CONTRATACION PÚBLICA   [5] puntos   COMITÉ/JURADO\n"
+            "F. GESTIÓN DE CALIDAD   [5] puntos   COMITÉ/JURADO\n"
+            "K. SEGURIDAD Y SALUD   [10] puntos   COMITÉ/JURADO\n"
+            "M. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD   [40] puntos   COMITÉ/JURADO\n"
+            "PUNTAJE TOTAL   100 puntos\n")
+    result = read(text)
+    assert result["revisar"] is None and result["suma"] == 100
+    assert "Sostenibilidad social" not in [f["factor"] for f in result["factores"]]
+
+
+def test_points_written_without_the_word_puntos_in_one_line_rows():
+    # obra 1233127
+    text = ("CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            "FACTORES DE EVALUACIÓN FACULTATIVOS   PUNTAJE   TIPO DE EVALUADOR\n"
+            "A. EXPERIENCIA ESPECIFICA ADICIONAL DEL PERSONAL CLAVE   40   COMITÉ\n"
+            "B. SOSTENIBILIDAD AMBIENTAL   5   COMITÉ\n"
+            "C. INTEGRIDAD EN LA CONTRATACION PÚBLICA   5   COMITÉ\n"
+            "D. GESTIÓN DE CALIDAD33   5   COMITÉ\n"
+            "E. SEGURIDAD Y SALUD   20   COMITÉ\n"
+            "F. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD   25   COMITÉ\n"
+            "PUNTAJE TOTAL   100 puntos\n")
+    result = read(text)
+    assert [f["puntos"] for f in result["factores"]] == [40, 5, 5, 5, 20, 25] and result["suma"] == 100

@@ -42,6 +42,9 @@ UNLETTERED = re.compile(r"^()[^\S\n]*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ,/\-]{5,
 ROW_BEFORE = re.compile(r"puntos|CORRESPONDE|COMIT|JURADO|EVALUADOR|PUNTAJE|FACULTATIVOS|OBLIGATORIO", re.I)
 HEADER = re.compile(r"FACTOR|OBLIGATORIO|FACULTATIVO|PUNTAJE|EVALUADOR|EN\s+CASO\s+DE", re.I)
 POINTS = re.compile(FIGURE, re.I)
+STRUCK = re.compile(r"^[^\S\n]*\[TACHADO\][^\n]*(?:\n|$)", re.M)
+CELLS = re.compile(r" {3,}")
+BARE = re.compile(r"\[?\s*(\d{1,3})\s*\]?")
 NOT_USED = re.compile(r"NO\s+CORRESPONDE", re.I)
 TEMPLATE = re.compile(r"\[\s*Como\s+m[aá]ximo", re.I)
 EVALUATION = re.compile(r"Evaluaci[oó]n\s*:(.{0,300}?)" + FIGURE, re.I | re.S)
@@ -123,6 +126,9 @@ def summary_rows(table: str) -> list[dict]:
         name = factor_name(lines[0]) or factor_name(" ".join(lines[:3]))
         points = POINTS.search(body)
         figure = int(points.group(1)) if points else None
+        # a table written one row a line whose points cell has no "puntos": "B. SOSTENIBILIDAD AMBIENTAL   5   COMITÉ"
+        if figure is None and (bare := next((c for c in CELLS.split(lines[0].strip())[1:] if BARE.fullmatch(c)), None)):
+            figure = int(BARE.fullmatch(bare).group(1))
         # "J. PLANIFICACIÓN DETALLADA  NO CORRESPONDE" with the next row's figure on the line below it
         not_used = NOT_USED.search(body)
         if not_used and points and not_used.start() < points.start():
@@ -175,7 +181,8 @@ def read(text: str) -> dict:
         word = minimum.group(1).lower()
         result["minimo_tecnico"] = int(word) if word.isdigit() else MINIMUM_WORDS.get(word)
     result["total"] = int(total.group(1))
-    table = text[table_end: total.start()]
+    # a row the entity crossed out by hand, as a vision model marks it, gives no points
+    table = STRUCK.sub("", text[table_end: total.start()])
     rows = [r for r in summary_rows(table) if not r["no_corresponde"]]
     # "E. CAPACITACIÓN [Como máximo 10]": the template's text left in the table, no points given
     if template := [r["factor"] for r in rows if r["plantilla"]]:
