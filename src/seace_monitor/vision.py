@@ -59,8 +59,11 @@ def add_spending(conn: psycopg.Connection, now: datetime, usd: Decimal, pages: i
 
 def render(path: Path, page: int, folder: Path) -> bytes:
     stem = folder / f"p{page}"
-    done = subprocess.run(["pdftoppm", "-png", "-r", "150", "-singlefile", "-f", str(page), "-l", str(page),
-                           tool_path(path), str(stem)], capture_output=True, timeout=TIMEOUT)
+    try:
+        done = subprocess.run(["pdftoppm", "-png", "-r", "150", "-singlefile", "-f", str(page), "-l", str(page),
+                               tool_path(path), str(stem)], capture_output=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired as error:
+        raise VisionError(f"page {page} took longer than {error.timeout} s to render") from error
     image = stem.with_suffix(".png")
     if not image.exists():
         raise VisionError(f"page {page} gave no image: {done.stderr.decode('utf-8', 'replace').strip()[:200]}")
@@ -84,9 +87,12 @@ def ask(key: str, image: bytes) -> tuple[str, Decimal]:
         raise VisionError(f"OpenRouter unreachable: {error}") from error
     if answer.status_code != 200:
         raise VisionError(f"OpenRouter answered {answer.status_code}: {answer.text[:200]}")
-    data = answer.json()
-    text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-    return text, Decimal(str((data.get("usage") or {}).get("cost") or 0))
+    try:
+        data = answer.json()
+        text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        return text, Decimal(str((data.get("usage") or {}).get("cost") or 0))
+    except (ValueError, AttributeError, IndexError, TypeError, ArithmeticError) as error:
+        raise VisionError(f"OpenRouter answer not understood: {answer.text[:200]}") from error
 
 
 def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Decimal]] = ask,

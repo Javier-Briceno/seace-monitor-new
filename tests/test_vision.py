@@ -91,3 +91,22 @@ def test_no_file_is_started_once_the_month_reached_the_cap(conn, monkeypatch, tm
     monkeypatch.setattr(vision, "transcribe", lambda p, key: (sent.append(p), (ia_path(p), Decimal("0.01"), 3))[1])
     main.run_transcription(conn, {"vision": {"tope_mensual_usd": 36}}, [1])
     assert sent == [path] and vision.spent(conn, datetime.now(LIMA)) == Decimal("35.01")
+
+
+def test_a_malformed_answer_or_a_slow_render_is_a_vision_error(monkeypatch, tmp_path):
+    class Answer:
+        status_code, text = 200, "<html>gateway</html>"
+
+        def json(self):
+            raise ValueError("not json")
+
+    monkeypatch.setattr(vision.requests, "post", lambda *a, **k: Answer())
+    with pytest.raises(vision.VisionError):
+        vision.ask("clave", b"png")
+
+    def slow(*a, **k):
+        raise vision.subprocess.TimeoutExpired("pdftoppm", 300)
+
+    monkeypatch.setattr(vision.subprocess, "run", slow)
+    with pytest.raises(vision.VisionError):
+        vision.render(SCAN, 1, tmp_path)
