@@ -126,16 +126,26 @@ BASES = section("El presente procedimiento de selección tiene por objeto la con
 def test_a_cui_that_is_not_seaces_is_a_warning(monkeypatch, tmp_path):
     monkeypatch.setattr(objeto.reading, "text_of", lambda path: path.read_text(encoding="utf-8"))
     r = objeto.read_files(write(tmp_path, BASES), "EJECUCION DE LA OBRA MOVILIDAD URBANA ... CON CUI 2623287")
-    assert r["avisos"] == [{"aviso": "cui_distinto_seace", "bases": "2634231", "seace": "2623287"}]
+    assert [w for w in r["avisos"] if w["aviso"] == "cui_distinto_seace"] == [
+        {"aviso": "cui_distinto_seace", "bases": "2634231", "seace": "2623287"}]
 
 
 def test_a_paquete_naming_the_bases_cui_among_several_is_no_warning(monkeypatch, tmp_path):
     monkeypatch.setattr(objeto.reading, "text_of", lambda path: path.read_text(encoding="utf-8"))
     r = objeto.read_files(write(tmp_path, BASES), "PAQUETE 5 ... CUI N° 2556200, N° 2634231, N° 2683978 Y N° 2709843")
-    assert r["avisos"] == []
+    assert not [w for w in r["avisos"] if w["aviso"] == "cui_distinto_seace"]
 
 
 def test_names_split_or_without_accents_in_tesseract_are_the_same_name():
     alike = objeto.ALIKE["obra"]
     assert alike("AMPLIACIÓN DEL SERVICIO DE AGUA") == alike("AMPLIACION DEL SERVIC IO DE AGUA")
     assert alike("RENOVACIÓN DE PUENTE") != alike("RENOVAC CISCO DE SUCRE")
+
+
+def test_a_name_that_does_not_resemble_the_seace_description_is_flagged():
+    seace = ("CONTRATACIÓN PARA LA EJECUCIÓN DE LA OBRA: MEJORAMIENTO DEL SERVICIO DE TRANSITABILIDAD VIAL EN EL "
+             "CASERIO LA VIÑA, DISTRITO DE COCHORCO")
+    assert objeto.name_share("MEJORAMIENTO DEL SERVICIO DE TRANSITABILIDAD VIAL EN EL CASERÍO LA VIÑA", seace) == 1.0
+    # obra 1249821: the template's placeholder left as the name
+    assert objeto.name_share("CONSIGNAR NOMBRE DE LA OBRA A EJECUTAR, DEL(LOS) PROYECTO(S) DE INVERSION", seace) \
+        < objeto.NAME_SHARE
