@@ -630,3 +630,18 @@ def test_new_document_goes_to_historial(conn, rows, documents):
     integradas = {**documents[0], "uuid": "integradas", "tipo": "Bases Integradas", "nombre_archivo": "bi.pdf"}
     assert save_ficha(conn, nid, documents + [integradas], estados=["Convocado"]) == 1
     assert history(conn, nid) == [("documento", None, "Bases Integradas: bi.pdf")]
+
+
+def test_an_obra_without_departamento_is_located_by_its_bases_name(conn, rows):
+    from seace_monitor.store import locate_from_bases
+    save_new_licitaciones(conn, rows[:2])
+    lost, known = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    conn.execute("UPDATE licitaciones SET departamentos = '{}', ubicacion_fuente = 'unknown' WHERE nid_proceso = %s", [lost])
+    conn.execute("UPDATE licitaciones SET departamentos = '{ANCASH}' WHERE nid_proceso = %s", [known])
+    name = "CREACION DE LOSA DEPORTIVA EN EL CASERIO X, DISTRITO DE PIAS, PROVINCIA DE PATAZ, DEPARTAMENTO LA LIBERTAD"
+    assert locate_from_bases(conn, lost, name) == ["LA LIBERTAD"]
+    locate_from_bases(conn, known, name)
+    stored = dict(conn.execute("SELECT nid_proceso, departamentos FROM licitaciones WHERE nid_proceso = ANY(%s)",
+                               [[lost, known]]).fetchall())
+    assert stored == {lost: ["LA LIBERTAD"], known: ["ANCASH"]}
+    assert conn.execute("SELECT ubicacion_fuente FROM licitaciones WHERE nid_proceso = %s", [lost]).fetchone()[0] == "bases"
