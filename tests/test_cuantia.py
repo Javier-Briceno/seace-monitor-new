@@ -59,6 +59,19 @@ def test_limits_on_the_page_after_the_footnote_are_read():
     assert warnings(result) == [] and result["revisar"] is None
 
 
+def test_each_value_keeps_its_own_page():
+    # The same bases with page breaks where the PDF has them: the límites table on the next page, the offer
+    # type in chapter IV further on.
+    lines = bases("1218514").split("\n")
+    table = next(i for i, l in enumerate(lines) if "LIMITE INFERIOR" in l)
+    offer = next(i for i, l in enumerate(lines) if l.startswith("presente procedimiento de selección es"))
+    lines[table] = "\f" + lines[table]
+    lines[offer] = "\f" + lines[offer]
+    result = read("\n".join(lines))
+    assert result["pagina"] == 1
+    assert result["paginas"] == {"cuantia": 1, "limites": 2, "tipo_oferta": 3}
+
+
 def test_lower_limit_one_cent_short():
     assert warnings(read(bases("1252316"))) == [
         {"aviso": "limite_inferior", "bases": "120668.94", "exacto": "120668.95"}]

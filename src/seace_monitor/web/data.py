@@ -375,6 +375,15 @@ def value(label: str, text: str, obra: dict, found: dict | None, items: list[tup
             "enlace": page_link(obra, found), "lista": items}
 
 
+def at(found: dict, key: str, section_page: bool = True) -> dict | None:
+    """The reading with the page of one of its values. Readings made before pages were kept per value have the
+    section's page only; a value read elsewhere than the section gets no page from it (`section_page`)."""
+    page = (found.get("paginas") or {}).get(key)
+    if page:
+        return {**found, "pagina": page}
+    return found if section_page else None
+
+
 def detail(obra: dict) -> dict:
     """The reading of one obra: what to consult, what to look at first, what is left for a person, and each value
     with its page. The same rules as the phone page: a warning read through OCR waits for a look at the page."""
@@ -386,17 +395,18 @@ def detail(obra: dict) -> dict:
         manual.append(note("Bases descargadas, todavía sin leer.", obra, None))
     else:
         if reading.get("cuantia"):
-            values.append(value("Cuantía", op.soles(reading["cuantia"]), obra, reading))
+            values.append(value("Cuantía", op.soles(reading["cuantia"]), obra, at(reading, "cuantia")))
         elif obra["valor_referencial"] is not None:
             values.append(value("Cuantía", f'{op.soles(obra["valor_referencial"])} (ficha del SEACE)', obra, None))
         offer = op.OFFER_TYPES.get(reading.get("tipo_oferta") or "", "")
-        values.append(value("Oferta económica", offer[:1].upper() + offer[1:], obra, None))
+        values.append(value("Oferta económica", offer[:1].upper() + offer[1:], obra,
+                            at(reading, "tipo_oferta", section_page=False) if offer else None))
         if reading.get("limite_inferior") or reading.get("limite_superior"):
             values.append(value("Límites con IGV", f'{op.soles(reading.get("limite_inferior"))} a '
-                                f'{op.soles(reading.get("limite_superior"))}', obra, reading))
+                                f'{op.soles(reading.get("limite_superior"))}', obra, at(reading, "limites")))
         if reading.get("sin_igv_inferior") or reading.get("sin_igv_superior"):
             values.append(value("Límites sin IGV", f'{op.soles(reading.get("sin_igv_inferior"))} a '
-                                f'{op.soles(reading.get("sin_igv_superior"))}', obra, reading))
+                                f'{op.soles(reading.get("sin_igv_superior"))}', obra, at(reading, "limites")))
         if reading.get("revisar"):
             manual.append(note(op.UNREAD.get(reading["revisar"], "Revisar a mano: " + reading["revisar"]), obra,
                                reading))
