@@ -37,6 +37,8 @@ UPPER = re.compile(r"L[IÍ]MITE\s+SUPERIOR", re.I)
 TABLE_HEADER = re.compile(r"L[IÍ]MITE\s+INFERIOR(?:(?!decimal|tiene|L[IÍ]MITE).){0,200}?L[IÍ]MITE\s+SUPERIOR"
                           r"|L[IÍ]MITE\s+SUPERIOR(?:(?!decimal|tiene|L[IÍ]MITE).){0,200}?L[IÍ]MITE\s+INFERIOR", re.I | re.S)
 CUANTIA_HEADER = re.compile(r"CUANT[IÍ]A\s+DE\s+LA|VALOR\s+REFERENCIAL", re.I)
+# cells of a table row written on one line
+CELLS = re.compile(r" {3,}")
 WITH_IGV = re.compile(r"con\s+IGV", re.I)
 WITHOUT_IGV = re.compile(r"sin\s+IGV", re.I)
 PLACEHOLDER = "[CONSIGNAR"
@@ -143,6 +145,8 @@ def limits_by_column(block: str) -> tuple[Decimal | None, Decimal | None, Decima
         centres = {"low": centre_of(low), "high": centre_of(high)}
         # "Con IGV" and "Sin IGV" under each límite (Ley 27037): the límite is the con-IGV figure.
         sub = next((line for line in lines[i + 1: i + 3] if len(WITH_IGV.findall(line)) >= 2), None)
+        if not sub and (by_cell := limits_by_cell(line, lines[i + 1: i + 1 + TABLE_LINES])):
+            return by_cell
         if sub:
             with_igv = [centre_of(m) for m in WITH_IGV.finditer(sub)]
             centres = {"low": with_igv[0], "high": with_igv[1]}
@@ -166,6 +170,24 @@ def limits_by_column(block: str) -> tuple[Decimal | None, Decimal | None, Decima
             if all(found.values()):
                 break
         return found["low"], found["high"], found.get("sin0"), found.get("sin1")
+    return None
+
+
+def limits_by_cell(header: str, below: list[str]) -> tuple[Decimal, Decimal, None, None] | None:
+    """A table written one row a line with its cells apart by runs of spaces, as a vision model transcribes it:
+    the límites are the first amounts of the cells under the two headers, in the first row of as many cells."""
+    cells = CELLS.split(header.strip())
+    low = next((n for n, c in enumerate(cells) if LOWER.search(c)), None)
+    high = next((n for n, c in enumerate(cells) if UPPER.search(c)), None)
+    if low is None or high is None or low == high:
+        return None
+    for line in below:
+        row = CELLS.split(line.strip())
+        if len(row) != len(cells):
+            continue
+        amounts = [ANY_NUMBER.search(row[low]), ANY_NUMBER.search(row[high])]
+        if all(amounts):
+            return money(amounts[0].group(1)), money(amounts[1].group(1)), None, None
     return None
 
 
