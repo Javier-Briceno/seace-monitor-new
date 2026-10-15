@@ -7,6 +7,7 @@ import psycopg
 
 from .archives import ARCHIVE_SUFFIXES
 from .ficha import has_bases, is_offer_stage
+from .locate import locate
 from .search import LIMA
 from .track import closes
 
@@ -342,7 +343,7 @@ def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | N
                  SELECT id, row_number() OVER (PARTITION BY nid_proceso ORDER BY (tipo ILIKE '%%integrad%%') DESC,
                                                publicado_en DESC NULLS LAST, id DESC) = 1 AS newest
                  FROM documentos WHERE estado = 'done' AND tipo ILIKE 'bases%%')
-             SELECT d.id, d.nid_proceso, d.ruta_local, l.valor_referencial,
+             SELECT d.id, d.nid_proceso, d.ruta_local, l.valor_referencial, l.descripcion,
                     COALESCE(array_agg(c.ruta ORDER BY c.id) FILTER (WHERE c.ruta IS NOT NULL AND c.error IS NULL), '{}'),
                     r.newest,
                     (SELECT e.campos->>'cuantia' FROM extracciones e WHERE e.documento_id = d.id
@@ -356,9 +357,27 @@ def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | N
     if nids is not None:
         sql += " AND d.nid_proceso = ANY(%s)"
         params.append(nids)
-    rows = conn.execute(sql + " GROUP BY d.id, l.valor_referencial, r.newest ORDER BY d.id", params).fetchall()
-    keys = ("id", "nid_proceso", "ruta_local", "valor_referencial", "contents", "newest", "cuantia_bases")
+    rows = conn.execute(sql + " GROUP BY d.id, l.valor_referencial, l.descripcion, r.newest ORDER BY d.id",
+                        params).fetchall()
+    keys = ("id", "nid_proceso", "ruta_local", "valor_referencial", "descripcion", "contents", "newest", "cuantia_bases")
     return [dict(zip(keys, r)) for r in rows]
+
+
+def locate_from_bases(conn: psycopg.Connection, nid: int, reading: dict) -> list[str]:
+    """Departamentos named in the newest bases' 1.3 for an obra whose SEACE description named none.
+
+    Newer bases replace what older ones gave; bases naming another CUI may be another obra's, so they take
+    back what earlier bases gave and place nothing.
+    """
+    departamentos = [] if reading["avisos"] or not reading["obra"] else locate(reading["obra"])[0]
+    if departamentos:
+        conn.execute("""UPDATE licitaciones SET departamentos = %s, ubicacion_fuente = 'bases'
+                        WHERE nid_proceso = %s AND (departamentos = '{}' OR ubicacion_fuente = 'bases')""",
+                     [departamentos, nid])
+    elif reading["avisos"]:
+        conn.execute("""UPDATE licitaciones SET departamentos = '{}', ubicacion_fuente = 'unknown'
+                        WHERE nid_proceso = %s AND ubicacion_fuente = 'bases'""", [nid])
+    return departamentos
 
 
 def save_extraction(conn: psycopg.Connection, doc_id: int, version: str, campos: dict, motivo: str | None) -> None:

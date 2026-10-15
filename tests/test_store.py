@@ -630,3 +630,35 @@ def test_new_document_goes_to_historial(conn, rows, documents):
     integradas = {**documents[0], "uuid": "integradas", "tipo": "Bases Integradas", "nombre_archivo": "bi.pdf"}
     assert save_ficha(conn, nid, documents + [integradas], estados=["Convocado"]) == 1
     assert history(conn, nid) == [("documento", None, "Bases Integradas: bi.pdf")]
+
+
+def test_an_obra_without_departamento_is_located_by_its_bases_name(conn, rows):
+    from seace_monitor.store import locate_from_bases
+    save_new_licitaciones(conn, rows[:2])
+    lost, known = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    conn.execute("UPDATE licitaciones SET departamentos = '{}', ubicacion_fuente = 'unknown' WHERE nid_proceso = %s", [lost])
+    conn.execute("UPDATE licitaciones SET departamentos = '{ANCASH}', ubicacion_fuente = 'text' WHERE nid_proceso = %s",
+                 [known])
+    reading = {"obra": "CREACION DE LOSA DEPORTIVA EN EL CASERIO X, DISTRITO DE PIAS, PROVINCIA DE PATAZ, "
+                       "DEPARTAMENTO LA LIBERTAD", "avisos": []}
+    assert locate_from_bases(conn, lost, reading) == ["LA LIBERTAD"]
+    locate_from_bases(conn, known, reading)
+    assert place(conn, lost) == (["LA LIBERTAD"], "bases") and place(conn, known) == (["ANCASH"], "text")
+
+
+def place(conn, nid):
+    return conn.execute("SELECT departamentos, ubicacion_fuente FROM licitaciones WHERE nid_proceso = %s",
+                        [nid]).fetchone()
+
+
+def test_newer_bases_correct_and_conflicting_bases_take_back_a_bases_location(conn, rows):
+    from seace_monitor.store import locate_from_bases
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    conn.execute("UPDATE licitaciones SET departamentos = '{}', ubicacion_fuente = 'unknown' WHERE nid_proceso = %s", [nid])
+    locate_from_bases(conn, nid, {"obra": "LOSA EN EL CASERIO X, DEPARTAMENTO DE ANCASH", "avisos": []})
+    locate_from_bases(conn, nid, {"obra": "LOSA EN EL CASERIO X, DEPARTAMENTO DE CAJAMARCA", "avisos": []})
+    assert place(conn, nid) == (["CAJAMARCA"], "bases")
+    other_cui = [{"aviso": "cui_distinto_seace", "bases": "2634231", "seace": "2623287"}]
+    locate_from_bases(conn, nid, {"obra": "OTRA OBRA, DEPARTAMENTO DE LA LIBERTAD", "avisos": other_cui})
+    assert place(conn, nid) == ([], "unknown")

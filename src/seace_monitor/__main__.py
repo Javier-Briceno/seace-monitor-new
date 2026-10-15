@@ -18,7 +18,7 @@ from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
-from . import config, cuantia, db, experiencia, factores, mail, manual, obra_page, personal, report
+from . import config, cuantia, db, experiencia, factores, mail, manual, obra_page, objeto, personal, report
 from .archives import ArchiveError, MachineError, unpack
 from .bases_text import ToolMissing, bases_files
 from .ocr import make_ocr, ocr_path, ocrmypdf
@@ -28,8 +28,8 @@ from .locate import locate
 from .search import LIMA, AccessError, Query, SearchError, make_session, search_pages, search_split
 from .store import (
     archives_to_unpack, bases_to_extract, contents_done, contents_failed, document_done, document_failed, ficha_failed,
-    fichas_to_read, link_restarts, mark_changes_reported, mark_extractions_reported, mark_reported, mark_stalled, open_since,
-    pending_documents, save_extraction, save_ficha, save_new_licitaciones, tracked,
+    fichas_to_read, link_restarts, locate_from_bases, mark_changes_reported, mark_extractions_reported, mark_reported,
+    mark_stalled, open_since, pending_documents, save_extraction, save_ficha, save_new_licitaciones, tracked,
 )
 
 PAUSE = 1  # seconds between requests to SEACE
@@ -175,7 +175,7 @@ def run_unpacking(conn, nids=None) -> None:
 
 
 def run_extraction(conn, nids=None, ocr_budget=None) -> None:
-    """Read section 1.4, the experiencia del postor, the personal clave and the factores de evaluación of the
+    """Read section 1.4, the experiencia del postor, the personal clave, the factores de evaluación and section 1.3 of the
     downloaded bases of these obras not read yet by the current readers; None means every obra.
 
     Image pages of an obra's newest bases are OCRed when a section is not in the text, at most
@@ -207,6 +207,8 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
          lambda r: f"{r['revisar'] or r['suma']}  {', '.join(w['aviso'] for w in r['avisos'])}"),
         (personal.VERSION, lambda files, document, ocr: personal.read_files(files, ocr),
          lambda r: f"{r['revisar'] or len(r['personal'])}  {', '.join(w['aviso'] for w in r['avisos'])}"),
+        (objeto.VERSION, lambda files, document, ocr: objeto.read_files(files, document["descripcion"], ocr),
+         lambda r: f"{r['revisar'] or (r['obra'] or '')[:60]}  {r['cui'] or ''}"),
     )
     for version, read, line in readers:
         pending = bases_to_extract(conn, version, nids)
@@ -222,7 +224,11 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
             if result.pop("ocr_pendiente", False) and document["newest"]:
                 print(f"  {document['nid_proceso']}  image pages, waits for OCR in the next run")
                 continue
-            save_extraction(conn, document["id"], version, result, result["revisar"])
+            # together: a reading marked done is never read again, so its location must not be left behind
+            with conn.transaction():
+                save_extraction(conn, document["id"], version, result, result["revisar"])
+                if version == objeto.VERSION and document["newest"]:
+                    locate_from_bases(conn, document["nid_proceso"], result)
             print(f"  {document['nid_proceso']}  {line(result)}{' (OCR)' if result['ocr'] else ''}")
 
 
