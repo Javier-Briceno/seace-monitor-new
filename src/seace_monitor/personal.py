@@ -41,6 +41,9 @@ START = re.compile(r"^(?:" + HEAD + r"|ING\.?|INGENIER[OA]|LIC\.?|LICENCIAD[OA]|
 ENGINEER = re.compile(r"^(?:ING\.?|INGENIER[OA])\s+(?:(?:de|en|del)\s+)?\w{4,}", re.I)
 CONNECTOR = re.compile(r"\b(?:de|del|en|y|e|o|la|las|el|a|con)$|[/,\-]$", re.I)
 NUMBERED = re.compile(r"^\s{0,12}\d{1,2}\s*[.)\-]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,70}?)\s*$", re.M)
+# "a) Residente de Obra" heading its own paragraph of requirements
+LETTERED = re.compile(r"^\s{0,12}[a-zA-Z]\s*[.)]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,90}?)\s*:?\s*$", re.M)
+CELLS = re.compile(r" {3,}")
 # The column headers; the cargo column is the one headed CARGO, PERSONAL or PUESTO.
 CARGO_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO)\b", re.I)
 HEADER_WORDS = re.compile(r"\bCARGO|\bPERSONAL\b|\bPUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|"
@@ -270,6 +273,54 @@ def rows_from_headings(block: str) -> list[dict]:
     return rows
 
 
+def rows_from_letters(block: str) -> list[dict]:
+    """ "a) Residente de Obra" above the paragraph that asks its experience, one per cargo."""
+    return [{"line": block.count("\n", 0, m.start()), "cargo": m.group(1)} for m in LETTERED.finditer(block)
+            if START.match(m.group(1)) and complete(m.group(1))]
+
+
+def rows_from_row_lines(lines: list[str], times: list[dict]) -> list[dict]:
+    """A table written one row a line, its cells apart by runs of spaces, or "• Residente de Obra: ... (24) meses":
+    the cargo is the first cell of the line that holds the time, or of the nearest line above it that opens a row.
+    Under a header naming the cargo column, its first cell is the cargo whatever words it uses."""
+    headed = any(CARGO_HEADER.search(c) for line in lines[: times[0]["line"]] for c in CELLS.split(line.strip())
+                 if len(CELLS.split(line.strip())) >= 2)
+    rows = []
+    for t in times:
+        for i in range(t["line"], max(-1, t["line"] - 4), -1):
+            if cargo := row_cargo(lines[i], headed):
+                # a next line with cells and no time continues this row's cells: a layout table whose cargo
+                # wraps ("Ingeniero Residente" / "y/o jefe de Obra"), which this reading would cut
+                after = lines[i + 1] if i + 1 < len(lines) else ""
+                if len(CELLS.split(after.strip())) >= 2 and not TIME.search(after):
+                    return []
+                rows.append({"line": i, "cargo": cargo})
+                break
+        else:
+            return []
+    return rows if len({r["line"] for r in rows}) == len(rows) else []
+
+
+def row_cargo(line: str, headed: bool) -> str | None:
+    cells = [c for c in CELLS.split(line.strip().lstrip("•·*- ")) if c]
+    while cells and re.fullmatch(r"\d{1,2}[.)°]?", cells[0]):
+        cells.pop(0)  # the row's number
+    if not cells:
+        return None
+    if len(cells) == 1:
+        cargo, colon, _ = cells[0].partition(":")
+        if not colon:
+            return None
+    else:
+        cargo = cells[0]
+    cargo = cargo.strip(" :")
+    if TIME.search(cargo) or len(cargo) > 90 or not cargo:
+        return None
+    if START.match(cargo) and complete(cargo) or headed and len(cells) >= 2:
+        return cargo
+    return None
+
+
 def rows_from_cells(lines: list[str], times: list[dict]) -> list[dict]:
     """A Word table gives one cell a line: the cargo on the line just above the one its description and time
     open ("Residente de Obra" / "5 años de experiencia como: ...")."""
@@ -335,6 +386,13 @@ def read(text: str) -> dict:
     paired = pair(rows, times) if rows else None
     if paired is None and len(cells := rows_from_cells(lines, times)) == len(times):
         rows, paired = cells, times
+    if paired is None or any(doubtful(squeeze(r["cargo"])) for r in rows):
+        # lettered cargos above their paragraphs, or a table one row a line (a vision model's transcription)
+        for other in (rows_from_letters(block), rows_from_row_lines(lines, times)):
+            if other and (found := pair(other, times)) is not None \
+                    and not any(doubtful(squeeze(r["cargo"])) for r in other):
+                rows, paired = other, found
+                break
     if paired is None or any(doubtful(squeeze(r["cargo"])) for r in rows):
         result["personal"] = [{"cargo": None, "tiempo": t["tiempo"], "meses": t["meses"]} for t in times]
         result["revisar"] = UNREADABLE
