@@ -1,4 +1,5 @@
 import contextlib
+import json
 import re
 from datetime import timedelta
 from decimal import Decimal
@@ -267,3 +268,17 @@ def test_signing_out_needs_the_form_token(web, conn):
 def test_pages_carry_security_headers(web):
     headers = web.get("/entrar").headers
     assert headers["x-frame-options"] == "DENY" and "frame-ancestors 'none'" in headers["content-security-policy"]
+
+
+def test_the_obra_page_names_the_obra_as_its_bases_do_and_warns_of_another_cui(web, conn):
+    signed_in(web, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    doc = bases(conn, 1, lectura=reading())
+    full = "MEJORAMIENTO DEL SERVICIO DE AGUA POTABLE DEL CASERIO LA VIÑA, DISTRITO DE COCHORCO, PROVINCIA SANCHEZ CARRION"
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'objeto-1', %s, 'done')",
+                 [doc, json.dumps({"obra": full, "cui": "2485259", "pagina": 20, "ocr": False, "revisar": None,
+                                   "archivo": "BASES.pdf",
+                                   "avisos": [{"aviso": "cui_distinto_seace", "bases": "2485259", "seace": "2400000"}]})])
+    page = text(web.get("/obras/1").text)
+    assert f"Nombre completo en las bases pág. 20 {full} CUI 2485259" in page
+    assert "El CUI de las bases (2485259) no es el que nombra la descripción del SEACE (2400000)" in page

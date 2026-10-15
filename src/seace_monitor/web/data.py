@@ -400,10 +400,18 @@ def detail(obra: dict) -> dict:
                                reading))
         for w in reading.get("avisos") or []:
             (look if reading.get("ocr") else consult).append(note(op.warning_text(w), obra, reading))
+        found = obra.get("objeto") or {}
+        for w in found.get("avisos") or []:
+            text = (f"El CUI de las bases ({w['bases']}) no es el que nombra la descripción del SEACE "
+                    f"({w['seace']}): puede ser otra obra.")
+            (look if found.get("ocr") else consult).append(note(text, obra, found))
         experience(obra, values, manual)
         personal(obra, values, manual, consult, look)
         factors(obra, values, manual, consult)
+    objeto = obra.get("objeto") or {}
     return {"consultar": consult, "mirar": look, "revisar": manual, "valores": values,
+            "objeto": value("Nombre en las bases", objeto["obra"], obra, objeto) if objeto.get("obra") else None,
+            "cui": objeto.get("cui"),
             "sin_observaciones": bool(reading and reading.get("cuantia") and not reading.get("revisar")
                                       and not reading.get("avisos") and not consult
                                       and reading.get("tipo_oferta") in ("fija", "limitada"))}

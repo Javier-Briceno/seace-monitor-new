@@ -100,6 +100,14 @@
       {% endif %}
     </section>
 
+    {% if d.objeto %}
+    <section class="bloque">
+      <h2>Nombre completo en las bases {{ fuente(d.objeto) }}</h2>
+      <p class="descripcion">{{ d.objeto.valor }}{% if d.cui %} <span class="suave">CUI {{ d.cui }}</span>{% endif %}</p>
+      {% if d.objeto.ocr %}<p class="escaneo">Leído de un escaneo, comprobar en la página.</p>{% endif %}
+    </section>
+    {% endif %}
+
     <section class="bloque">
       <h2>Descripción del SEACE</h2>
       <p class="descripcion">{{ o.descripcion }}</p>
