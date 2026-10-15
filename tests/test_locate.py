@@ -40,6 +40,7 @@ def test_multi_word_name():
 def test_a_municipalidads_obra_without_a_marked_departamento_sits_where_the_search_ran():
     cut = "CONTRATACIÓN PARA LA EJECUCIÓN DE LA OBRA: ¿MEJORAMIENTO Y AMPLIACION DEL SERVICIO DE ALCANTARILLADO EN LOS"
     assert place(cut, "MUNICIPALIDAD DISTRITAL DE INDEPENDENCIA - HUARAZ", "ANCASH") == (["ANCASH"], "entity")
+    assert place(cut, "Municipalidad Distrital de Independencia", "Áncash") == (["ANCASH"], "entity")
 
 
 def test_a_local_entitys_bare_street_names_are_not_departamentos():

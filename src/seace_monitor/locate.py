@@ -49,7 +49,8 @@ def place(descripcion: str, entidad: str, searched: str | None) -> tuple[list[st
     MARTIN DE PORRES", "SANTA ROSA DE LIMA"); 120 named none.
     """
     found = locate(descripcion)
-    if not LOCAL_ENTITY.search(normalize(entidad)) or not searched or searched not in DEPARTAMENTOS:
+    searched = normalize(searched or "").upper()  # the configured label: "Áncash" is ANCASH
+    if not LOCAL_ENTITY.search(normalize(entidad)) or searched not in DEPARTAMENTOS:
         return found
     if _MARKED.search(normalize(descripcion)) or found[0] == [searched]:
         return found
