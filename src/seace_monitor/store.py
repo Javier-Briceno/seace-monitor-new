@@ -332,6 +332,24 @@ def contents_failed(conn: psycopg.Connection, doc_id: int, error: str) -> None:
         )
 
 
+def newest_bases(conn: psycopg.Connection, nids: list[int]) -> list[dict]:
+    """The bases each of these obras is offered on now (latest integradas, else latest administrativas), downloaded
+    and, for an archive, unpacked; `contents` are its files."""
+    rows = conn.execute(
+        """WITH ranked AS (
+               SELECT id, row_number() OVER (PARTITION BY nid_proceso ORDER BY (tipo ILIKE '%%integrad%%') DESC,
+                                             publicado_en DESC NULLS LAST, id DESC) AS n
+               FROM documentos WHERE estado = 'done' AND tipo ILIKE 'bases%%' AND nid_proceso = ANY(%s))
+           SELECT d.id, d.nid_proceso, d.ruta_local,
+                  COALESCE(array_agg(c.ruta ORDER BY c.id) FILTER (WHERE c.ruta IS NOT NULL AND c.error IS NULL), '{}')
+           FROM documentos d JOIN ranked r ON r.id = d.id AND r.n = 1
+           LEFT JOIN documento_contenido c ON c.documento_id = d.id
+           WHERE lower(d.ruta_local) NOT LIKE ALL(%s) OR d.contenido_estado IS NOT NULL
+           GROUP BY d.id ORDER BY d.nid_proceso""",
+        [nids, [f"%{s}" for s in sorted(ARCHIVE_SUFFIXES)]]).fetchall()
+    return [dict(zip(("id", "nid_proceso", "ruta_local", "contents"), r)) for r in rows]
+
+
 def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | None = None) -> list[dict]:
     """Downloaded bases of these obras without an extraction of this version; None means of every obra.
 
