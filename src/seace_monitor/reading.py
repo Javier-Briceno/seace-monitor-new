@@ -21,21 +21,28 @@ SCANNED = "escaneado"
 OCR_FILES = 2
 
 
-def second_reading(first: dict, second: dict | None, values: dict[str, Callable[[dict], object]], missing: str) -> dict:
+def second_reading(first: dict, second: dict | None, values: dict[str, Callable[[dict], object]], missing: str,
+                   alike: dict[str, Callable[[object], object]] | None = None) -> dict:
     """Both readings' values, and the fields both read differently. `values` names each compared value and how
-    to take it from a reading."""
+    to take it from a reading; `alike` gives what of a value is compared, where the rest is noise (spaces)."""
+    alike = alike or {}
     if second is None or second["revisar"] == missing:
         return {"ia": None, "tesseract": None, "difieren": []}
     ia = {k: get(first) for k, get in values.items()}
     tesseract = {k: get(second) for k, get in values.items()}
     return {"ia": ia, "tesseract": tesseract,
             "difieren": [k for k in values if ia[k] not in (None, [], "") and tesseract[k] not in (None, [], "")
-                         and ia[k] != tesseract[k]]}
+                         and alike.get(k, same)(ia[k]) != alike.get(k, same)(tesseract[k])]}
+
+
+def same(value: object) -> object:
+    return value
 
 
 def read_files(files: list[Path], read: Callable[[str], dict], missing: str,
                ocr: Callable[[Path, list[int]], Path] | None = None,
-               values: dict[str, Callable[[dict], object]] | None = None) -> dict:
+               values: dict[str, Callable[[dict], object]] | None = None,
+               alike: dict[str, Callable[[object], object]] | None = None) -> dict:
     """The reading of the first file that holds the section, with `archivo` and `ocr` (read from
     an OCRed copy). Without it: `revisar` says why (a scan, unreadable files, no PDF or DOCX), and
     `ocr_pendiente` that OCR could still find it but none was allowed.
@@ -70,7 +77,7 @@ def read_files(files: list[Path], read: Callable[[str], dict], missing: str,
                     except (OcrError, TextError):
                         pass
                 return {**result, "archivo": path.name, "ocr": True, "ia": True,
-                        "segunda_lectura": second_reading(result, second, values or {}, missing)}
+                        "segunda_lectura": second_reading(result, second, values or {}, missing, alike)}
             if path in scanned and not is_scanned(text):
                 scanned.remove(path)
             continue

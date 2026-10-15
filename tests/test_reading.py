@@ -94,3 +94,11 @@ def test_without_a_model_text_tesseract_reads_as_before(tmp_path):
     path = scan(tmp_path)
     result = reading.read_files([path], read, MISSING, tesseract(tmp_path, "1.4 LA CUANTIA ES S/ 9.00"), VALUES)
     assert (result["cuantia"], result["ocr"]) == ("9.00", True) and "ia" not in result
+
+
+def test_a_compared_value_can_ignore_what_is_noise():
+    name = {"obra": lambda r: r.get("obra")}
+    squeezed = {"obra": lambda v: v.replace(" ", "")}
+    first, second = {"obra": "AMPLIACION DEL SERVICIO", "revisar": None}, {"obra": "AMPLIACION DEL SERVIC IO", "revisar": None}
+    assert reading.second_reading(first, second, name, MISSING)["difieren"] == ["obra"]
+    assert reading.second_reading(first, second, name, MISSING, squeezed)["difieren"] == []

@@ -133,3 +133,9 @@ def test_a_paquete_naming_the_bases_cui_among_several_is_no_warning(monkeypatch,
     monkeypatch.setattr(objeto.reading, "text_of", lambda path: path.read_text(encoding="utf-8"))
     r = objeto.read_files(write(tmp_path, BASES), "PAQUETE 5 ... CUI N° 2556200, N° 2634231, N° 2683978 Y N° 2709843")
     assert r["avisos"] == []
+
+
+def test_names_split_or_without_accents_in_tesseract_are_the_same_name():
+    alike = objeto.ALIKE["obra"]
+    assert alike("AMPLIACIÓN DEL SERVICIO DE AGUA") == alike("AMPLIACION DEL SERVIC IO DE AGUA")
+    assert alike("RENOVACIÓN DE PUENTE") != alike("RENOVAC CISCO DE SUCRE")
