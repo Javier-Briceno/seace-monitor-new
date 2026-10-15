@@ -224,10 +224,11 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
             if result.pop("ocr_pendiente", False) and document["newest"]:
                 print(f"  {document['nid_proceso']}  image pages, waits for OCR in the next run")
                 continue
-            save_extraction(conn, document["id"], version, result, result["revisar"])
-            # bases naming another CUI may belong to another obra: they place nothing
-            if version == objeto.VERSION and document["newest"] and result["obra"] and not result["avisos"]:
-                locate_from_bases(conn, document["nid_proceso"], result["obra"])
+            # together: a reading marked done is never read again, so its location must not be left behind
+            with conn.transaction():
+                save_extraction(conn, document["id"], version, result, result["revisar"])
+                if version == objeto.VERSION and document["newest"]:
+                    locate_from_bases(conn, document["nid_proceso"], result)
             print(f"  {document['nid_proceso']}  {line(result)}{' (OCR)' if result['ocr'] else ''}")
 
 

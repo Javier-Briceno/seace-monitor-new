@@ -363,12 +363,20 @@ def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | N
     return [dict(zip(keys, r)) for r in rows]
 
 
-def locate_from_bases(conn: psycopg.Connection, nid: int, obra_name: str) -> list[str]:
-    """Departamentos named in the bases' 1.3 for an obra whose SEACE description named none."""
-    departamentos = locate(obra_name)[0]
+def locate_from_bases(conn: psycopg.Connection, nid: int, reading: dict) -> list[str]:
+    """Departamentos named in the newest bases' 1.3 for an obra whose SEACE description named none.
+
+    Newer bases replace what older ones gave; bases naming another CUI may be another obra's, so they take
+    back what earlier bases gave and place nothing.
+    """
+    departamentos = [] if reading["avisos"] or not reading["obra"] else locate(reading["obra"])[0]
     if departamentos:
         conn.execute("""UPDATE licitaciones SET departamentos = %s, ubicacion_fuente = 'bases'
-                        WHERE nid_proceso = %s AND departamentos = '{}'""", [departamentos, nid])
+                        WHERE nid_proceso = %s AND (departamentos = '{}' OR ubicacion_fuente = 'bases')""",
+                     [departamentos, nid])
+    elif reading["avisos"]:
+        conn.execute("""UPDATE licitaciones SET departamentos = '{}', ubicacion_fuente = 'unknown'
+                        WHERE nid_proceso = %s AND ubicacion_fuente = 'bases'""", [nid])
     return departamentos
 
 

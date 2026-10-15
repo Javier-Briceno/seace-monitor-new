@@ -17,13 +17,23 @@ VERSION = "objeto-1"
 
 HEADING = re.compile(r"objeto\s+de\s+la\s+convocatoria", re.I)
 # Where the section ends when the obra's name has no closing quote.
-END = re.compile(r"\n\s*1\.4\b|\bcuant[ií]a\s+de\s+la\s+contrataci|importante\s+para\s+la\s+entidad", re.I)
-# Quote pairs; a bracket is the template's placeholder, used only when no quote is there.
-CLOSE = {"«": "»", "“": "”", '"': '"', "„": "“", "[": "]"}
-STRIP = " ,;:-\"'«»“”[]�"
-CUI = re.compile(r"\b(?:C\.?\s?U\.?\s?I\.?|c[oó]digo\s+[uú]nico\s+de\s+inversi[oó]n(?:es)?)\s*(?:N\s*[°º.o*]*\s*)?:?\s*(\d{7})\b",
+# Older bases call 1.4 "valor referencial".
+END = re.compile(r"\n\s*1\.4\b|\bcuant[ií]a\s+de\s+la\s+contrataci|\bvalor\s+referencial\b|importante\s+para\s+la\s+entidad",
                  re.I)
+# Quote pairs; a bracket is the template's placeholder, used only when no quote is there.
+CLOSE = {"«": "»", "“": "”", '"': '"', "„": "“", "�": "�", "[": "]"}  # �: a quote the text lost
+# Footer and header lines of a bases page: the entity, the procedure, the page number.
+EDGE = re.compile(r"LICITACI|MUNICIPALIDAD|GOBIERNO\s+REGIONAL|BASES\s+(?:INTEGRADAS|EST[AÁ]NDAR|ADMINISTRATIVAS)"
+                  r"|P[aá]gina\s+\d|^\s*\d{1,3}\s*$", re.I)
+STRIP = " ,;:-\"'«»“”‘’[]�"
+# "CUI N° 2719000", "Código Único de Inversiones N°2724989", "CODIGO UNICO 2720300", "COD. UNICO N*2725321"
+CUI = re.compile(r"\b(?:C\.?\s?U\.?\s?I\.?|c[oó]d(?:igo|\.)\s*[uú]nico(?:\s+de\s+inversi[oó]n(?:es)?)?)"
+                 r"\s*(?:N\s*[°º.o*]*\s*)?:?\s*(\d{7})\b", re.I)
 MAX_BLOCK = 2500
+# The words that open the obra's name, and how far after them its quote may open.
+INTRO = re.compile(r"\b(?:obra|ioarr|inversi[oó]n)\b(?:\s*(?:denominada|correspondiente))?(?:\s*a(?:l|\s+la)?\b)?\s*:?", re.I)
+NEAR = 40
+MAX_NAME = 800
 # The page's running header printed beside the text ("...SERVICIOS      LICITACIÓN PÚBLICA PARA OBRAS"):
 # in the layout text it sits after a wide gap.
 BESIDE = re.compile(r"[ \t]{4,}(?=[^\n]*(?:LICITACI|BASES\s|SECCI[OÓ]N|CONCURSO|ADJUDICACI))[^\n]*", re.I)
@@ -34,6 +44,21 @@ NO_NAME = "1.3 sin nombre de obra legible"
 
 def squeeze(text: str) -> str:
     return " ".join(text.split())
+
+
+def without_page_edges(text: str) -> str:
+    """A name that runs onto the next page loses the footer and header lines around the page break."""
+    pages = text.split("\f")
+    for i, page in enumerate(pages):
+        lines = page.split("\n")
+        if i > 0:
+            while lines and (not lines[0].strip() or EDGE.search(lines[0])):
+                lines.pop(0)
+        if i < len(pages) - 1:
+            while lines and (not lines[-1].strip() or EDGE.search(lines[-1])):
+                lines.pop()
+        pages[i] = "\n".join(lines)
+    return "\n".join(pages)
 
 
 def read(text: str) -> dict:
@@ -48,18 +73,28 @@ def read(text: str) -> dict:
         return result
     # the page of the sentence itself: a table of contents can name the heading just before the section
     result["pagina"] = page_of(text, m.end() + start.start())
-    body = BESIDE.sub("", rest[start.start():])
+    body = without_page_edges(BESIDE.sub("", rest[start.start():]))
     end = END.search(body)
     body = body[: end.start()] if end else body
     if cui := CUI.search(body):
         result["cui"] = cui.group(1)
-    name = quoted(body)
-    if name is None and cui:
-        # "... la ejecución de la obra: MEJORAMIENTO ... DEPARTAMENTO DE ANCASH, con CUI 2724989"
-        after = re.search(r"(?:obra|ioarr)\s*(?:correspondiente\s*(?:a\s*(?:la)?)?)?\s*:?", body[: cui.start()], re.I)
-        if after:
-            name = squeeze(body[after.end(): cui.start()]).strip(STRIP)
-            name = re.sub(r",?\s*con$", "", name, flags=re.I).strip(STRIP) or None
+    name = None
+    intros = list(INTRO.finditer(body))
+    found = quoted(body)
+    if found:
+        # The quote must open right after "la obra"; one further on is a name inside the obra's own name:
+        # "la obra: MEJORAMIENTO ... EN LA I.E. "SAN MARTIN DE PORRES", DISTRITO DE PATAZ"
+        before = [i for i in intros if i.end() <= found[0]]
+        if not intros or (before and found[0] - before[-1].end() <= NEAR):
+            name = found[1]
+    if name is None and intros:
+        # "la obra correspondiente a: CONTRATACIÓN DEL PAQUETE 5 PARA LA EJECUCIÓN DE LA OBRA IOARR: REMODELACION ...,
+        # con CUI 2724989": the name starts after the last such words before the CUI
+        stop = cui.start() if cui else len(body)
+        lead = [i for i in intros if i.end() <= stop] or intros
+        start = lead[-1].end()
+        name = squeeze(body[start: min(stop, start + MAX_NAME)]).strip(STRIP)
+        name = re.sub(r",?\s*con$", "", name, flags=re.I).strip(STRIP) or None
     if name and (inside := CUI.search(name)):
         # "... DEPARTAMENTO ANCASH. CON CUI: 2693255" inside the quotes
         name = re.sub(r"[\s,.;:-]*(?:con\s*)?$", "", name[: inside.start()], flags=re.I).strip(STRIP)
@@ -70,8 +105,9 @@ def read(text: str) -> dict:
     return result
 
 
-def quoted(body: str) -> str | None:
-    """The text between the first quote and its own closing quote, in one line; a bracket only without quotes."""
+def quoted(body: str) -> tuple[int, str] | None:
+    """Where the first quote opens and the text up to its own closing quote, in one line; a bracket only
+    without quotes."""
     found = []
     for opening, closing in CLOSE.items():
         start = body.find(opening)
@@ -83,8 +119,8 @@ def quoted(body: str) -> str | None:
     bracket, start, end = min(found)
     inner = body[start + 1: end]
     if bracket and (q := quoted(inner)):  # "[Ejecución de la IOARR “Renovación ...”, con CUI ...]"
-        return q
-    return squeeze(inner).strip(STRIP)
+        return start + 1 + q[0], q[1]
+    return start, squeeze(inner).strip(STRIP)
 
 
 def read_files(files: list[Path], descripcion: str | None = None,

@@ -56,6 +56,32 @@ def test_the_running_header_beside_the_text_is_dropped():
                          "N 570 Y N 84140 DE PALLAHUASI, DISTRITO DE CASCA")
 
 
+def test_a_quoted_name_inside_the_obra_name_is_not_taken_for_it():
+    r = objeto.read(section(
+        "El presente procedimiento de selección tiene por objeto la contratación de la ejecución de la obra: "
+        "MEJORAMIENTO DEL SERVICIO EDUCATIVO EN LA I.E. \"SAN MARTIN DE PORRES\", DISTRITO DE PATAZ, "
+        "DEPARTAMENTO LA LIBERTAD, con CUI 2634231"))
+    assert r["obra"] == ("MEJORAMIENTO DEL SERVICIO EDUCATIVO EN LA I.E. \"SAN MARTIN DE PORRES\", DISTRITO DE PATAZ, "
+                         "DEPARTAMENTO LA LIBERTAD")
+
+
+def test_the_name_starts_after_the_last_words_that_open_it():
+    r = objeto.read(section(
+        "El presente procedimiento de selección tiene por objeto la ejecución de la obra correspondiente a: "
+        "CONTRATACIÓN DEL PAQUETE 5 PARA LA EJECUCIÓN DE LA OBRA IOARR: “REMODELACION DE LOSA DEPORTIVA; EN EL(LA) "
+        "I.E. 80658 EN EL CENTRO POBLADO CRUZ DE MAYO, DISTRITO DE MACHE, PROVINCIA OTUZCO”"))
+    assert r["obra"].startswith("REMODELACION DE LOSA DEPORTIVA")
+
+
+def test_a_name_running_onto_the_next_page_loses_the_footer_and_header():
+    r = objeto.read(section(
+        "El presente procedimiento de selección tiene por objeto la ejecución de la obra: MEJORAMIENTO DEL SERVICIO "
+        "DE TRANSITABILIDAD VIAL INTERURBANA EN EMP LI 610 - EL CERRITO DISTRITO DE PAIJAN DE LA PROVINCIA DE ASCOPE "
+        "DEL DEPARTAMENTO DE LA\n                19\n\fMUNICIPALIDAD DISTRITAL DE PAIJAN\nLICITACION PUBLICA "
+        "ABREVIADA DE OBRAS N° 3-2026\nLIBERTAD, con CUI N° 2655948"))
+    assert r["obra"].endswith("DEL DEPARTAMENTO DE LA LIBERTAD")
+
+
 def test_a_cui_inside_the_quotes_is_cut_off_the_name():
     r = objeto.read(section(
         "El presente procedimiento de selección tiene por objeto la contratación de la ejecución de la obra "
