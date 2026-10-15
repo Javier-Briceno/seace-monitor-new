@@ -225,7 +225,8 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
                 print(f"  {document['nid_proceso']}  image pages, waits for OCR in the next run")
                 continue
             save_extraction(conn, document["id"], version, result, result["revisar"])
-            if version == objeto.VERSION and document["newest"] and result["obra"]:
+            # bases naming another CUI may belong to another obra: they place nothing
+            if version == objeto.VERSION and document["newest"] and result["obra"] and not result["avisos"]:
                 locate_from_bases(conn, document["nid_proceso"], result["obra"])
             print(f"  {document['nid_proceso']}  {line(result)}{' (OCR)' if result['ocr'] else ''}")
 

@@ -19,6 +19,13 @@ def test_the_quoted_name_and_its_cui_with_the_page():
     assert r["cui"] == "2719000" and r["pagina"] == 2 and r["revisar"] is None
 
 
+def test_the_page_is_the_sections_not_the_table_of_contents():
+    text = ("ÍNDICE\n1.3. OBJETO DE LA CONVOCATORIA ........ 2\n1.4. CUANTÍA ........ 2\n\f"
+            "1.3. OBJETO DE LA CONVOCATORIA\nEl presente procedimiento de selección tiene por objeto la ejecución de "
+            "la obra “CREACION DE LOSA DEPORTIVA EN EL CASERIO DE COCHAMARCA” con CUI 2719412\n")
+    assert objeto.read(text)["pagina"] == 2
+
+
 def test_a_template_bracket_around_the_quotes_is_left_out():
     r = objeto.read(section(
         "El presente procedimiento de selección tiene por objeto la contratación de la ejecución de la obra "

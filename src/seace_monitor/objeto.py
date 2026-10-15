@@ -46,7 +46,8 @@ def read(text: str) -> dict:
     else:
         result["revisar"] = NOT_FOUND
         return result
-    result["pagina"] = page_of(text, m.start())
+    # the page of the sentence itself: a table of contents can name the heading just before the section
+    result["pagina"] = page_of(text, m.end() + start.start())
     body = BESIDE.sub("", rest[start.start():])
     end = END.search(body)
     body = body[: end.start()] if end else body
