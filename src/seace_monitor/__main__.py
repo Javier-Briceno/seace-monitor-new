@@ -258,11 +258,12 @@ def run_transcription(conn, cfg, nids) -> None:
                 print(f"vision model: this month's {spent} USD reached the cap of {cap} USD; scans go to Tesseract")
                 return
             try:
-                out, cost, pages = vision.transcribe(path, key)
+                # each page's cost is recorded as it is paid, also when a later page fails
+                out, cost, pages = vision.transcribe(path, key,
+                                                     charge=lambda usd: vision.add_spending(conn, now, usd, 1))
             except (vision.VisionError, TextError) as error:
                 print(f"  vision {document['nid_proceso']} {path.name}: {error}; left for the next run")
                 continue
-            vision.add_spending(conn, now, cost, pages)
             print(f"  vision {document['nid_proceso']} {path.name}: {pages} pages, {cost:.4f} USD")
 
 

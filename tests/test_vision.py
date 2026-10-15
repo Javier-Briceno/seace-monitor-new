@@ -88,7 +88,12 @@ def test_no_file_is_started_once_the_month_reached_the_cap(conn, monkeypatch, tm
     main.run_transcription(conn, {"vision": {"tope_mensual_usd": 35}}, [1])
 
     sent = []
-    monkeypatch.setattr(vision, "transcribe", lambda p, key: (sent.append(p), (ia_path(p), Decimal("0.01"), 3))[1])
+    def transcribe(p, key, charge):
+        sent.append(p)
+        charge(Decimal("0.01"))
+        return ia_path(p), Decimal("0.01"), 1
+
+    monkeypatch.setattr(vision, "transcribe", transcribe)
     main.run_transcription(conn, {"vision": {"tope_mensual_usd": 36}}, [1])
     assert sent == [path] and vision.spent(conn, datetime.now(LIMA)) == Decimal("35.01")
 
@@ -110,3 +115,39 @@ def test_a_malformed_answer_or_a_slow_render_is_a_vision_error(monkeypatch, tmp_
     monkeypatch.setattr(vision.subprocess, "run", slow)
     with pytest.raises(vision.VisionError):
         vision.render(SCAN, 1, tmp_path)
+
+
+def test_pages_paid_before_a_failed_one_are_charged(monkeypatch, tmp_path):
+    path = tmp_path / "BASES.pdf"
+    path.write_bytes(SCAN.read_bytes())
+    monkeypatch.setattr(vision, "image_pages", lambda text: [1, 2])
+    monkeypatch.setattr(vision, "text_of", lambda p: "")
+    answers = iter([("pagina uno", Decimal("0.002"))])
+
+    def ask(key, image):
+        try:
+            return next(answers)
+        except StopIteration:
+            raise vision.VisionError("OpenRouter answered 502") from None
+
+    charged = []
+    with pytest.raises(vision.VisionError):
+        vision.transcribe(path, "clave", ask, fake_render, charged.append)
+    assert charged == [Decimal("0.002")] and not ia_path(path).exists()
+
+
+def test_an_empty_answer_is_a_blank_page_only_when_the_model_finished(monkeypatch):
+    class Answer:
+        status_code, text = 200, ""
+
+        def __init__(self, reason):
+            self.reason = reason
+
+        def json(self):
+            return {"choices": [{"message": {"content": ""}, "finish_reason": self.reason}], "usage": {"cost": 0.001}}
+
+    monkeypatch.setattr(vision.requests, "post", lambda *a, **k: Answer("stop"))
+    assert vision.ask("clave", b"png") == ("", Decimal("0.001"))
+    monkeypatch.setattr(vision.requests, "post", lambda *a, **k: Answer("length"))
+    with pytest.raises(vision.VisionError):
+        vision.ask("clave", b"png")

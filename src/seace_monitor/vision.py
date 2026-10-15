@@ -89,16 +89,23 @@ def ask(key: str, image: bytes) -> tuple[str, Decimal]:
         raise VisionError(f"OpenRouter answered {answer.status_code}: {answer.text[:200]}")
     try:
         data = answer.json()
-        text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-        return text, Decimal(str((data.get("usage") or {}).get("cost") or 0))
-    except (ValueError, AttributeError, IndexError, TypeError, ArithmeticError) as error:
+        choice = data["choices"][0]
+        text = choice["message"]["content"] or ""
+        cost = Decimal(str((data.get("usage") or {}).get("cost") or 0))
+    except (ValueError, KeyError, AttributeError, IndexError, TypeError, ArithmeticError) as error:
         raise VisionError(f"OpenRouter answer not understood: {answer.text[:200]}") from error
+    # an empty transcription is a blank page only when the model finished normally, not a cut or failed answer
+    if not text.strip() and choice.get("finish_reason") != "stop":
+        raise VisionError(f"empty answer, finish_reason {choice.get('finish_reason')!r}")
+    return text, cost
 
 
 def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Decimal]] = ask,
-               render: Callable[[Path, int, Path], bytes] = render) -> tuple[Path, Decimal, int]:
+               render: Callable[[Path, int, Path], bytes] = render,
+               charge: Callable[[Decimal], None] = lambda usd: None) -> tuple[Path, Decimal, int]:
     """Write `<name>-ia.txt` for a PDF with image pages; returns it, its cost and the pages sent.
-    Nothing is written unless every image page was transcribed."""
+    Nothing is written unless every image page was transcribed; `charge` gets each page's cost as it is paid,
+    also when a later page fails."""
     pages = text_of(path).split("\f")
     images = image_pages("\f".join(pages))
     # pdftotext ends with a form feed: the empty piece after it is no page
@@ -109,6 +116,7 @@ def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Deci
     with tempfile.TemporaryDirectory(prefix="vision-") as folder:
         for page in images:
             text, usd = ask(key, render(path, page, Path(folder)))
+            charge(usd)
             cost += usd
             pages[page - 1] = text.replace("\r\n", "\n").replace("\f", "\n").rstrip("\n") + "\n"
     out = ia_path(path)
