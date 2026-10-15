@@ -16,7 +16,7 @@ from . import letras, reading
 from .bases_text import page_of
 from .reading import SCANNED
 
-VERSION = "cuantia-5"
+VERSION = "cuantia-6"
 
 TITLE = re.compile(r"CUANT[IÍ]A\s+DE\s+LA\s+CONTRATACI[OÓ]N", re.I)
 # Not the footnote of 1.4 ("indicada en esta sección"): it can fall between the cuantía and the límites table.
@@ -75,8 +75,9 @@ def upper_limit(cuantia: Decimal) -> Decimal:
     return round(cuantia * Decimal("1.10"), 6).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
 
 
-def section(text: str) -> tuple[int, str] | None:
-    """Where 1.4 starts and its text: its title soon followed by 'asciende' or 'es' and an amount.
+def section(text: str) -> tuple[int, int, str] | None:
+    """Where 1.4 starts, where its text starts, and its text: its title soon followed by 'asciende' or 'es' and
+    an amount.
 
     The index and the general rules name the title too, but never with an amount after it.
     """
@@ -87,7 +88,7 @@ def section(text: str) -> tuple[int, str] | None:
         if not (FIRST_AMOUNT.search(after[:900]) or AMOUNT.search(after[:900]) or PLACEHOLDER in after[:900].upper()):
             continue
         end = SECTION_END.search(after)
-        return m.start(), after[: end.start() if end else 3000]
+        return m.start(), m.end(), after[: end.start() if end else 3000]
     return None
 
 
@@ -105,23 +106,24 @@ def first_amount(block: str) -> tuple[Decimal, int, int] | None:
     return None
 
 
-def offer_type(text: str) -> str:
-    """'limitada', 'fija', UNFILLED when chapter IV kept the template's choice, or '' when it does not say."""
+def offer_type(text: str) -> tuple[str, int | None]:
+    """'limitada', 'fija', UNFILLED when chapter IV kept the template's choice, or '' when it does not say;
+    with where the word that says it stands (a page break can fall between the sentence and its choice)."""
     for m in TYPE.finditer(text):
         words = m.group(1).upper()
+        at = m.start(1)
         # A choice written before the template's brackets wins: "Fija [SEÑALAR ... FIJA O LIMITADA ...]".
         before = words.split("[")[0]
         for choice in ("LIMITADA", "FIJA"):
             if choice in before:
-                return choice.lower()
+                return choice.lower(), at + before.index(choice)
         # Some fill the choice in and keep the brackets or the instruction: "[SEÑALAR ...: FIJA DE CONFORMIDAD ...]".
-        if re.search(r"FIJA\s+O\s+LIMITADA", words):
-            return UNFILLED
-        if "LIMITADA" in words:
-            return "limitada"
-        if "FIJA" in words:
-            return "fija"
-    return ""
+        if unfilled := re.search(r"FIJA\s+O\s+LIMITADA", words):
+            return UNFILLED, at + unfilled.start()
+        for choice in ("LIMITADA", "FIJA"):
+            if choice in words:
+                return choice.lower(), at + words.index(choice)
+    return "", None
 
 
 def limits_by_column(block: str) -> tuple[Decimal | None, Decimal | None, Decimal | None, Decimal | None] | None:
@@ -190,8 +192,12 @@ def read(text: str, valor_seace: Decimal | None = None) -> dict:
 
     `revisar` names why a person has to read the section; the other fields are then partial.
     """
-    result = {"pagina": None, "cuantia": None, "tipo_oferta": offer_type(text), "limite_inferior": None,
+    offer, offer_at = offer_type(text)
+    # `paginas`: the page of each value, which can differ from the section's: the offer type is in chapter IV,
+    # and the límites table can run onto the next page.
+    result = {"pagina": None, "cuantia": None, "tipo_oferta": offer, "limite_inferior": None,
               "limite_superior": None, "inferior_exacto": None, "superior_exacto": None, "valor_seace": None,
+              "paginas": {"tipo_oferta": page_of(text, offer_at) if offer_at is not None else None},
               "avisos": [], "revisar": None}
     if valor_seace is not None:
         result["valor_seace"] = str(valor_seace)
@@ -199,7 +205,7 @@ def read(text: str, valor_seace: Decimal | None = None) -> dict:
     if found is None:
         result["revisar"] = NO_SECTION
         return result
-    start, block = found
+    start, block_at, block = found
     result["pagina"] = page_of(text, start)
     # Only in the cuantía sentence: a fixed-offer bases may leave the unused límites table unfilled.
     if PLACEHOLDER in block[:900].upper():
@@ -220,6 +226,7 @@ def read(text: str, valor_seace: Decimal | None = None) -> dict:
         return result
     cuantia, amount_start, amount_end = found
     result["cuantia"] = str(cuantia)
+    result["paginas"]["cuantia"] = page_of(text, block_at + amount_start)
     warnings = result["avisos"]
     if (in_words := letras.check(block, amount_start, amount_end, cuantia)) is not None:
         warnings.append({"aviso": "cuantia_distinta_letras", "cifra": str(cuantia), "letras": str(in_words)})
@@ -237,6 +244,7 @@ def read(text: str, valor_seace: Decimal | None = None) -> dict:
         warnings.append({"aviso": "limitada_sin_limites"})
     if not has_table:
         return result
+    result["paginas"]["limites"] = page_of(text, block_at + table.start())
 
     exact = {"inferior": lower_limit(cuantia), "superior": upper_limit(cuantia)}
     result["inferior_exacto"], result["superior_exacto"] = str(exact["inferior"]), str(exact["superior"])

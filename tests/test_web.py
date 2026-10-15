@@ -195,6 +195,19 @@ def test_the_obra_page_links_each_value_to_its_page(web, conn):
     assert web.get("/obras/999").status_code == 404
 
 
+def test_each_value_links_to_its_own_page_and_an_old_reading_gives_the_offer_none(web, conn):
+    signed_in(web, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    bases(conn, 1, lectura=reading(paginas={"cuantia": 21, "limites": 22, "tipo_oferta": 64}))
+    bases(conn, 2, lectura=reading())
+    rows = {r[0]: r[1] for r in re.findall(r'<th scope="row">([^<]+)</th>.*?#page=(\d+)', web.get("/obras/1").text, re.S)}
+    assert (rows["Cuantía"], rows["Límites con IGV"], rows["Oferta económica"]) == ("21", "22", "64")
+    old = web.get("/obras/2").text
+    offer_row = old[old.index('<th scope="row">Oferta económica</th>'):].split("</tr>")[0]
+    assert "#page=" not in offer_row
+
+
 def test_the_obra_page_shows_the_cronograma_with_moved_dates_struck(web, conn):
     signed_in(web, conn)
     add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
