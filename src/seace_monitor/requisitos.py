@@ -17,6 +17,7 @@ from pathlib import Path
 import requests
 
 from .bases_text import TextError, is_scanned, page_of, text_of
+from . import personal
 from .factores import factor_name
 from .ocr import ia_path
 
@@ -84,11 +85,13 @@ def chapter_iv(text: str) -> tuple[int, int] | None:
 
 
 def chapter_iii(text: str) -> tuple[int, int] | None:
-    """Where chapter III's requisitos de calificación start and chapter IV begins, when it asks for personal clave."""
+    """Where chapter III's requisitos de calificación start and chapter IV begins, when it asks for personal clave.
+    The sección general has a chapter III that names the personal clave too, without its requirement."""
     for m in re.finditer(r"CAP[IÍ]TULO\s+III\b", text):
         end = re.search(r"CAP[IÍ]TULO\s+IV\b", text[m.end():])
         stop = m.end() + end.start() if end else m.end() + MAX_CHARS
-        if not re.search(r"PERSONAL\s+CLAVE", text[m.end(): stop], re.I):
+        block = text[m.end(): stop]
+        if not (personal.REQUIREMENT.search(block) or personal.NUMBERED_HEADING.search(block)):
             continue
         req = re.search(r"REQUISITOS\s+DE\s+CALIFICACI[OÓ]N", text[m.start(): stop], re.I)
         return m.start() + (req.start() if req else 0), stop

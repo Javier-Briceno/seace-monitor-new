@@ -80,3 +80,16 @@ def test_no_request_once_the_cap_is_reached(tmp_path):
     with pytest.raises(requisitos.SpendingCap):
         requisitos.read_files(files_with(tmp_path, CHAPTER_IV + CHAPTER_III), "clave", SUMMARY, None, ask,
                               may_spend=lambda: False)
+
+
+def test_the_general_sections_chapter_iii_is_not_the_requirements(tmp_path):
+    general = ("CAPÍTULO III\nDEL CONTRATO\nEl reemplazo del personal clave procede por caso fortuito.\n" + "z\n" * 40 +
+               "CAPÍTULO IV\nCONFORMIDAD\n\f")
+    asked = []
+
+    def ask(key, prompt):
+        asked.append(prompt)
+        return {"personal": [{"cargo": "Residente de obra", "experiencia_meses": 24}]}, Decimal("0.002")
+
+    requisitos.read_files(files_with(tmp_path, general + CHAPTER_III), "clave", None, None, ask)
+    assert len(asked) == 1 and "B.2 EXPERIENCIA DEL PERSONAL CLAVE" in asked[0] and "caso fortuito" not in asked[0]
