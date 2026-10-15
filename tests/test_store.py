@@ -662,3 +662,23 @@ def test_newer_bases_correct_and_conflicting_bases_take_back_a_bases_location(co
     other_cui = [{"aviso": "cui_distinto_seace", "bases": "2634231", "seace": "2623287"}]
     locate_from_bases(conn, nid, {"obra": "OTRA OBRA, DEPARTAMENTO DE LA LIBERTAD", "avisos": other_cui})
     assert place(conn, nid) == ([], "unknown")
+
+
+def test_the_bases_name_replaces_a_departamento_inferred_from_the_entity(conn, rows):
+    from seace_monitor.store import locate_from_bases
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    conn.execute("UPDATE licitaciones SET departamentos = '{LAMBAYEQUE}', ubicacion_fuente = 'entity' WHERE nid_proceso = %s",
+                 [nid])
+    locate_from_bases(conn, nid, {"obra": "LOSA EN EL CASERIO X, DEPARTAMENTO DE CAJAMARCA", "avisos": []})
+    assert place(conn, nid) == (["CAJAMARCA"], "bases")
+
+
+def test_the_entity_migration_places_stored_obras_of_local_entities_only(conn, rows):
+    save_new_licitaciones(conn, rows[:2])
+    local, national = rows[0]["nid_proceso"], rows[1]["nid_proceso"]
+    conn.execute("UPDATE licitaciones SET departamentos = '{}', ubicacion_fuente = 'unknown', departamento_busqueda = 'ANCASH'")
+    conn.execute("UPDATE licitaciones SET entidad = 'MUNICIPALIDAD DISTRITAL DE SAN MARCOS' WHERE nid_proceso = %s", [local])
+    conn.execute("UPDATE licitaciones SET entidad = 'PROVIAS DESCENTRALIZADO' WHERE nid_proceso = %s", [national])
+    conn.execute((Path(db.MIGRATIONS) / "016_ubicacion_entidad.sql").read_text(encoding="utf-8"))
+    assert place(conn, local) == (["ANCASH"], "entity") and place(conn, national) == ([], "unknown")

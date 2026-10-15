@@ -24,7 +24,7 @@ from .bases_text import ToolMissing, bases_files
 from .ocr import make_ocr, ocr_path, ocrmypdf
 from .download import DocumentError, download
 from .ficha import CronogramaError, FichaError, StaleTable, offer_deadline, open_ficha, parse_cronograma, parse_estados, read_documents
-from .locate import locate
+from .locate import place
 from .search import LIMA, AccessError, Query, SearchError, make_session, search_pages, search_split
 from .store import (
     archives_to_unpack, bases_to_extract, contents_done, contents_failed, document_done, document_failed, ficha_failed,
@@ -48,7 +48,8 @@ def run_search(conn, session, query) -> list[tuple[int, Query]]:
     alone = []
     for number, result in enumerate(search_split(query, session), 1):
         for row in result.rows:
-            row["departamentos"], row["ubicacion_fuente"] = locate(row["descripcion"])
+            row["departamentos"], row["ubicacion_fuente"] = place(row["descripcion"], row["entidad"],
+                                                                  row["departamento_busqueda"])
         new = set(save_new_licitaciones(conn, result.rows))
         for old, restart in link_restarts(conn):
             print(f"  restart: {restart} restarts {old}")
