@@ -108,21 +108,21 @@ def first_amount(block: str) -> tuple[Decimal, int, int] | None:
 
 def offer_type(text: str) -> tuple[str, int | None]:
     """'limitada', 'fija', UNFILLED when chapter IV kept the template's choice, or '' when it does not say;
-    with where the sentence that says it starts."""
+    with where the word that says it stands (a page break can fall between the sentence and its choice)."""
     for m in TYPE.finditer(text):
         words = m.group(1).upper()
+        at = m.start(1)
         # A choice written before the template's brackets wins: "Fija [SEÑALAR ... FIJA O LIMITADA ...]".
         before = words.split("[")[0]
         for choice in ("LIMITADA", "FIJA"):
             if choice in before:
-                return choice.lower(), m.start()
+                return choice.lower(), at + before.index(choice)
         # Some fill the choice in and keep the brackets or the instruction: "[SEÑALAR ...: FIJA DE CONFORMIDAD ...]".
-        if re.search(r"FIJA\s+O\s+LIMITADA", words):
-            return UNFILLED, m.start()
-        if "LIMITADA" in words:
-            return "limitada", m.start()
-        if "FIJA" in words:
-            return "fija", m.start()
+        if unfilled := re.search(r"FIJA\s+O\s+LIMITADA", words):
+            return UNFILLED, at + unfilled.start()
+        for choice in ("LIMITADA", "FIJA"):
+            if choice in words:
+                return choice.lower(), at + words.index(choice)
     return "", None
 
 

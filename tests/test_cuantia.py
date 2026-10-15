@@ -72,6 +72,14 @@ def test_each_value_keeps_its_own_page():
     assert result["paginas"] == {"cuantia": 1, "limites": 2, "tipo_oferta": 3}
 
 
+def test_the_offer_types_page_is_the_words_not_the_sentences():
+    text = bases("1218514")
+    offer = text.index("presente procedimiento de selección es")
+    choice = text.upper().index("LIMITADA", offer)
+    result = read(text[:choice] + "\f" + text[choice:])
+    assert result["tipo_oferta"] == "limitada" and result["paginas"]["tipo_oferta"] == 2
+
+
 def test_lower_limit_one_cent_short():
     assert warnings(read(bases("1252316"))) == [
         {"aviso": "limite_inferior", "bases": "120668.94", "exacto": "120668.95"}]
