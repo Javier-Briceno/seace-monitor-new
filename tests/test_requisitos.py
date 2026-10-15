@@ -4,11 +4,12 @@ import pytest
 
 from seace_monitor import requisitos
 
-CHAPTER_IV = ("CAPÍTULO IV\nFACTORES DE EVALUACIÓN\n" + "x\n" * 30 +
-              "CUADRO RESUMEN FACTORES DE EVALUACIÓN\nA. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE   40 puntos\n"
-              "M. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD   60 puntos\nPUNTAJE TOTAL   100 puntos\n\f"
+# the standard bases describe each factor first and close the chapter with the CUADRO RESUMEN
+CHAPTER_IV = ("CAPÍTULO IV\nFACTORES DE EVALUACIÓN\n" + "x\n" * 30 + "\f"
               "A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE\nEvaluación: un año adicional ...\n\f"
               "M. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD\nS/ 5,575,000.00 a más: 60 puntos\n" + "y\n" * 800 +
+              "CUADRO RESUMEN FACTORES DE EVALUACIÓN\nA. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE   40 puntos\n"
+              "M. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD   60 puntos\nPUNTAJE TOTAL   100 puntos\n"
               "4.1. EVALUACIÓN ECONÓMICA (Puntaje Máximo: 100 Puntos)\n")
 CHAPTER_III = ("CAPÍTULO III\nREQUISITOS DE CALIFICACIÓN\nB.2 EXPERIENCIA DEL PERSONAL CLAVE\n"
                "Residente de obra   24 meses\nCAPÍTULO IV\n")

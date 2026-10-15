@@ -17,7 +17,7 @@ from pathlib import Path
 import requests
 
 from .bases_text import TextError, is_scanned, page_of, text_of
-from .factores import FACTORS, TOTAL, factor_name
+from .factores import factor_name
 from .ocr import ia_path
 
 VERSION = "requisitos-1"
@@ -133,20 +133,21 @@ def ask(key: str, prompt: str) -> tuple[dict, Decimal]:
     return parsed if isinstance(parsed, dict) else None, cost
 
 
+HEADING = re.compile(r"(?m)^[^\w\n]{0,30}[A-P](?:\.\d)?\s*[.)]\s*([A-ZÁÉÍÓÚÑ][^\n]{4,120})$")
+
+
 def factor_page(text: str, start: int, stop: int, name: str | None) -> int | None:
-    """The page where the factor's own description starts: the first page of the chapter after the summary
-    table that names it."""
-    word = next((w for w, n in FACTORS if n == name), None)
-    if word is None:
+    """The page where the factor's own description starts: its lettered heading ("M. EXPERIENCIA ADICIONAL DEL
+    POSTOR ..."), which the standard bases put before the CUADRO RESUMEN; the table's rows name every factor too."""
+    if name is None:
         return None
     summary = re.search(r"RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES", text[start:stop], re.I)
-    begin = start + summary.end() if summary else start
-    # past the table's own rows, which name every factor too
-    if summary and (total := TOTAL.search(text, begin, stop)):
-        begin = total.end()
-    found = re.search(r"(?m)^[^\w\n]{0,30}[A-P](?:\.\d)?\s*[.)]?\s*[^\n]*" + word, text[begin:stop], re.I)
-    # its end, not its start: the line can open with the form feed of its page
-    return page_of(text, begin + found.end()) if found else None
+    end = start + summary.start() if summary else stop
+    for m in HEADING.finditer(text, start, end):
+        if factor_name(m.group(1)) == name:
+            # its end, not its start: the line can open with the form feed of its page
+            return page_of(text, m.end())
+    return None
 
 
 def check_factors(answer: list[dict], summary: list[dict] | None, text: str, start: int, stop: int) -> list[dict]:
