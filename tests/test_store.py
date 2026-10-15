@@ -674,6 +674,17 @@ def test_the_bases_name_replaces_a_departamento_inferred_from_the_entity(conn, r
     assert place(conn, nid) == (["CAJAMARCA"], "bases")
 
 
+def test_bare_street_names_in_the_bases_do_not_replace_the_entitys_departamento(conn, rows):
+    from seace_monitor.store import locate_from_bases
+    save_new_licitaciones(conn, rows[:1])
+    nid = rows[0]["nid_proceso"]
+    conn.execute("UPDATE licitaciones SET departamentos = '{ANCASH}', ubicacion_fuente = 'entity' WHERE nid_proceso = %s",
+                 [nid])
+    locate_from_bases(conn, nid, {"obra": "SANEAMIENTO EN EL PJE. SAN MARTIN DE PORRES, PJE. SANTA ROSA DE LIMA",
+                                  "avisos": []})
+    assert place(conn, nid) == (["ANCASH"], "entity")
+
+
 def test_the_entity_migration_places_stored_obras_of_local_entities_only(conn, rows):
     save_new_licitaciones(conn, rows[:2])
     local, national = rows[0]["nid_proceso"], rows[1]["nid_proceso"]

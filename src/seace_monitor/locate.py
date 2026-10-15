@@ -40,6 +40,11 @@ def locate(descripcion: str) -> tuple[list[str], str]:
     return departamentos, "text" if departamentos else "unknown"
 
 
+def marked(text: str) -> list[str]:
+    """Only the departamentos named after the word DEPARTAMENTO (or REGION)."""
+    return sorted({m.group(1).upper() for m in _MARKED.finditer(normalize(text))})
+
+
 def place(descripcion: str, entidad: str, searched: str | None) -> tuple[list[str], str]:
     """Like locate(), but an obra of a municipalidad or gobierno regional without a marked departamento is placed
     in the departamento the search ran in, the entity's own.
@@ -52,6 +57,6 @@ def place(descripcion: str, entidad: str, searched: str | None) -> tuple[list[st
     searched = normalize(searched or "").upper()  # the configured label: "Áncash" is ANCASH
     if not LOCAL_ENTITY.search(normalize(entidad)) or searched not in DEPARTAMENTOS:
         return found
-    if _MARKED.search(normalize(descripcion)) or found[0] == [searched]:
+    if marked(descripcion) or found[0] == [searched]:
         return found
     return [searched], "entity"
