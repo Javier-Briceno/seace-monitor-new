@@ -22,8 +22,8 @@ VALUES = {"total": lambda r: r.get("total"),
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
 SUMMARY = re.compile(r"(?:CUADRO\s+)?RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES\s+DE\s+EVALUACI", re.I)
-# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos"; never the "0" of "05.00"
-FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{1,2})?\s*\]?\s*puntos"
+# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos", "100. puntos"; never the "0" of "05.00"
+FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{0,2})?\s*\]?\s*puntos"
 # Word puts each table cell on its own line
 # Layout text can put the figure on the line above "PUNTAJE TOTAL" and "puntos" on the line below it.
 TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE

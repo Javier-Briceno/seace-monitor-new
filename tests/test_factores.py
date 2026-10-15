@@ -269,3 +269,13 @@ def test_a_total_whose_figure_sits_above_its_words():
             "                                                                             puntos28\n")
     result = read(text)
     assert (result["revisar"], result["total"], result["suma"]) == (None, 100, 100)
+
+
+def test_a_figure_with_a_stray_dot_before_puntos():
+    # obra 1223633: "PUNTAJE TOTAL   100. puntos"
+    text = ("CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            "A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE   60 puntos   COMITÉ\n"
+            "B. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD   40. puntos   COMITÉ\n"
+            "PUNTAJE TOTAL   100. puntos\n")
+    result = read(text)
+    assert (result["revisar"], result["total"], result["suma"]) == (None, 100, 100)
