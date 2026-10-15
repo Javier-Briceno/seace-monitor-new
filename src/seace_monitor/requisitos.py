@@ -1,0 +1,186 @@
+"""What each evaluation factor asks for its points (chapter IV) and the profile each cargo of the personal clave
+must have (chapter III), read by Claude Haiku through OpenRouter from the bases' text.
+
+Both chapters are written in two columns and every entity arranges them its own way, so the text (pdftotext, or
+the vision model's transcription of a scan) goes to the model with page marks, and the answer is checked against
+what the rule readers already read: each factor's maximum points against the CUADRO RESUMEN, the months per
+cargo against the personal clave table. A factor or cargo that does not match is kept but marked unchecked, for
+a person. Pages are found in the text, not taken from the model.
+"""
+
+import json
+import re
+from collections.abc import Callable
+from decimal import Decimal
+from pathlib import Path
+
+import requests
+
+from .bases_text import TextError, is_scanned, page_of, text_of
+from .factores import FACTORS, TOTAL, factor_name
+from .ocr import ia_path
+
+VERSION = "requisitos-1"
+URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL = "anthropic/claude-haiku-5.5"
+TIMEOUT = 300
+MAX_CHARS = 45000
+NOT_FOUND = "sin capítulos III ni IV legibles"
+
+FACTORS_PROMPT = """Abajo va el capítulo IV (evaluación de ofertas) de unas bases de licitación de obras del Perú, con la
+página de cada parte marcada como [página N]. El texto puede venir de un PDF a dos columnas: a la izquierda
+"Evaluación" y "Acreditación", a la derecha el puntaje por tramo; las líneas de ambas columnas pueden estar mezcladas.
+
+Para cada factor de la evaluación técnica que da puntos (no los que dicen "NO CORRESPONDE"), devuelve:
+- "letra" y "nombre" como en las bases,
+- "puntaje_maximo" (número),
+- "que_se_evalua": qué tiene que tener el postor para los puntos, en una o dos frases cortas, con las cifras
+  exactas (años, montos, cargos, normas ISO),
+- "como_se_acredita": con qué documento se prueba, en una frase corta,
+- "tramos": lista de {"condicion": ..., "puntos": número}, tal como los da la columna de puntaje.
+
+Reglas: copia las cifras tal como están; no inventes nada que no esté en el texto; si algo no se puede leer,
+pon null. Devuelve solo un JSON: {"factores": [...]}"""
+
+PERSONAL_PROMPT = """Abajo van los requisitos de calificación (capítulo III) de unas bases de licitación de obras del Perú,
+con la página de cada parte marcada como [página N]. Puede venir de un PDF con tablas; las columnas pueden estar
+mezcladas.
+
+Para cada cargo del personal clave, devuelve:
+- "cargo" como en las bases,
+- "formacion": profesión o grado pedido (por ejemplo "Ingeniero civil o ingeniero agrícola"), o null si no lo dice,
+- "colegiatura": true si pide estar colegiado o habilitado (también si cuenta la experiencia "desde la
+  colegiatura"), false si dice que no hace falta, null si no lo dice en ninguna parte del texto,
+- "experiencia_meses": número de meses de experiencia pedidos (convierte años a meses),
+- "experiencia_en": en qué cargos o trabajos cuenta esa experiencia, en una frase corta,
+- "capacitacion": horas o cursos pedidos, o null.
+
+Reglas: copia las cifras tal como están; no inventes nada; si algo no se puede leer, pon null.
+Devuelve solo un JSON: {"personal": [...]}"""
+
+
+class RequisitosError(Exception):
+    """The model could not be asked or its answer was not usable; the bases are left for a later run."""
+
+
+def marked(text: str, start: int, stop: int) -> str:
+    first = page_of(text, start)
+    pages = text[start:stop].split("\f")
+    return "\n".join(f"[página {first + i}]\n{p}" for i, p in enumerate(pages))[:MAX_CHARS]
+
+
+def chapter_iv(text: str) -> tuple[int, int] | None:
+    """Where chapter IV's factors start and the economic evaluation (or chapter V) begins."""
+    for m in re.finditer(r"CAP[IÍ]TULO\s+IV\b", text):
+        if re.search(r"FACTORES\s+DE\s+EVALUACI", text[m.start(): m.start() + 4000], re.I):
+            end = re.search(r"EVALUACI[OÓ]N\s+ECON[OÓ]MICA\s*\(|CAP[IÍ]TULO\s+V\b", text[m.start() + 2000:])
+            return m.start(), m.start() + 2000 + end.start() if end else m.start() + MAX_CHARS
+    return None
+
+
+def chapter_iii(text: str) -> tuple[int, int] | None:
+    """Where chapter III's requisitos de calificación start and chapter IV begins, when it asks for personal clave."""
+    for m in re.finditer(r"CAP[IÍ]TULO\s+III\b", text):
+        end = re.search(r"CAP[IÍ]TULO\s+IV\b", text[m.end():])
+        stop = m.end() + end.start() if end else m.end() + MAX_CHARS
+        if not re.search(r"PERSONAL\s+CLAVE", text[m.end(): stop], re.I):
+            continue
+        req = re.search(r"REQUISITOS\s+DE\s+CALIFICACI[OÓ]N", text[m.start(): stop], re.I)
+        return m.start() + (req.start() if req else 0), stop
+    return None
+
+
+def texts(files: list[Path]) -> list[str]:
+    """The text of each file as the readers see it: the model's transcription of a scan, else its own text."""
+    out = []
+    for path in files:
+        try:
+            if ia_path(path).exists():
+                out.append(text_of(ia_path(path)))
+            elif not is_scanned(text := text_of(path)):
+                out.append(text)
+        except TextError:
+            continue
+    return out
+
+
+def ask(key: str, prompt: str) -> tuple[dict, Decimal]:
+    body = {"model": MODEL, "usage": {"include": True}, "max_tokens": 12000,
+            "messages": [{"role": "system", "content": "Extraes datos de documentos y respondes solo con JSON."},
+                         {"role": "user", "content": prompt}]}
+    try:
+        answer = requests.post(URL, json=body, timeout=TIMEOUT, headers={"Authorization": f"Bearer {key}"})
+    except requests.RequestException as error:
+        raise RequisitosError(f"OpenRouter unreachable: {error}") from error
+    if answer.status_code != 200:
+        raise RequisitosError(f"OpenRouter answered {answer.status_code}: {answer.text[:200]}")
+    try:
+        data = answer.json()
+        content = data["choices"][0]["message"]["content"] or ""
+        cost = Decimal(str((data.get("usage") or {}).get("cost") or 0))
+        return json.loads(content[content.find("{"): content.rfind("}") + 1]), cost
+    except (ValueError, KeyError, IndexError, TypeError, ArithmeticError) as error:
+        raise RequisitosError(f"answer not understood: {answer.text[:200]}") from error
+
+
+def factor_page(text: str, start: int, stop: int, name: str | None) -> int | None:
+    """The page where the factor's own description starts: the first page of the chapter after the summary
+    table that names it."""
+    word = next((w for w, n in FACTORS if n == name), None)
+    if word is None:
+        return None
+    summary = re.search(r"RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES", text[start:stop], re.I)
+    begin = start + summary.end() if summary else start
+    # past the table's own rows, which name every factor too
+    if summary and (total := TOTAL.search(text, begin, stop)):
+        begin = total.end()
+    found = re.search(r"(?m)^[^\w\n]{0,30}[A-P](?:\.\d)?\s*[.)]?\s*[^\n]*" + word, text[begin:stop], re.I)
+    # its end, not its start: the line can open with the form feed of its page
+    return page_of(text, begin + found.end()) if found else None
+
+
+def check_factors(answer: list[dict], summary: list[dict] | None, text: str, start: int, stop: int) -> list[dict]:
+    """Each factor with its standard name, its page and whether its maximum points are the summary table's."""
+    table = {f["factor"]: f["puntos"] for f in summary or [] if f.get("puntos") is not None}
+    out = []
+    for f in answer:
+        name = factor_name(f.get("nombre") or "") or f.get("nombre")
+        out.append({**f, "factor": name, "pagina": factor_page(text, start, stop, name),
+                    "comprobado": name in table and table[name] == f.get("puntaje_maximo")})
+    return out
+
+
+def check_personal(answer: list[dict], reading: list[dict] | None) -> tuple[list[dict], bool]:
+    """The cargos as the model gives them; checked when its months, in order, are the personal clave table's."""
+    months = [p["meses"] for p in reading or [] if p.get("meses") is not None]
+    asked = [p.get("experiencia_meses") for p in answer]
+    return answer, bool(months) and asked == months
+
+
+def read_files(files: list[Path], key: str, factores_reading: dict | None, personal_reading: dict | None,
+               ask: Callable[[str, str], tuple[dict, Decimal]] = ask,
+               charge: Callable[[Decimal], None] = lambda usd: None) -> dict:
+    """Ask the model for both chapters of the first file that holds each; `charge` gets each answer's cost."""
+    result = {"factores": [], "personal": [], "pagina_factores": None, "pagina_personal": None,
+              "personal_comprobado": False, "revisar": None}
+    all_text = texts(files)
+    iv = next(((t, found) for t in all_text if (found := chapter_iv(t))), None)
+    iii = next(((t, found) for t in all_text if (found := chapter_iii(t))), None)
+    if iv is None and iii is None:
+        result["revisar"] = NOT_FOUND
+        return result
+    if iv:
+        text, (start, stop) = iv
+        answer, usd = ask(key, FACTORS_PROMPT + "\n\n" + marked(text, start, stop))
+        charge(usd)
+        result["pagina_factores"] = page_of(text, start)
+        result["factores"] = check_factors(answer.get("factores") or [], (factores_reading or {}).get("factores"),
+                                           text, start, stop)
+    if iii:
+        text, (start, stop) = iii
+        answer, usd = ask(key, PERSONAL_PROMPT + "\n\n" + marked(text, start, stop))
+        charge(usd)
+        result["pagina_personal"] = page_of(text, start)
+        result["personal"], result["personal_comprobado"] = check_personal(
+            answer.get("personal") or [], (personal_reading or {}).get("personal"))
+    return result

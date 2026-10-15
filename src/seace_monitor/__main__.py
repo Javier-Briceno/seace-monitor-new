@@ -18,7 +18,8 @@ from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
-from . import config, cuantia, db, experiencia, factores, mail, manual, obra_page, objeto, personal, report, vision
+from . import (config, cuantia, db, experiencia, factores, mail, manual, obra_page, objeto, personal, report, requisitos,
+               vision)
 from .archives import ArchiveError, MachineError, unpack
 from .bases_text import TextError, ToolMissing, bases_files, text_of
 from .ocr import ia_path, image_pages, make_ocr, ocr_path, ocrmypdf
@@ -29,7 +30,7 @@ from .search import LIMA, AccessError, Query, SearchError, make_session, search_
 from .store import (
     archives_to_unpack, bases_to_extract, contents_done, contents_failed, document_done, document_failed, ficha_failed,
     fichas_to_read, link_restarts, locate_from_bases, mark_changes_reported, mark_extractions_reported, mark_reported,
-    mark_stalled, newest_bases, open_since, pending_documents, save_extraction, save_ficha, save_new_licitaciones,
+    latest_reading, mark_stalled, newest_bases, open_since, pending_documents, save_extraction, save_ficha, save_new_licitaciones,
     tracked,
 )
 
@@ -267,6 +268,41 @@ def run_transcription(conn, cfg, nids) -> None:
             print(f"  vision {document['nid_proceso']} {path.name}: {pages} pages, {cost:.4f} USD")
 
 
+def run_requirements(conn, cfg, nids=None, run_cap: Decimal | None = None) -> None:
+    """Ask the model what each factor asks for its points and what profile each cargo needs, for the newest bases
+    of these obras not asked yet (None: every obra), within the month's cap of [vision] tope_mensual_usd and, when
+    given, `run_cap` USD for this run."""
+    cap = (cfg.get("vision") or {}).get("tope_mensual_usd")
+    key = vision.api_key()
+    if cap is None or not key:
+        return
+    cap, run_spent = Decimal(str(cap)), Decimal(0)
+    pending = [d for d in bases_to_extract(conn, requisitos.VERSION, nids) if d["newest"]]
+    print(f"bases to ask with {requisitos.VERSION}: {len(pending)}")
+    for document in pending:
+        now = datetime.now(LIMA)
+        if vision.spent(conn, now) >= cap or run_cap is not None and run_spent >= run_cap:
+            print("requisitos: spending cap reached; the rest waits for a later run")
+            return
+
+        def charge(usd):
+            nonlocal run_spent
+            run_spent += usd
+            vision.add_spending(conn, now, usd, 0)
+
+        try:
+            result = requisitos.read_files(bases_files(document["ruta_local"], document["contents"]), key,
+                                           latest_reading(conn, document["id"], "factores"),
+                                           latest_reading(conn, document["id"], "personal"), charge=charge)
+        except requisitos.RequisitosError as error:
+            print(f"  {document['nid_proceso']}  {error}; left for the next run")
+            continue
+        save_extraction(conn, document["id"], requisitos.VERSION, result, result["revisar"])
+        checked = sum(f["comprobado"] for f in result["factores"])
+        print(f"  {document['nid_proceso']}  factores {checked}/{len(result['factores'])} checked, "
+              f"personal {len(result['personal'])}{' checked' if result['personal_comprobado'] else ''}")
+
+
 def run_notices(conn, cfg, proxy, session) -> None:
     """Store new obras and the changes of the tracked ones; no downloads, so it takes minutes."""
     alone = []
@@ -291,6 +327,7 @@ def run_reading(conn, cfg, session, ocr_budget) -> None:
     # before the readers: a bases read once is not read again by the same reader versions
     run_transcription(conn, cfg, candidates)
     run_extraction(conn, candidates, ocr_budget)
+    run_requirements(conn, cfg, candidates)
 
 
 def main() -> int:
@@ -301,6 +338,9 @@ def main() -> int:
     parser.add_argument("--desempaquetar", action="store_true", help="unpack every downloaded archive not unpacked yet and exit")
     parser.add_argument("--extraer", action="store_true", help="read cuantía, experiencia, personal clave and factores of every downloaded bases not read yet and exit")
     parser.add_argument("--pagina", action="store_true", help="write the phone page of the obras open for offers and exit")
+    parser.add_argument("--requisitos", type=Decimal, metavar="USD",
+                        help="ask the model for factor requirements and personal profiles of every bases not asked yet, "
+                             "spending at most USD in this run, and exit")
     part = parser.add_mutually_exclusive_group()
     part.add_argument("--avisos", action="store_true", help="search, track and send the report; bases read by an earlier --lectura show up in it")
     part.add_argument("--lectura", action="store_true", help="download, unpack, OCR and read the bases of the reported and tracked obras; no report")
@@ -337,6 +377,9 @@ def main() -> int:
         return 0
     if args.extraer:
         run_extraction(conn)
+        return 0
+    if args.requisitos is not None:
+        run_requirements(conn, cfg, run_cap=args.requisitos)
         return 0
     if args.pagina:
         print(f"page written: {obra_page.write(conn, config.watched(cfg), config.report_dir(cfg), datetime.now(LIMA))}")

@@ -332,6 +332,13 @@ def contents_failed(conn: psycopg.Connection, doc_id: int, error: str) -> None:
         )
 
 
+def latest_reading(conn: psycopg.Connection, document_id: int, reader: str) -> dict | None:
+    """The newest reading of a bases by one reader ("factores", "personal"), whatever its version."""
+    row = conn.execute("""SELECT campos FROM extracciones WHERE documento_id = %s AND version_extractor LIKE %s
+                          ORDER BY creado_en DESC LIMIT 1""", [document_id, reader + "-%"]).fetchone()
+    return row[0] if row else None
+
+
 def newest_bases(conn: psycopg.Connection, nids: list[int]) -> list[dict]:
     """The bases each of these obras is offered on now (latest integradas, else latest administrativas), downloaded
     and, for an archive, unpacked; `contents` are its files."""
