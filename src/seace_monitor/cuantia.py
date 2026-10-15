@@ -16,7 +16,9 @@ from . import letras, reading
 from .bases_text import page_of
 from .reading import SCANNED
 
-VERSION = "cuantia-6"
+VERSION = "cuantia-7"
+# compared between the model's and Tesseract's reading of a scanned 1.4
+VALUES = {k: (lambda r, k=k: r.get(k)) for k in ("cuantia", "tipo_oferta", "limite_inferior", "limite_superior")}
 
 TITLE = re.compile(r"CUANT[IÍ]A\s+DE\s+LA\s+CONTRATACI[OÓ]N", re.I)
 # Not the footnote of 1.4 ("indicada en esta sección"): it can fall between the cuantía and the límites table.
@@ -184,7 +186,7 @@ def nearest(amounts: list[Decimal], target: Decimal, spread: Decimal) -> Decimal
 def read_files(files: list[Path], valor_seace: Decimal | None = None,
                ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
     """The reading of the first file that holds section 1.4; an archive also carries annexes and plans."""
-    return reading.read_files(files, lambda text: read(text, valor_seace), NO_SECTION, ocr)
+    return reading.read_files(files, lambda text: read(text, valor_seace), NO_SECTION, ocr, VALUES)
 
 
 def read(text: str, valor_seace: Decimal | None = None) -> dict:

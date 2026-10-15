@@ -14,7 +14,10 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "factores-4"
+VERSION = "factores-5"
+# letters are compared as points only: entities reletter the factors between the summary table and the detail
+VALUES = {"total": lambda r: r.get("total"),
+          "puntos": lambda r: sorted(f["puntos"] for f in r.get("factores") or [] if f.get("puntos") is not None)}
 
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
@@ -218,7 +221,7 @@ def read(text: str) -> dict:
 
 
 def read_files(files: list[Path], ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
-    result = reading.read_files(files, read, NOT_FOUND, ocr)
+    result = reading.read_files(files, read, NOT_FOUND, ocr, VALUES)
     if not result["ocr"] or result["revisar"]:
         return result
     # From OCR a sum that is not the total is nearly always a row it lost, and a description that differs

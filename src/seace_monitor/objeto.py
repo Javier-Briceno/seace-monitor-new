@@ -13,7 +13,8 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "objeto-1"
+VERSION = "objeto-2"
+VALUES = {k: (lambda r, k=k: r.get(k)) for k in ("obra", "cui")}
 
 HEADING = re.compile(r"objeto\s+de\s+la\s+convocatoria", re.I)
 # Where the section ends when the obra's name has no closing quote.
@@ -137,7 +138,7 @@ def quoted(body: str) -> tuple[int, str] | None:
 def read_files(files: list[Path], descripcion: str | None = None,
                ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
     """With SEACE's description: a CUI there that is not the bases' one is a question for the entity."""
-    result = reading.read_files(files, read, NOT_FOUND, ocr)
+    result = reading.read_files(files, read, NOT_FOUND, ocr, VALUES)
     result["avisos"] = []
     # A paquete names several CUIs: "CUI N° 2556200, N° 2721620, N° 2683978 Y N° 2709843".
     seace = re.findall(r"\b(\d{7})\b", descripcion[CUI.search(descripcion).start():]) \

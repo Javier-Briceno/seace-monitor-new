@@ -15,7 +15,8 @@ from pathlib import Path
 from . import letras, reading
 from .bases_text import page_of
 
-VERSION = "personal-4"
+VERSION = "personal-5"
+VALUES = {"meses": lambda r: sorted(p["meses"] for p in r.get("personal") or [] if p.get("meses") is not None)}
 
 # The requirement heading followed by "Requisitos", not the scoring factor of chapter IV nor a sentence citing
 # it. OCR leaves noise before "B.2" ("de .B.2", "“iB.2") and puts a second column on the same line;
@@ -347,7 +348,7 @@ def read(text: str) -> dict:
 
 
 def read_files(files: list[Path], ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
-    result = reading.read_files(files, read, NOT_FOUND, ocr)
+    result = reading.read_files(files, read, NOT_FOUND, ocr, VALUES)
     # OCR breaks words and shifts columns: a cargo with a word no cargo has is not shown as read, and a time
     # whose words say another number is a misread digit, not the entity's mistake.
     if result["ocr"] and not result["revisar"] and (any(unknown_words(p["cargo"]) for p in result["personal"])
