@@ -18,6 +18,7 @@ import psycopg
 from .. import obra_page as op
 from ..bases_text import bases_files
 from ..report import CHANGE_NAMES, STOPPED
+from ..store import span
 
 ORDERS = {"cierre": "Cierre más cercano", "cuantia": "Cuantía más alta", "publicacion": "Publicación más reciente"}
 CLOSING = {"hoy": "Cierran hoy", "semana": "Cierran en 7 días", "mes": "Cierran en 30 días"}
@@ -483,6 +484,26 @@ def history(conn: psycopg.Connection, nid: int) -> list[dict]:
         else:
             text = f"{CHANGE_NAMES.get(campo, campo).capitalize()}: {antes or '—'} → {ahora or '—'}"
         out.append({"texto": text, "cuando": cuando.astimezone(op.LIMA)})
+    return out
+
+
+def cronograma(conn: psycopg.Connection, nid: int) -> list[dict]:
+    """The obra's stages as its ficha shows them now; a moved stage also carries its last earlier dates."""
+    stages = conn.execute("SELECT etapa, lugar, inicio, fin FROM cronograma WHERE nid_proceso = %s ORDER BY orden",
+                          [nid]).fetchall()
+    moves = conn.execute(
+        """SELECT valor_anterior, detectado_en FROM historial
+           WHERE nid_proceso = %s AND campo = 'cronograma' AND valor_anterior IS NOT NULL
+           ORDER BY detectado_en, id""", [nid]).fetchall()
+    out = []
+    for etapa, lugar, inicio, fin in stages:
+        stage = {"etapa": etapa, "lugar": lugar, "inicio": inicio, "fin": fin, "fechas": span(
+            {"inicio": inicio, "fin": fin})}
+        earlier = [(antes, cuando) for antes, cuando in moves if antes.startswith(f"{etapa}: ")]
+        if earlier:
+            antes, cuando = earlier[-1]
+            stage["antes"], stage["cambio"] = antes[len(etapa) + 2:], cuando.astimezone(op.LIMA)
+        out.append(stage)
     return out
 
 

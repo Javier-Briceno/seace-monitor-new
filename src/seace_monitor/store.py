@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 import psycopg
 
 from .archives import ARCHIVE_SUFFIXES
-from .ficha import has_bases
+from .ficha import has_bases, is_offer_stage
 from .search import LIMA
 from .track import closes
 
@@ -138,13 +138,13 @@ def mark_stalled(conn: psycopg.Connection, now: datetime, days: int = STALLED_DA
 
 
 def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadline: datetime | None = None,
-               estados: list[str] | None = None) -> int:
-    """Store a ficha's documents, offer deadline and item estados; return how many documents were new.
+               estados: list[str] | None = None, cronograma: list[dict] | None = None) -> int:
+    """Store a ficha's documents, cronograma, offer deadline and item estados; return how many documents were new.
 
     The ficha counts as read only once it lists a bases. Until then it stays
     pending without spending attempts, since entities often publish it later.
     The licitación keeps the current values. Once a ficha has been read, every later
-    difference (estados, deadline, a new document, the obra closing) also becomes a historial row.
+    difference (estados, a cronograma date, deadline, a new document, the obra closing) also becomes a historial row.
     """
     new = 0
     with conn.transaction():
@@ -158,8 +158,11 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
             if read_before:
                 changes.append(("estado_items", " / ".join(stored_estados), " / ".join(estados)))
             conn.execute("UPDATE licitaciones SET estado_items = %s WHERE nid_proceso = %s", [estados, nid])
+        moved = save_cronograma(conn, nid, cronograma) if cronograma is not None else []
+        changes += [change for _, change in moved]
         if deadline and deadline != stored_deadline:
-            if stored_deadline:
+            # A moved offer stage already says so in its cronograma row.
+            if stored_deadline and not any(is_offer_stage(stage) for stage, _ in moved):
                 changes.append(("fecha_limite_ofertas", lima_text(stored_deadline), lima_text(deadline)))
             conn.execute("UPDATE licitaciones SET fecha_limite_ofertas = %s WHERE nid_proceso = %s", [deadline, nid])
         for d in documents:
@@ -192,6 +195,46 @@ def save_ficha(conn: psycopg.Connection, nid: int, documents: list[dict], deadli
             changes.append(("seguimiento", "parada", "abierta"))
         record_changes(conn, nid, changes)
     return new
+
+
+def save_cronograma(conn: psycopg.Connection, nid: int, stages: list[dict]) -> list[tuple[dict, tuple]]:
+    """Keep the ficha's current cronograma; return each stage whose dates changed with its historial row.
+
+    Stages are matched by name, which parse_cronograma keeps unique. A new place alone is no change.
+    """
+    stored = [dict(zip(("etapa", "lugar", "inicio", "fin"), row)) for row in conn.execute(
+        "SELECT etapa, lugar, inicio, fin FROM cronograma WHERE nid_proceso = %s ORDER BY orden", [nid]).fetchall()]
+    if stored == stages:
+        return []
+    conn.execute("DELETE FROM cronograma WHERE nid_proceso = %s", [nid])
+    with conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO cronograma (nid_proceso, orden, etapa, lugar, inicio, fin) VALUES (%s, %s, %s, %s, %s, %s)",
+            [(nid, i, s["etapa"], s["lugar"], s["inicio"], s["fin"]) for i, s in enumerate(stages, 1)])
+    # Only the very first cronograma is no change; one that comes back after an emptied table is.
+    if not stored and not conn.execute(
+            "SELECT 1 FROM historial WHERE nid_proceso = %s AND campo = 'cronograma' LIMIT 1", [nid]).fetchone():
+        return []
+    before = {s["etapa"]: s for s in stored}
+    now = {s["etapa"]: s for s in stages}
+    moved = []
+    for name in list(before) + [n for n in now if n not in before]:
+        old, new = before.get(name), now.get(name)
+        if old and new and (old["inicio"], old["fin"]) == (new["inicio"], new["fin"]):
+            continue
+        # With both ends known the stage is named once: "Absolución …: 12/10/2026" → "19/10/2026".
+        after = (span(new) if old else stage_text(new)) if new else None
+        moved.append((new or old, ("cronograma", old and stage_text(old), after)))
+    return moved
+
+
+def span(stage: dict) -> str:
+    """'12/10/2026', or both ends when the stage spans more than one moment."""
+    return " al ".join(dict.fromkeys(e for e in (stage["inicio"], stage["fin"]) if e))
+
+
+def stage_text(stage: dict) -> str:
+    return f"{stage['etapa']}: {span(stage)}" if span(stage) else stage["etapa"]
 
 
 def lima_text(moment: datetime) -> str:

@@ -151,6 +151,7 @@ def create_app(settings: dict, connect: Callable[[], psycopg.Connection] = db.co
         return pages.TemplateResponse(request, "obra.html", {
             "o": found, "s": data.summary(found, followed, now), "d": data.detail(found), "sesion": session,
             "historial": data.history(conn, nid), "documentos": data.documents(conn, nid),
+            "cronograma": data.cronograma(conn, nid),
             "publicada": data.long_date(found["fecha_publicacion"], time=False), "volver": back_to_list(request)})
 
     @app.post("/obras/{nid}/seguir")

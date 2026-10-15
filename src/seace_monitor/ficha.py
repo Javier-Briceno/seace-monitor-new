@@ -30,6 +30,10 @@ class FichaError(Exception):
     pass
 
 
+class CronogramaError(FichaError):
+    """The cronograma table is there but cannot be trusted; the stored one is kept."""
+
+
 class StaleTable(FichaError):
     """The portal answered with the document table of a ficha paged earlier in this session."""
 
@@ -158,20 +162,48 @@ def document_rows(table: str, index: dict[str, int]) -> list[dict]:
     return documents
 
 
-def parse_deadline(page: str) -> datetime | None:
-    """End of the offer stage in the ficha's cronograma, or None if the ficha has no such stage.
+def parse_cronograma(page: str) -> list[dict]:
+    """Every stage of the ficha's cronograma in order, with inicio and fin written as the ficha writes them.
 
-    The stage is matched without its accent, which some pages send broken.
+    Under the stage name the ficha sometimes adds where it takes place ("SEACE" or an office address).
+    Storing it replaces the old stages, so a row that is not a stage, a repeated stage name or rows that
+    vanish without the portal's empty-table message stop it here.
     """
     body = page.find("tbFicha:dtCronograma_data")
     if body < 0:
         raise FichaError("cronograma missing from the ficha")
     table = page[body : page.index("</tbody>", body)]
+    stages = []
     for raw in re.findall(r"<tr[^>]*data-ri[^>]*>(.*?)</tr>", table, re.S):
-        cells = [cell_text(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", raw, re.S)]
-        if len(cells) < 3 or not re.match(r"presentaci\S* de (propuestas|ofertas)", normalize(cells[0])):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", raw, re.S)
+        if len(cells) < 3:
+            raise CronogramaError(f"cronograma row with {len(cells)} cells")
+        name, _, place = cells[0].partition("<br")
+        stages.append({
+            "etapa": cell_text(name),
+            "lugar": cell_text(place.partition(">")[2]) or None,
+            "inicio": cell_text(cells[1]) or None,
+            "fin": cell_text(cells[2]) or None,
+        })
+    names = [s["etapa"] for s in stages]
+    if not all(names) or len(set(names)) < len(names):
+        raise CronogramaError("cronograma stage without a name or named twice")
+    if not stages and "ui-datatable-empty-message" not in table:
+        raise CronogramaError("cronograma without rows and without the empty-table message")
+    return stages
+
+
+def is_offer_stage(stage: dict) -> bool:
+    """Matched without its accent, which some pages send broken."""
+    return bool(re.match(r"presentaci\S* de (propuestas|ofertas)", normalize(stage["etapa"])))
+
+
+def offer_deadline(stages: list[dict]) -> datetime | None:
+    """End of the offer stage, or None if the cronograma has no such stage."""
+    for stage in stages:
+        if not is_offer_stage(stage) or not stage["fin"]:
             continue
-        end = cells[2]
+        end = stage["fin"]
         if re.fullmatch(r"\d\d/\d\d/\d{4}", end):  # a date without time lasts until the end of the day
             end += " 23:59"
         return datetime.strptime(end, "%d/%m/%Y %H:%M").replace(tzinfo=LIMA)
