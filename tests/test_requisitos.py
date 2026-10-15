@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from seace_monitor import requisitos
 
 CHAPTER_IV = ("CAPÍTULO IV\nFACTORES DE EVALUACIÓN\n" + "x\n" * 30 +
@@ -56,3 +58,24 @@ def test_bases_without_either_chapter_ask_nothing(tmp_path):
         raise AssertionError("asked without a chapter")
     result = requisitos.read_files(files_with(tmp_path, "ANEXO N° 1\n" * 50), "clave", None, None, ask)
     assert result["revisar"] == requisitos.NOT_FOUND
+
+
+def test_an_unusable_answer_is_charged_and_leaves_the_bases_for_later(tmp_path):
+    charged = []
+    with pytest.raises(requisitos.RequisitosError):
+        requisitos.read_files(files_with(tmp_path, CHAPTER_IV), "clave", SUMMARY, None,
+                              lambda key, prompt: (None, Decimal("0.003")), charged.append)
+    assert charged == [Decimal("0.003")]
+
+
+def test_a_chapter_answered_with_nothing_goes_to_a_person(tmp_path):
+    result = requisitos.read_files(files_with(tmp_path, CHAPTER_IV), "clave", SUMMARY, None, answer_for([], []))
+    assert result["revisar"] == requisitos.EMPTY
+
+
+def test_no_request_once_the_cap_is_reached(tmp_path):
+    def ask(key, prompt):
+        raise AssertionError("asked over the cap")
+    with pytest.raises(requisitos.SpendingCap):
+        requisitos.read_files(files_with(tmp_path, CHAPTER_IV + CHAPTER_III), "clave", SUMMARY, None, ask,
+                              may_spend=lambda: False)

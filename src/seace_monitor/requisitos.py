@@ -26,6 +26,7 @@ MODEL = "anthropic/claude-haiku-5.5"
 TIMEOUT = 300
 MAX_CHARS = 45000
 NOT_FOUND = "sin capítulos III ni IV legibles"
+EMPTY = "el modelo no devolvió factores o cargos de un capítulo encontrado"
 
 FACTORS_PROMPT = """Abajo va el capítulo IV (evaluación de ofertas) de unas bases de licitación de obras del Perú, con la
 página de cada parte marcada como [página N]. El texto puede venir de un PDF a dos columnas: a la izquierda
@@ -61,6 +62,10 @@ Devuelve solo un JSON: {"personal": [...]}"""
 
 class RequisitosError(Exception):
     """The model could not be asked or its answer was not usable; the bases are left for a later run."""
+
+
+class SpendingCap(Exception):
+    """No further request may be made in this run."""
 
 
 def marked(text: str, start: int, stop: int) -> str:
@@ -116,11 +121,16 @@ def ask(key: str, prompt: str) -> tuple[dict, Decimal]:
         raise RequisitosError(f"OpenRouter answered {answer.status_code}: {answer.text[:200]}")
     try:
         data = answer.json()
-        content = data["choices"][0]["message"]["content"] or ""
         cost = Decimal(str((data.get("usage") or {}).get("cost") or 0))
-        return json.loads(content[content.find("{"): content.rfind("}") + 1]), cost
-    except (ValueError, KeyError, IndexError, TypeError, ArithmeticError) as error:
+    except (ValueError, AttributeError, ArithmeticError) as error:
         raise RequisitosError(f"answer not understood: {answer.text[:200]}") from error
+    # paid even when its content is not usable: the caller charges the cost and then gives up on the bases
+    try:
+        content = data["choices"][0]["message"]["content"] or ""
+        parsed = json.loads(content[content.find("{"): content.rfind("}") + 1])
+    except (ValueError, KeyError, IndexError, TypeError):
+        parsed = None
+    return parsed if isinstance(parsed, dict) else None, cost
 
 
 def factor_page(text: str, start: int, stop: int, name: str | None) -> int | None:
@@ -159,8 +169,10 @@ def check_personal(answer: list[dict], reading: list[dict] | None) -> tuple[list
 
 def read_files(files: list[Path], key: str, factores_reading: dict | None, personal_reading: dict | None,
                ask: Callable[[str, str], tuple[dict, Decimal]] = ask,
-               charge: Callable[[Decimal], None] = lambda usd: None) -> dict:
-    """Ask the model for both chapters of the first file that holds each; `charge` gets each answer's cost."""
+               charge: Callable[[Decimal], None] = lambda usd: None,
+               may_spend: Callable[[], bool] = lambda: True) -> dict:
+    """Ask the model for both chapters of the first file that holds each; `charge` gets each answer's cost, and
+    `may_spend` is asked before each request, so a cap is passed by one request at most."""
     result = {"factores": [], "personal": [], "pagina_factores": None, "pagina_personal": None,
               "personal_comprobado": False, "revisar": None}
     all_text = texts(files)
@@ -169,18 +181,27 @@ def read_files(files: list[Path], key: str, factores_reading: dict | None, perso
     if iv is None and iii is None:
         result["revisar"] = NOT_FOUND
         return result
+    def asked(prompt: str, field: str) -> list[dict]:
+        if not may_spend():
+            raise SpendingCap("spending cap reached")
+        answer, usd = ask(key, prompt)
+        charge(usd)
+        if answer is None or not isinstance(answer.get(field) or [], list):
+            raise RequisitosError("answer not understood")
+        return [item for item in answer.get(field) or [] if isinstance(item, dict)]
+
     if iv:
         text, (start, stop) = iv
-        answer, usd = ask(key, FACTORS_PROMPT + "\n\n" + marked(text, start, stop))
-        charge(usd)
+        factors = asked(FACTORS_PROMPT + "\n\n" + marked(text, start, stop), "factores")
         result["pagina_factores"] = page_of(text, start)
-        result["factores"] = check_factors(answer.get("factores") or [], (factores_reading or {}).get("factores"),
-                                           text, start, stop)
+        result["factores"] = check_factors(factors, (factores_reading or {}).get("factores"), text, start, stop)
     if iii:
         text, (start, stop) = iii
-        answer, usd = ask(key, PERSONAL_PROMPT + "\n\n" + marked(text, start, stop))
-        charge(usd)
+        personnel = asked(PERSONAL_PROMPT + "\n\n" + marked(text, start, stop), "personal")
         result["pagina_personal"] = page_of(text, start)
         result["personal"], result["personal_comprobado"] = check_personal(
-            answer.get("personal") or [], (personal_reading or {}).get("personal"))
+            personnel, (personal_reading or {}).get("personal"))
+    # a chapter found but answered with nothing: kept for a person rather than asked (and paid) again every night
+    if iv and not result["factores"] or iii and not result["personal"]:
+        result["revisar"] = EMPTY
     return result

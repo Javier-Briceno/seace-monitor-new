@@ -281,9 +281,9 @@ def run_requirements(conn, cfg, nids=None, run_cap: Decimal | None = None) -> No
     print(f"bases to ask with {requisitos.VERSION}: {len(pending)}")
     for document in pending:
         now = datetime.now(LIMA)
-        if vision.spent(conn, now) >= cap or run_cap is not None and run_spent >= run_cap:
-            print("requisitos: spending cap reached; the rest waits for a later run")
-            return
+
+        def may_spend():
+            return vision.spent(conn, now) < cap and (run_cap is None or run_spent < run_cap)
 
         def charge(usd):
             nonlocal run_spent
@@ -293,7 +293,11 @@ def run_requirements(conn, cfg, nids=None, run_cap: Decimal | None = None) -> No
         try:
             result = requisitos.read_files(bases_files(document["ruta_local"], document["contents"]), key,
                                            latest_reading(conn, document["id"], "factores"),
-                                           latest_reading(conn, document["id"], "personal"), charge=charge)
+                                           latest_reading(conn, document["id"], "personal"), charge=charge,
+                                           may_spend=may_spend)
+        except requisitos.SpendingCap:
+            print("requisitos: spending cap reached; the rest waits for a later run")
+            return
         except requisitos.RequisitosError as error:
             print(f"  {document['nid_proceso']}  {error}; left for the next run")
             continue
