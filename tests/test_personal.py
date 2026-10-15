@@ -229,3 +229,17 @@ def test_numbered_rows_and_bulleted_cargos_with_a_colon():
                 "• Residente de Obra: Experiencia mínima de veinticuatro (24) meses en la especialidad.\n"
                 "Acreditación:\n")
     assert cargos(read(bulleted)) == [("Residente de Obra", "24 meses")]
+
+
+def test_a_cargo_before_debe_acreditar_and_a_cargo_cell_with_y_o():
+    # obras 1246433 and 1254052
+    listed = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\n"
+              "➢ Residente de Obra, debe acreditar Doce (12) meses, computados desde la colegiatura, como Residente.\n"
+              "Acreditación:\n")
+    assert cargos(read(listed)) == [("Residente de Obra", "12 meses")]
+    table = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\nCargo   N°   Profesión   Experiencia\n"
+             "Residente de Obra   01   Ingeniero Civil   24 meses contabilizados desde la colegiatura\n"
+             "Especialista de Seguridad en Obra y Salud Ocupacional y/o SSOMA   01   Ingeniero Industrial   "
+             "24 meses contabilizados desde la colegiatura\nAcreditación:\n")
+    assert cargos(read(table)) == [("Residente de Obra", "24 meses"),
+                                   ("Especialista de Seguridad en Obra y Salud Ocupacional y/o SSOMA", "24 meses")]

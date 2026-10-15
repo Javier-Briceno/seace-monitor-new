@@ -46,6 +46,7 @@ NUMBERED = re.compile(r"^\s{0,12}\d{1,2}\s*[.)\-]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,70
 # "a) Residente de Obra" heading its own paragraph of requirements
 LETTERED = re.compile(r"^\s{0,12}[a-zA-Z]\s*[.)]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,90}?)\s*:?\s*$", re.M)
 CELLS = re.compile(r" {3,}")
+ASKS = re.compile(r"(.{4,90}?),\s*(?:debe|deber[aá]|acredita)", re.I)
 # The column headers; the cargo column is the one headed CARGO, PERSONAL or PUESTO.
 CARGO_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO)\b", re.I)
 HEADER_WORDS = re.compile(r"\bCARGO|\bPERSONAL\b|\bPUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|"
@@ -227,10 +228,13 @@ def complete(cargo: str) -> bool:
     return bool(HEADS.search(cargo) or ENGINEER.match(cargo))
 
 
-def doubtful(cargo: str) -> bool:
+def doubtful(cargo: str, own_cell: bool = False) -> bool:
     """Two cargos run together (a row lost its time, so every pairing below it is off), a column of professions
-    or descriptions mixed in, or OCR noise."""
+    or descriptions mixed in, or OCR noise. A cargo read from its own cell or line (`own_cell`) cannot have taken
+    a description's "y/o" from the next column, so there "y/o" is part of the cargo ("... Ocupacional y/o SSOMA")."""
     words = cargo.lower().split()
+    if own_cell:
+        cargo = re.sub(r"\by\s*/\s*o\b", "y", cargo, flags=re.I)
     return (len(re.findall(r"\b(?:RESIDENTE|ESPECIALISTA)\b", cargo, re.I)) > 1
             or len(re.findall(r"\bING(?:\.|ENIER[OA]\b)", cargo, re.I)) > 1
             or not cargo[:1].isupper() or bool(CONNECTOR.search(cargo))
@@ -304,14 +308,17 @@ def rows_from_row_lines(lines: list[str], times: list[dict]) -> list[dict]:
 
 
 def row_cargo(line: str, headed: bool) -> str | None:
-    cells = [c for c in CELLS.split(line.strip().lstrip("•·*- ")) if c]
+    cells = [c for c in CELLS.split(re.sub(r"^[^\w(\[]+", "", line.strip())) if c]
     while cells and re.fullmatch(r"\d{1,2}[.)°]?", cells[0]):
         cells.pop(0)  # the row's number
     if not cells:
         return None
     if len(cells) == 1:
         cargo, colon, _ = cells[0].partition(":")
-        if not colon:
+        # "Residente de Obra, debe acreditar Doce (12) meses"
+        if not colon and (said := ASKS.match(cells[0])):
+            cargo = said.group(1)
+        elif not colon:
             return None
     else:
         cargo = cells[0]
@@ -381,6 +388,7 @@ def read(text: str) -> dict:
     if not times:
         result["revisar"] = NO_TIME
         return result
+    own = False
     rows = rows_from_headings(block)
     if len(rows) != len(times):
         first, right = cargo_edge(lines, times)
@@ -392,10 +400,10 @@ def read(text: str) -> dict:
         # lettered cargos above their paragraphs, or a table one row a line (a vision model's transcription)
         for other in (rows_from_letters(block), rows_from_row_lines(lines, times)):
             if other and (found := pair(other, times)) is not None \
-                    and not any(doubtful(squeeze(r["cargo"])) for r in other):
-                rows, paired = other, found
+                    and not any(doubtful(squeeze(r["cargo"]), own_cell=True) for r in other):
+                rows, paired, own = other, found, True
                 break
-    if paired is None or any(doubtful(squeeze(r["cargo"])) for r in rows):
+    if paired is None or any(doubtful(squeeze(r["cargo"]), own_cell=own) for r in rows):
         result["personal"] = [{"cargo": None, "tiempo": t["tiempo"], "meses": t["meses"]} for t in times]
         result["revisar"] = UNREADABLE
         return result
