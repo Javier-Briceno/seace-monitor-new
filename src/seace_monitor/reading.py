@@ -65,7 +65,9 @@ def read_files(files: list[Path], read: Callable[[str], dict], missing: str,
     # OCR costs minutes per file: the files named as bases first, and only a few of an archive's.
     readable = [f for f in sorted(with_images, key=lambda f: "BASE" not in f[0].name.upper())
                 if ocr or ia_path(f[0]).exists()]
-    for path, pages in readable[:OCR_FILES]:
+    recognized = 0
+    for path, pages in readable:
+        # a model's transcription is read at once, every file that has one
         if ia_path(path).exists():
             text = text_of(ia_path(path))
             result = read(text)
@@ -80,7 +82,11 @@ def read_files(files: list[Path], read: Callable[[str], dict], missing: str,
                         "segunda_lectura": second_reading(result, second, values or {}, missing, alike)}
             if path in scanned and not is_scanned(text):
                 scanned.remove(path)
+        # Tesseract, minutes a file, for a few files: those without a transcription, or whose transcription
+        # missed the section
+        if ocr is None or recognized >= OCR_FILES:
             continue
+        recognized += 1
         try:
             text = text_of(ocr(path, pages))
         except (OcrError, TextError) as error:

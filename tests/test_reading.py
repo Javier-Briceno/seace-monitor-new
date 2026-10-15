@@ -102,3 +102,23 @@ def test_a_compared_value_can_ignore_what_is_noise():
     first, second = {"obra": "AMPLIACION DEL SERVICIO", "revisar": None}, {"obra": "AMPLIACION DEL SERVIC IO", "revisar": None}
     assert reading.second_reading(first, second, name, MISSING)["difieren"] == ["obra"]
     assert reading.second_reading(first, second, name, MISSING, squeezed)["difieren"] == []
+
+
+@needs_pdftotext
+def test_tesseract_reads_a_file_whose_model_text_missed_the_section(tmp_path):
+    path = scan(tmp_path, "CAPITULO II DEL PROCEDIMIENTO DE SELECCION. " * 3)
+    result = reading.read_files([path], read, MISSING, tesseract(tmp_path, "1.4 LA CUANTIA ES S/ 9.00"), VALUES)
+    assert (result["cuantia"], result["ocr"]) == ("9.00", True) and "ia" not in result
+
+
+@needs_pdftotext
+def test_every_file_with_a_model_text_is_read_not_only_the_first_few(tmp_path):
+    files = []
+    for n in range(4):
+        path = tmp_path / f"ANEXO {n}.pdf"
+        path.write_bytes(SCAN.read_bytes())
+        ia_path(path).write_text("1.4 LA CUANTIA ES S/ 7.00" if n == 3 else "ANEXO SIN LA SECCION. " * 6,
+                                 encoding="utf-8")
+        files.append(path)
+    result = reading.read_files(files, read, MISSING, None, VALUES)
+    assert (result["cuantia"], result["archivo"]) == ("7.00", "ANEXO 3.pdf")
