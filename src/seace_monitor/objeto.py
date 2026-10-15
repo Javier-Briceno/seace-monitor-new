@@ -139,18 +139,25 @@ def quoted(body: str) -> tuple[int, str] | None:
     return start, squeeze(inner).strip(STRIP)
 
 
-# The share of the name's first words SEACE's description must hold. Measured on 534 bases: 480 hold all of
-# them; of the 10 under this share, 8 are a real problem (the template's placeholder, bases describing another
-# obra, a name cut at the wrong place or unreadable).
-NAME_SHARE = 0.6
-NAME_WORDS = 12
+# The share of the name's first distinctive words SEACE's description must hold. Measured on 534 bases: 489 hold
+# all of them; of the 11 under this share, 9 are a real problem (the template's placeholder, bases describing
+# another obra, a name cut at the wrong place or unreadable); the other 2 are paquetes SEACE cut short.
+NAME_SHARE = 0.7
+NAME_WORDS = 10
+# Words nearly every obra name has; counted, they let another obra pass ("MEJORAMIENTO DE LA CENTRAL
+# HIDROELÉCTRICA PALTIC" against "... GUINEAMAYO")
+GENERIC = set("""MEJORAMIENTO AMPLIACION CREACION CONSTRUCCION RENOVACION REPARACION REMODELACION REHABILITACION
+RECUPERACION INSTALACION ADQUISICION SERVICIO SERVICIOS OBRA OBRAS DISTRITO PROVINCIA DEPARTAMENTO REGION DEL LOS LAS
+PARA CON QUE POR UNA SUS EJECUCION CONTRATACION PROYECTO INVERSION IOARR LOCALIDAD CENTRO POBLADO CASERIO SECTOR
+OTROS ACTIVOS ESPACIO ESPACIOS URBANO URBANA URBANOS RURAL NIVEL""".split())
 
 
 def name_share(name: str, descripcion: str) -> float:
-    """How many of the name's first words (three letters or more, accents aside) SEACE's description holds."""
+    """How many of the name's first distinctive words (three letters or more, accents aside, not GENERIC)
+    SEACE's description holds."""
     def words(text: str) -> list[str]:
         plain = unicodedata.normalize("NFKD", text.upper()).encode("ascii", "ignore").decode()
-        return re.findall(r"[A-Z0-9]{3,}", plain)
+        return [w for w in re.findall(r"[A-Z0-9]{3,}", plain) if w not in GENERIC]
     head, seace = words(name)[:NAME_WORDS], set(words(descripcion))
     return sum(w in seace for w in head) / len(head) if head else 1.0
 

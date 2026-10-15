@@ -149,3 +149,10 @@ def test_a_name_that_does_not_resemble_the_seace_description_is_flagged():
     # obra 1249821: the template's placeholder left as the name
     assert objeto.name_share("CONSIGNAR NOMBRE DE LA OBRA A EJECUTAR, DEL(LOS) PROYECTO(S) DE INVERSION", seace) \
         < objeto.NAME_SHARE
+
+
+def test_another_obra_sharing_only_generic_words_is_flagged():
+    # obra 1240182: same opening words, another power plant in another district
+    seace = "Ejecución de obra, MEJORAMIENTO DE LA CENTRAL HIDROELÉCTRICA GUINEAMAYO, DISTRITO SOCOTÁ, PROVINCIA CUTERVO"
+    assert objeto.name_share("MEJORAMIENTO DE LA CENTRAL HIDROELÉCTRICA PALTIC DISTRITO QUEROCOTILLO - PROVINCIA DE "
+                             "CUTERVO", seace) < objeto.NAME_SHARE
