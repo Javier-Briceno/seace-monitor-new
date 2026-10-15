@@ -93,3 +93,18 @@ def test_the_general_sections_chapter_iii_is_not_the_requirements(tmp_path):
 
     requisitos.read_files(files_with(tmp_path, general + CHAPTER_III), "clave", None, None, ask)
     assert len(asked) == 1 and "B.2 EXPERIENCIA DEL PERSONAL CLAVE" in asked[0] and "caso fortuito" not in asked[0]
+
+
+def test_a_bases_once_started_is_finished_even_if_the_cap_is_reached_between_chapters(tmp_path):
+    room = iter([True, False])
+    asked = []
+
+    def ask(key, prompt):
+        asked.append(prompt)
+        if "capítulo IV" in prompt:
+            return {"factores": [{"nombre": "GESTIÓN DE CALIDAD", "puntaje_maximo": 10}]}, Decimal("0.004")
+        return {"personal": [{"cargo": "Residente de obra", "experiencia_meses": 24}]}, Decimal("0.002")
+
+    result = requisitos.read_files(files_with(tmp_path, CHAPTER_IV + CHAPTER_III), "clave", None, None, ask,
+                                   may_spend=lambda: next(room))
+    assert len(asked) == 2 and result["factores"] and result["personal"]

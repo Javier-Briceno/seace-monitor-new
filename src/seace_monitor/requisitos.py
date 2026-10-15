@@ -175,8 +175,9 @@ def read_files(files: list[Path], key: str, factores_reading: dict | None, perso
                ask: Callable[[str, str], tuple[dict, Decimal]] = ask,
                charge: Callable[[Decimal], None] = lambda usd: None,
                may_spend: Callable[[], bool] = lambda: True) -> dict:
-    """Ask the model for both chapters of the first file that holds each; `charge` gets each answer's cost, and
-    `may_spend` is asked before each request, so a cap is passed by one request at most."""
+    """Ask the model for both chapters of the first file that holds each; `charge` gets each answer's cost.
+    `may_spend` is asked once, before the first request: a bases once started is finished, so a cap is passed by
+    one request at most and no paid answer is thrown away to be paid again."""
     result = {"factores": [], "personal": [], "pagina_factores": None, "pagina_personal": None,
               "personal_comprobado": False, "revisar": None}
     all_text = texts(files)
@@ -185,9 +186,10 @@ def read_files(files: list[Path], key: str, factores_reading: dict | None, perso
     if iv is None and iii is None:
         result["revisar"] = NOT_FOUND
         return result
+    if not may_spend():
+        raise SpendingCap("spending cap reached")
+
     def asked(prompt: str, field: str) -> list[dict]:
-        if not may_spend():
-            raise SpendingCap("spending cap reached")
         answer, usd = ask(key, prompt)
         charge(usd)
         if answer is None or not isinstance(answer.get(field) or [], list):
