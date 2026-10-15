@@ -299,6 +299,8 @@ def consult_count(obra: dict) -> int:
     n = len(reading.get("avisos") or []) if not reading.get("ocr") else 0
     n += len((obra["factores"] or {}).get("avisos") or [])
     n += len(personal_found.get("avisos") or []) if not personal_found.get("ocr") else 0
+    objeto_found = obra.get("objeto") or {}
+    n += len(objeto_found.get("avisos") or []) if not objeto_found.get("ocr") else 0
     return n
 
 

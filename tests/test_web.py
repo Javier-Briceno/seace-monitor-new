@@ -282,3 +282,5 @@ def test_the_obra_page_names_the_obra_as_its_bases_do_and_warns_of_another_cui(w
     page = text(web.get("/obras/1").text)
     assert f"Nombre completo en las bases pág. 20 {full} CUI 2485259" in page
     assert "El CUI de las bases (2485259) no es el que nombra la descripción del SEACE (2400000)" in page
+    found = next(o for o in data.op.obras(conn, ["LA LIBERTAD"], NOW) if o["nid_proceso"] == 1)
+    assert data.consult_count(found) == 1

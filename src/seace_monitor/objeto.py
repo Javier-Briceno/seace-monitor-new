@@ -25,10 +25,11 @@ CLOSE = {"«": "»", "“": "”", '"': '"', "„": "“", "�": "�", "[": "]
 # Footer and header lines of a bases page: the entity, the procedure, the page number.
 EDGE = re.compile(r"LICITACI|MUNICIPALIDAD|GOBIERNO\s+REGIONAL|BASES\s+(?:INTEGRADAS|EST[AÁ]NDAR|ADMINISTRATIVAS)"
                   r"|P[aá]gina\s+\d|^\s*\d{1,3}\s*$", re.I)
-STRIP = " ,;:-\"'«»“”‘’[]�"
+STRIP = " ,;:-–—\"'«»“”‘’[]�"
 # "CUI N° 2719000", "Código Único de Inversiones N°2724989", "CODIGO UNICO 2720300", "COD. UNICO N*2725321"
 CUI = re.compile(r"\b(?:C\.?\s?U\.?\s?I\.?|c[oó]d(?:igo|\.)\s*[uú]nico(?:\s+de\s+inversi[oó]n(?:es)?)?)"
                  r"\s*(?:N\s*[°º.o*]*\s*)?:?\s*(\d{7})\b", re.I)
+CUI_WORD = re.compile(r"\b(?:C\.?\s?U\.?\s?I\b|c[oó]d(?:igo|\.)\s*[uú]nico)", re.I)
 MAX_BLOCK = 2500
 # The words that open the obra's name, and how far after them its quote may open.
 INTRO = re.compile(r"\b(?:obra|ioarr|inversi[oó]n)\b(?:\s*(?:denominada|correspondiente))?(?:\s*a(?:l|\s+la)?\b)?\s*:?", re.I)
@@ -107,11 +108,21 @@ def read(text: str) -> dict:
 
 def quoted(body: str) -> tuple[int, str] | None:
     """Where the first quote opens and the text up to its own closing quote, in one line; a bracket only
-    without quotes."""
+    without quotes.
+
+    A straight quote closes with the same mark, so a school's name in quotes inside the obra's name would close
+    it early ("... I.E. "SAN MARTIN DE PORRES", DISTRITO ..."): it closes at the last such mark before the CUI.
+    """
     found = []
+    cui = CUI_WORD.search(body)  # even when OCR garbled its number ("CUI N22727736")
+    limit = cui.start() if cui else len(body)
     for opening, closing in CLOSE.items():
         start = body.find(opening)
-        end = body.find(closing, start + 1) if start >= 0 else -1
+        if start < 0:
+            continue
+        end = body.rfind(closing, start + 1, limit) if opening == closing else -1
+        if end <= start + 15:  # a pair of its own, or the CUI sits inside the quotes
+            end = body.find(closing, start + 1)
         if end > start + 15:
             found.append((opening == "[", start, end))
     if not found:

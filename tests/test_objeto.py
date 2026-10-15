@@ -82,6 +82,14 @@ def test_a_name_running_onto_the_next_page_loses_the_footer_and_header():
     assert r["obra"].endswith("DEL DEPARTAMENTO DE LA LIBERTAD")
 
 
+def test_straight_quotes_inside_a_straight_quoted_name_do_not_close_it():
+    r = objeto.read(section(
+        "El presente procedimiento de selección tiene por objeto la ejecución de la obra: \"MEJORAMIENTO DEL SERVICIO "
+        "EDUCATIVO EN LA I.E. \"SAN MARTIN DE PORRES\", DISTRITO DE PATAZ, DEPARTAMENTO LA LIBERTAD\" con CUI 2634231"))
+    assert r["obra"] == ("MEJORAMIENTO DEL SERVICIO EDUCATIVO EN LA I.E. \"SAN MARTIN DE PORRES\", DISTRITO DE PATAZ, "
+                         "DEPARTAMENTO LA LIBERTAD")
+
+
 def test_a_cui_inside_the_quotes_is_cut_off_the_name():
     r = objeto.read(section(
         "El presente procedimiento de selección tiene por objeto la contratación de la ejecución de la obra "
