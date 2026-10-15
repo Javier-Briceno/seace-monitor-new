@@ -222,10 +222,11 @@ def read(text: str) -> dict:
 
 def read_files(files: list[Path], ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
     result = reading.read_files(files, read, NOT_FOUND, ocr, VALUES)
-    if not result["ocr"] or result["revisar"]:
+    if not result["ocr"] or result.get("ia") or result["revisar"]:
         return result
-    # From OCR a sum that is not the total is nearly always a row it lost, and a description that differs
-    # from a table adding up to the total a misread digit: not the entity's mistake.
+    # From Tesseract a sum that is not the total is nearly always a row it lost, and a description that differs
+    # from a table adding up to the total a misread digit: not the entity's mistake. A vision model's text is
+    # checked against Tesseract's reading instead.
     if any(w["aviso"] == "suma_distinta_total" for w in result["avisos"]):
         result["avisos"] = [w for w in result["avisos"] if w["aviso"] not in ("suma_distinta_total", "puntaje_distinto")]
         result["revisar"] = UNREADABLE
