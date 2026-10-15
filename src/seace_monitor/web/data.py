@@ -384,6 +384,36 @@ def at(found: dict, key: str, section_page: bool = True) -> dict | None:
     return found if section_page else None
 
 
+# what each value compared between two readings of a scan is called on the page
+COMPARED = {"cuantia": "la cuantía", "tipo_oferta": "el tipo de oferta", "limite_inferior": "el límite inferior",
+            "limite_superior": "el límite superior", "monto": "el monto de la experiencia del postor",
+            "veces": "las veces la cuantía de la experiencia", "anios": "los años de la experiencia",
+            "total": "el puntaje total", "puntos": "los puntos de los factores",
+            "meses": "los meses del personal clave", "obra": "el nombre de la obra", "cui": "el CUI"}
+
+
+AMOUNTS = {"cuantia", "limite_inferior", "limite_superior", "monto"}
+
+
+def readings_differ(obra: dict, look: list) -> None:
+    """A scan read twice (a vision model and Tesseract) with different values: look at the page before trusting."""
+    for found in (obra["lectura"], obra.get("experiencia"), obra.get("personal"), obra.get("factores"),
+                  obra.get("objeto")):
+        second = (found or {}).get("segunda_lectura") or {}
+        for field in second.get("difieren") or []:
+            look.append(note(f"Las dos lecturas del escaneo no coinciden en {COMPARED.get(field, field)}: "
+                             f"{shown(field, second['ia'][field])} y {shown(field, second['tesseract'][field])}. "
+                             f"Mirar la página.", obra, found))
+
+
+def shown(field: str, value) -> str:
+    if field in AMOUNTS:
+        return op.soles(value)
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    return str(value)
+
+
 def detail(obra: dict) -> dict:
     """The reading of one obra: what to consult, what to look at first, what is left for a person, and each value
     with its page. The same rules as the phone page: a warning read through OCR waits for a look at the page."""
@@ -420,12 +450,14 @@ def detail(obra: dict) -> dict:
         experience(obra, values, manual)
         personal(obra, values, manual, consult, look)
         factors(obra, values, manual, consult)
+        readings_differ(obra, look)
     objeto = obra.get("objeto") or {}
     return {"consultar": consult, "mirar": look, "revisar": manual, "valores": values,
             "objeto": value("Nombre en las bases", objeto["obra"], obra, objeto) if objeto.get("obra") else None,
             "cui": objeto.get("cui"),
             "sin_observaciones": bool(reading and reading.get("cuantia") and not reading.get("revisar")
                                       and not reading.get("avisos") and not consult
+                                      and not (reading.get("segunda_lectura") or {}).get("difieren")
                                       and reading.get("tipo_oferta") in ("fija", "limitada"))}
 
 

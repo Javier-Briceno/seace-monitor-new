@@ -297,3 +297,18 @@ def test_the_obra_page_names_the_obra_as_its_bases_do_and_warns_of_another_cui(w
     assert "El CUI de las bases (2485259) no es el que nombra la descripción del SEACE (2400000)" in page
     found = next(o for o in data.op.obras(conn, ["LA LIBERTAD"], NOW) if o["nid_proceso"] == 1)
     assert data.consult_count(found) == 1
+
+
+def test_a_scan_whose_two_readings_differ_asks_for_a_look_at_the_page(web, conn):
+    signed_in(web, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    add(conn, 2, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    bases(conn, 1, lectura=reading(ocr=True, ia=True, segunda_lectura={
+        "ia": {"cuantia": "127019.94", "tipo_oferta": "limitada"},
+        "tesseract": {"cuantia": "127019.84", "tipo_oferta": "limitada"}, "difieren": ["cuantia"]}))
+    bases(conn, 2, lectura=reading(ocr=True, ia=True, segunda_lectura={
+        "ia": {"cuantia": "127019.94"}, "tesseract": {"cuantia": "127019.94"}, "difieren": []}))
+    page = text(web.get("/obras/1").text)
+    assert "Las dos lecturas del escaneo no coinciden en la cuantía: S/ 127,019.94 y S/ 127,019.84. Mirar la página." in page
+    assert "sin observaciones" not in page
+    assert "Las dos lecturas" not in text(web.get("/obras/2").text)
