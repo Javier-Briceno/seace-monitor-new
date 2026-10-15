@@ -25,7 +25,9 @@ SUMMARY = re.compile(r"(?:CUADRO\s+)?RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES
 # "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos"; never the "0" of "05.00"
 FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{1,2})?\s*\]?\s*puntos"
 # Word puts each table cell on its own line
-TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE, re.I)
+# Layout text can put the figure on the line above "PUNTAJE TOTAL" and "puntos" on the line below it.
+TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE
+                   + r"|(?<![\d.,])(\d{1,3})[^\S\n]*\n[^\S\n]*PUNTAJE\s+TOTAL[^\S\n]*\n[^\S\n]*puntos", re.I)
 # "A. EXPERIENCIA ...", sub-factors "B.1 FORMACIÓN ACADÉMICA ...", and OCR's "[E. GESTIÓN DE CALIDAD?",
 # "lA. EXPERIENCIA", "|F. GESTIÓN" (a stray stroke before the letter), "A EXPERIENCIA" (the dot lost)
 FIRST_WORD = r"(?:EXPERIENCIA|SOSTENIBILIDAD|INTEGRIDAD|GESTI|CAPACITACI|MEJORA|PLANIFICACI|SEGURIDAD|TECNOLOG|PLAN\b|FORMACI|CERTIFICACI)"
@@ -180,7 +182,7 @@ def read(text: str) -> dict:
     if minimum := MINIMUM.search(before):
         word = minimum.group(1).lower()
         result["minimo_tecnico"] = int(word) if word.isdigit() else MINIMUM_WORDS.get(word)
-    result["total"] = int(total.group(1))
+    result["total"] = int(total.group(1) or total.group(2))
     # a row the entity crossed out by hand, as a vision model marks it, gives no points
     table = STRUCK.sub("", text[table_end: total.start()])
     rows = [r for r in summary_rows(table) if not r["no_corresponde"]]

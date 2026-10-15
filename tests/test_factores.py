@@ -253,3 +253,19 @@ def test_points_written_without_the_word_puntos_in_one_line_rows():
             "PUNTAJE TOTAL   100 puntos\n")
     result = read(text)
     assert [f["puntos"] for f in result["factores"]] == [40, 5, 5, 5, 20, 25] and result["suma"] == 100
+
+
+def test_a_total_whose_figure_sits_above_its_words():
+    # obra 1250792: the layout put "100" above "PUNTAJE TOTAL" and "puntos" below it
+    text = ("                         CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            "          FACTORES DE EVALUACIÓN FACULTATIVOS                               PUNTAJE          EVALUADOR\n"
+            "  A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE                   40 puntos           COMITÉ\n"
+            "  B. SOSTENIBILIDAD AMBIENTAL                                               10 puntos           COMITÉ\n"
+            "  C. CAPACITACIÓN                                                           10 puntos           COMITÉ\n"
+            "  D. GESTIÓN DE CALIDAD                                                     10 puntos           COMITÉ\n"
+            "  E. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD                    30 puntos           COMITÉ\n"
+            "                                                                               100\n"
+            "     PUNTAJE TOTAL\n"
+            "                                                                             puntos28\n")
+    result = read(text)
+    assert (result["revisar"], result["total"], result["suma"]) == (None, 100, 100)
