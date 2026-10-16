@@ -37,7 +37,8 @@ TIME = re.compile(r"\(?\s*(?<![\d.,])(\d{1,3})\s*\)?\s*(mes(?:es)?|a[ñn]os?)\b"
 # "una antigüedad no mayor a veinte (20) años" is about the works counted, not a cargo
 NOT_A_TIME = re.compile(r"antig[uü]edad|anteriores", re.I)
 HEAD = r"RESIDENTE|ESPECIALISTA|JEFE|ARQUE[OÓ]LOGO|ASISTENTE|SUPERVISOR|TOP[OÓ]GRAFO|COORDINADOR|INSPECTOR|" \
-       r"ADMINISTRADOR|MAESTRO|CAPATAZ|RESPONSABLE|GERENTE|DIRECTOR|PREVENCIONISTA|ARQUITECTO|PROFESIONAL"
+       r"ADMINISTRADOR|MAESTRO|CAPATAZ|RESPONSABLE|GERENTE|DIRECTOR|PREVENCIONISTA|ARQUITECTO|PROFESIONAL|" \
+       r"CAPACITADOR|GESTOR|FACILITADOR|PROMOTOR"
 HEADS = re.compile(r"\b(?:" + HEAD + r")\b", re.I)
 START = re.compile(r"^(?:" + HEAD + r"|ING\.?|INGENIER[OA]|LIC\.?|LICENCIAD[OA]|T[EÉ]CNICO|BACHILLER)\b", re.I)
 ENGINEER = re.compile(r"^(?:ING\.?|INGENIER[OA])\s+(?:(?:de|en|del)\s+)?\w{4,}", re.I)
@@ -49,6 +50,8 @@ CELLS = re.compile(r" {3,}")
 ASKS = re.compile(r"(.{4,90}?),\s*(?:debe|deber[aá]|acredita)", re.I)
 # The column headers; the cargo column is the one headed CARGO, PERSONAL or PUESTO.
 CARGO_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO)\b", re.I)
+# a one-line table may head its cargo column ESPECIALIDAD ("N°   ESPECIALIDAD   EXPERIENCIA REQUERIDA")
+ROW_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO|ESPECIALIDAD)\b", re.I)
 HEADER_WORDS = re.compile(r"\bCARGO|\bPERSONAL\b|\bPUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|"
                           r"ESPECIALIDAD|REQUERID|FORMACI|ACREDITACI|DESEMPE|RESPONSABILIDAD|CANT|^\s*N\s*[°º.]?\s*$|"
                           r"PLANTEL|^\s*DE\s*$|T[IÍ]TULO|POSICI[OÓ]N|\bCLAVE\b|\b[IÍ]TEM\b|DENOMINACI", re.I)
@@ -78,6 +81,7 @@ geométrico geometrico vial vías vias tránsito transito señalización materia
 puentes riego energía energia equipamiento planeamiento programación programacion higiene industrial bim
 geólogo geologo geotécnico geotecnico geólogo-geotécnico arqueología arqueologia patrimonio cultural monitor
 monitoreo arqueológico arqueologico electricista instalador agrónomo agronomo forestal biólogo biologo
+capacitador gestor facilitador promotor técnico tecnico
 """.split())
 
 NOT_FOUND = "sin requisito de personal clave"
@@ -289,7 +293,7 @@ def rows_from_row_lines(lines: list[str], times: list[dict]) -> list[dict]:
     """A table written one row a line, its cells apart by runs of spaces, or "• Residente de Obra: ... (24) meses":
     the cargo is the first cell of the line that holds the time, or of the nearest line above it that opens a row.
     Under a header naming the cargo column, its first cell is the cargo whatever words it uses."""
-    headed = any(CARGO_HEADER.search(c) for line in lines[: times[0]["line"]] for c in CELLS.split(line.strip())
+    headed = any(ROW_HEADER.search(c) for line in lines[: times[0]["line"]] for c in CELLS.split(line.strip())
                  if len(CELLS.split(line.strip())) >= 2)
     rows = []
     for t in times:
@@ -314,12 +318,13 @@ def row_cargo(line: str, headed: bool) -> str | None:
     if not cells:
         return None
     if len(cells) == 1:
-        cargo, colon, _ = cells[0].partition(":")
-        # "Residente de Obra, debe acreditar Doce (12) meses"
-        if not colon and (said := ASKS.match(cells[0])):
+        # "Residente de Obra, debe acreditar Doce (12) meses ... en: seguridad", the colon of its description later
+        if said := ASKS.match(cells[0]):
             cargo = said.group(1)
-        elif not colon:
-            return None
+        else:
+            cargo, colon, _ = cells[0].partition(":")
+            if not colon:
+                return None
     else:
         cargo = cells[0]
     cargo = cargo.strip(" :")
