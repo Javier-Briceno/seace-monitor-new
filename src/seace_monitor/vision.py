@@ -7,10 +7,18 @@ every page ends with a line break and pages are split by form feeds. The readers
 Spending is capped per calendar month (Lima time): each page's cost, as OpenRouter reports it, is added to
 `gasto_ia`, and no file is started once the month's spending has reached the cap. The API key comes from the
 OPENROUTER_API_KEY environment variable and is never stored.
+
+Only the pages a reader or the requirements model can use are paid for. A page that is the same scan as a page
+of another file of the obra already transcribed (an integradas that keeps the administrativas' pages) takes that
+transcription. The sección general, standard text no reader uses, is skipped: its pages are told apart by
+Tesseract, which finds where the sección específica starts. Past the contract proforma nothing is read, so
+transcription stops there once chapter III and chapter IV are behind it. Skipped pages keep their own text.
 """
 
 import base64
+import hashlib
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -18,10 +26,12 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+import pikepdf
 import psycopg
 import requests
 
-from .bases_text import ToolMissing, text_of, tool_path
+from . import requisitos
+from .bases_text import TextError, ToolMissing, text_of, tool_path
 from .ocr import ia_path, image_pages
 
 URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -35,6 +45,24 @@ Reglas:
 - Si una fila o una cifra está tachada a mano, escribe [TACHADO] delante de ella.
 - No transcribas firmas, sellos ni vistos buenos.
 - Devuelve solo el texto, sin comentarios y sin formato markdown."""
+
+
+# Cyrillic letters the model sometimes writes for the Latin ones they look like ("PÚBLICА")
+HOMOGLYPHS = str.maketrans("АВЕКМНОРСТХУаеорсухіјѕ", "ABEKMHOPCTXYaeopcyxijs")
+# Headings on top of a page; Tesseract's accents are not trusted.
+GENERAL = re.compile(r"^\W{0,10}SECCI.N\s+GENERAL\b", re.M)
+SPECIFIC = re.compile(r"^\W{0,10}SECCI.N\s+ESPEC.FICA\b", re.M)
+# Without the sección específica's heading this many pages after the general one, the skipped pages are sent too.
+GENERAL_PAGES = 40
+# Words on the first pages of a bases, for a file unpacked from an archive whose name does not say so
+BASES_COVER = re.compile(r"BASES\s+(?:EST.NDAR|INTEGRADAS|ADMINISTRATIVAS|DE\s+LA\s+LICITACI|DEL\s+PROCEDIMIENTO)"
+                         r"|SECCI.N\s+ESPEC.FICA", re.I)
+# Operators of a page that only draws scanned images; anything else (text, lines, shapes) may change what it shows.
+DRAW_ONLY = {"q", "Q", "cm", "Do", "gs", "re", "W", "W*", "n"}
+
+
+def top(page: str, lines: int = 8) -> str:
+    return "\n".join(page.strip().splitlines()[:lines])
 
 
 class VisionError(Exception):
@@ -100,30 +128,140 @@ def ask(key: str, image: bytes) -> tuple[str, Decimal]:
     return text, cost
 
 
+def fingerprint(page: pikepdf.Page) -> str | None:
+    """The same for two pages only when both draw the same scanned images, byte for byte, in the same place and
+    nothing else; None for any other page."""
+    if page.obj.get("/Annots"):
+        return None
+    try:
+        ops = pikepdf.parse_content_stream(page)
+    except pikepdf.PdfError:
+        return None
+    xobjects = page.resources.get("/XObject") or {}
+    digest, images = hashlib.sha256(), 0
+    for operands, op in ops:
+        if str(op) not in DRAW_ONLY:
+            return None
+        if str(op) == "Do":
+            image = xobjects.get(str(operands[0]))
+            if image is None or image.get("/Subtype") != "/Image":
+                return None
+            digest.update(hashlib.sha256(image.read_raw_bytes()).digest())
+            images += 1
+        else:
+            digest.update(f"{op} {[str(o) for o in operands]};".encode())
+    return digest.hexdigest() if images else None
+
+
+def fingerprints(path: Path) -> list[str | None]:
+    try:
+        with pikepdf.open(path) as pdf:
+            return [fingerprint(page) for page in pdf.pages]
+    except (pikepdf.PdfError, OSError):
+        return []
+
+
+def known_pages(folder: Path, but: Path) -> dict[str, str]:
+    """The transcribed pages of the obra's other files, by fingerprint."""
+    known = {}
+    for pdf in sorted(folder.rglob("*.pdf")):
+        if pdf == but or not ia_path(pdf).exists():
+            continue
+        try:
+            texts = text_of(ia_path(pdf)).split("\f")
+        except TextError:
+            continue
+        for mark, text in zip(fingerprints(pdf), texts):
+            if mark and text.strip():
+                known.setdefault(mark, text)
+    return known
+
+
+def tesseract_page(path: Path, page: int) -> str:
+    """Tesseract's text of one page, enough to tell a heading; empty when it cannot run."""
+    with tempfile.TemporaryDirectory(prefix="probe-") as folder:
+        try:
+            image = render(path, page, Path(folder))
+            done = subprocess.run(["tesseract", "stdin", "stdout", "-l", "spa"], input=image, capture_output=True,
+                                  timeout=TIMEOUT)
+        except (VisionError, OSError, subprocess.TimeoutExpired):
+            return ""
+    return done.stdout.decode("utf-8", "replace")
+
+
+def is_bases(path: Path, probe: Callable[[Path, int], str] = tesseract_page) -> bool:
+    """Whether a file unpacked from an archive is the bases: its name says so, or its first pages do."""
+    if re.search(r"bases", path.name, re.I):
+        return True
+    try:
+        # pdftotext ends with a form feed: the empty piece after it is no page
+        pages = text_of(path).split("\f")[:-1]
+    except TextError:
+        return False
+    for n, text in enumerate(pages[:2], 1):
+        if BASES_COVER.search(text if text.strip() else probe(path, n)):
+            return True
+    return False
+
+
 def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Decimal]] = ask,
                render: Callable[[Path, int, Path], bytes] = render,
-               charge: Callable[[Decimal], None] = lambda usd: None) -> tuple[Path, Decimal, int]:
-    """Write `<name>-ia.txt` for a PDF with image pages; returns it, its cost and the pages sent.
-    Nothing is written unless every image page was transcribed; `charge` gets each page's cost as it is paid,
-    also when a later page fails."""
+               charge: Callable[[Decimal], None] = lambda usd: None,
+               known: dict[str, str] | None = None,
+               probe: Callable[[Path, int], str] = tesseract_page) -> tuple[Path, Decimal, int, int]:
+    """Write `<name>-ia.txt` for a PDF with image pages; returns it, its cost, the pages sent and the pages taken
+    from `known` (transcriptions by fingerprint). Nothing is written unless every page to transcribe was
+    transcribed; `charge` gets each page's cost as it is paid, also when a later page fails."""
     pages = text_of(path).split("\f")
     images = image_pages("\f".join(pages))
     # pdftotext ends with a form feed: the empty piece after it is no page
-    images = [p for p in images if p < len(pages) or pages[p - 1].strip()]
+    images = set(p for p in images if p < len(pages) or pages[p - 1].strip())
     if not images:
         raise VisionError("no image pages")
-    cost = Decimal(0)
+    marks = fingerprints(path) if known else []
+    cost, sent, reused = Decimal(0), 0, 0
+    general_from, skipped = None, []
     with tempfile.TemporaryDirectory(prefix="vision-") as folder:
-        for page in images:
-            text, usd = ask(key, render(path, page, Path(folder)))
-            charge(usd)
-            cost += usd
-            pages[page - 1] = text.replace("\r\n", "\n").replace("\f", "\n").rstrip("\n") + "\n"
+
+        def take(page):
+            nonlocal cost, sent, reused
+            mark = marks[page - 1] if page <= len(marks) else None
+            if mark and mark in known:
+                text = known[mark]
+                reused += 1
+            else:
+                text, usd = ask(key, render(path, page, Path(folder)))
+                charge(usd)
+                cost += usd
+                sent += 1
+            pages[page - 1] = text.replace("\r\n", "\n").replace("\f", "\n").translate(HOMOGLYPHS).rstrip("\n") + "\n"
+
+        for page in range(1, len(pages) + 1):
+            if general_from is not None:
+                if SPECIFIC.search(top(probe(path, page) if page in images else pages[page - 1])):
+                    general_from = None
+                elif page - general_from > GENERAL_PAGES:
+                    for back in skipped:
+                        take(back)
+                    general_from, skipped = None, []
+                elif page in images:
+                    skipped.append(page)
+                    continue
+            if page in images:
+                take(page)
+            if general_from is None and not skipped and page >= 2 and GENERAL.search(top(pages[page - 1])):
+                general_from = page
+            done = "\f".join(pages[:page])
+            if (at := requisitos.all_read_before(done)) is not None and done[:at].count("\f") < page:
+                break
+        if general_from is not None:
+            for back in skipped:
+                take(back)
     out = ia_path(path)
     part = out.with_name(out.name + ".part")
     part.write_bytes("\f".join(pages).encode("utf-8"))
     part.replace(out)
-    return out, cost, len(images)
+    return out, cost, sent, reused
 
 
 def api_key() -> str | None:

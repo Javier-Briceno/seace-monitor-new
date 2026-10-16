@@ -254,18 +254,23 @@ def run_transcription(conn, cfg, nids) -> None:
                     continue
             except TextError:
                 continue
+            # an archive also carries planos, presupuestos and estudios, which nothing reads
+            if path != Path(document["ruta_local"]) and not vision.is_bases(path):
+                continue
             now = datetime.now(LIMA)
             if (spent := vision.spent(conn, now)) >= cap:
                 print(f"vision model: this month's {spent} USD reached the cap of {cap} USD; scans go to Tesseract")
                 return
             try:
                 # each page's cost is recorded as it is paid, also when a later page fails
-                out, cost, pages = vision.transcribe(path, key,
-                                                     charge=lambda usd: vision.add_spending(conn, now, usd, 1))
+                out, cost, pages, reused = vision.transcribe(
+                    path, key, charge=lambda usd: vision.add_spending(conn, now, usd, 1),
+                    known=vision.known_pages(Path(document["ruta_local"]).parent, path))
             except (vision.VisionError, TextError) as error:
                 print(f"  vision {document['nid_proceso']} {path.name}: {error}; left for the next run")
                 continue
-            print(f"  vision {document['nid_proceso']} {path.name}: {pages} pages, {cost:.4f} USD")
+            print(f"  vision {document['nid_proceso']} {path.name}: {pages} pages, {reused} taken from another file, "
+                  f"{cost:.4f} USD")
 
 
 def run_requirements(conn, cfg, nids=None, run_cap: Decimal | None = None) -> None:

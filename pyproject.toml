@@ -11,6 +11,7 @@ dependencies = [
     "uvicorn>=0.32",
     "jinja2>=3.1",
     "python-multipart>=0.0.20",
+    "pikepdf>=9",
 ]
 
 [project.optional-dependencies]
