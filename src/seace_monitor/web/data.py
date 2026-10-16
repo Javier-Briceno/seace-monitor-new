@@ -17,6 +17,7 @@ import psycopg
 
 from .. import obra_page as op
 from ..bases_text import bases_files
+from ..factores import UNNAMED
 from ..report import CHANGE_NAMES, STOPPED
 from ..store import span
 
@@ -559,24 +560,30 @@ def factors_disagree(obra: dict, look: list) -> None:
     asked = (obra.get("requisitos") or {}).get("factores") or []
     if summary.get("revisar") or not summary.get("factores") or not asked:
         return
-    table = {f["factor"]: f.get("puntos") for f in summary["factores"]}
+    table = {f["factor"]: amount(str(f.get("puntos"))) for f in summary["factores"] if f["factor"] != UNNAMED}
+    # a summary row whose name the reader could not read stands for the described factor with its points
+    unnamed = [amount(str(f.get("puntos"))) for f in summary["factores"] if f["factor"] == UNNAMED]
     file = (obra.get("requisitos") or {}).get("archivo_factores") or summary.get("archivo")
-    seen = set()
+    seen, texts = set(), []
     for f in asked:
-        name, points = f.get("factor") or f.get("nombre"), f.get("puntaje_maximo")
+        name, points = f.get("factor") or f.get("nombre"), amount(str(f.get("puntaje_maximo")))
         seen.add(name)
         where = {"archivo": file, "pagina": f.get("pagina")}
         if name not in table:
-            look.append(note(f"El factor {name} se describe en las bases ({points} puntos), pero no está en el "
-                             f"cuadro resumen. Mirar la página.", obra, where))
-        elif amount(str(points)) is not None and amount(str(table[name])) is not None \
-                and amount(str(points)) != amount(str(table[name])):
-            look.append(note(f"El factor {name} da {points} puntos en su descripción y {table[name]} en el cuadro "
-                             f"resumen. Mirar la página.", obra, where))
+            if points in unnamed:
+                unnamed.remove(points)
+            elif points is not None:
+                texts.append((f"El factor {name} se describe en las bases ({points} puntos), pero no está en el "
+                              f"cuadro resumen. Mirar la página.", where))
+        elif points is not None and table[name] is not None and points != table[name]:
+            texts.append((f"El factor {name} da {points} puntos en su descripción y {table[name]} en el cuadro "
+                          f"resumen. Mirar la página.", where))
     for name in table:
         if name not in seen:
-            look.append(note(f"El factor {name} está en el cuadro resumen, pero no se encontró su descripción. "
-                             f"Mirar la página.", obra, summary))
+            texts.append((f"El factor {name} está en el cuadro resumen, pero no se encontró su descripción. "
+                          f"Mirar la página.", summary))
+    for text, where in dict(texts).items():
+        look.append(note(text, obra, where))
 
 
 def history(conn: psycopg.Connection, nid: int) -> list[dict]:

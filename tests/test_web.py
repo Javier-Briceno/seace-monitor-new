@@ -393,3 +393,14 @@ def test_factors_that_agree_ask_for_nothing(conn):
     look = []
     data.factors_disagree(obra, look)
     assert look == []
+
+
+def test_a_summary_row_without_a_readable_name_matches_the_described_factor_with_its_points(conn):
+    from seace_monitor.factores import UNNAMED
+    obra = {"nid_proceso": 1, "bases_id": 7,
+            "factores": {"factores": [{"factor": UNNAMED, "puntos": "10"}, {"factor": UNNAMED, "puntos": "10"}]},
+            "requisitos": {"factores": [QUALITY, {**QUALITY, "factor": "Capacitación", "puntaje_maximo": 10},
+                                        {**QUALITY, "factor": "Plan BIM", "puntaje_maximo": None}]}}
+    look = []
+    data.factors_disagree(obra, look)
+    assert look == []
