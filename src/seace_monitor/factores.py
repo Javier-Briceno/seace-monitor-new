@@ -24,8 +24,9 @@ VALUES = {"total": lambda r: r.get("total"),
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
 SUMMARY = re.compile(r"(?:CUADRO\s+)?RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES\s+DE\s+EVALUACI", re.I)
-# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos", "100. puntos"; never the "0" of "05.00"
-FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{0,2})?\s*\]?\s*puntos"
+# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos", "100. puntos"; never the "0" of "05.00", nor a
+# footnote number glued to a word above "puntos" ("COMITÉ/JURADO24")
+FIGURE = r"\[?\s*(?<![\d.,A-Za-zÁÉÍÓÚÑ])(\d{1,3})(?:[.,]\d{0,2})?\s*\]?\s*puntos"
 # Word puts each table cell on its own line
 # Layout text can put the figure on the line above "PUNTAJE TOTAL" and "puntos" on the line below it.
 TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE
@@ -51,6 +52,11 @@ CELLS = re.compile(r" {3,}")
 BARE = re.compile(r"\[?\s*(\d{1,3})\s*\]?")
 NOT_USED = re.compile(r"NO\s+CORRESPONDE", re.I)
 TEMPLATE = re.compile(r"\[\s*Como\s+m[aá]ximo", re.I)
+# "[Como máximo 05]" is the standard's own cell for a factor of fixed points, "puntos" sometimes lines apart
+TEMPLATE_FIGURE = re.compile(r"\[\s*Como\s+m[aá]ximo\s+(\d{1,3})\s*\]", re.I)
+# a footnote at a page break inside the table: "24 El solo sello de cancelado ..."
+FOOTNOTE = re.compile(r"^\s*\d{1,3}\s+[A-ZÁÉÍÓÚ][a-záéíóúñ]")
+SPECIFIC = re.compile(r"EXPERIENCIA\s+ESPEC[IÍ]FICA", re.I)
 EVALUATION = re.compile(r"Evaluaci[oó]n\s*:(.{0,300}?)" + FIGURE, re.I | re.S)
 MINIMUM = re.compile(r"puntaje\s+t[eé]cnico\s+m[ií]nimo\s+de\s+(\w+)", re.I)
 MINIMUM_WORDS = {"setenta": 70, "sesenta": 60, "ochenta": 80, "cincuenta": 50}
@@ -127,7 +133,11 @@ def summary_rows(table: str) -> list[dict]:
         body = table[m.start(): starts[n + 1].start() if n + 1 < len(starts) else len(table)]
         # A page break inside the table brings footnotes and the page header; the name is in the first lines.
         lines = [line for line in body.splitlines() if line.strip()]
-        name = factor_name(lines[0]) or factor_name(" ".join(lines[:3]))
+        # "A. EXPERIENCIA ESPECÍFICA" with "ADICIONAL DEL PERSONAL CLAVE" past a page break and its footnotes
+        name = factor_name(lines[0]) or (SPECIFIC.search(lines[0]) and "Experiencia específica adicional del personal clave")
+        if not name:
+            kept = [line for line in lines if not FOOTNOTE.match(line)]
+            name = factor_name(" ".join(kept[:3])) or factor_name(" ".join(kept[:12]))
         points = POINTS.search(body)
         figure = int(points.group(1)) if points else None
         # a table written one row a line whose points cell has no "puntos": "B. SOSTENIBILIDAD AMBIENTAL   5   COMITÉ"
@@ -146,7 +156,8 @@ def summary_rows(table: str) -> list[dict]:
         # a row OCR left without a readable name still counts in the sum
         rows.append({"letra": m.group(1), "factor": name or UNNAMED, "puntos": figure,
                      "no_corresponde": bool(not_used) and figure is None,
-                     "plantilla": bool(TEMPLATE.search(body)) and figure is None})
+                     "plantilla": bool(TEMPLATE.search(body)) and figure is None,
+                     "maximo": int(fixed.group(1)) if (fixed := TEMPLATE_FIGURE.search(body)) else None})
     return rows
 
 
@@ -188,6 +199,16 @@ def read(text: str) -> dict:
     # a row the entity crossed out by hand, as a vision model marks it, gives no points
     table = STRUCK.sub("", text[table_end: total.start()])
     rows = [r for r in summary_rows(table) if not r["no_corresponde"]]
+    described = described_points(before)
+    # "[Como máximo 05]" without "puntos" is the factor's fixed figure when, with it, the table adds up to its total;
+    # otherwise ("E. CAPACITACIÓN [Como máximo 10]" beside rows that already add up) the template left unfilled
+    if (template := [r for r in rows if r["plantilla"]]) and all(r["maximo"] is not None for r in template):
+        others = [r["puntos"] if r["puntos"] is not None else described.get(r["factor"])
+                  for r in rows if not r["plantilla"]]
+        if None not in others and sum(others) + sum(r["maximo"] for r in template) == result["total"] \
+                and sum(others) != result["total"]:
+            for r in template:
+                r["puntos"], r["plantilla"] = r["maximo"], False
     # "E. CAPACITACIÓN [Como máximo 10]": the template's text left in the table, no points given
     if template := [r["factor"] for r in rows if r["plantilla"]]:
         result["avisos"].append({"aviso": "factor_sin_rellenar", "factores": template})
@@ -196,7 +217,6 @@ def read(text: str) -> dict:
     if len(POINTS.findall(table)) > sum(1 for r in rows if r["puntos"] is not None):
         result["revisar"] = UNREADABLE
         return result
-    described = described_points(before)
     for row in rows:
         if row["puntos"] is not None and row["puntos"] > result["total"]:
             row["puntos"] = None  # OCR's "130" for "|30": no factor gives more than the total

@@ -279,3 +279,43 @@ def test_a_figure_with_a_stray_dot_before_puntos():
             "PUNTAJE TOTAL   100. puntos\n")
     result = read(text)
     assert (result["revisar"], result["total"], result["suma"]) == (None, 100, 100)
+
+
+def test_a_footnote_number_glued_to_the_evaluator_is_no_figure_and_como_maximo_completes_the_total():
+    # 1251959: "COMITÉ/JURADO24" above "puntos", and "[Como máximo 05]" rows whose "puntos" sits lines apart
+    text = ("EVALUACIÓN TÉCNICA\n    B. SOSTENIBILIDAD AMBIENTAL\n    Evaluación:\n    Se evaluará la certificación. 5 puntos\n"
+            "CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            "    A. EXPERIENCIA ESPECÍFICA\n"
+            "       ADICIONAL DEL PERSONAL                     [50] puntos      COMITÉ/JURADO\n"
+            "       CLAVE\n"
+            "                                             [Como máximo 05]\n"
+            "    B. SOSTENIBILIDAD AMBIENTAL                                    COMITÉ/JURADO24\n"
+            "                                                  puntos\n"
+            "    C. SOSTENIBILIDAD SOCIAL                 NO CORRESPONDE        COMITÉ/JURADO25\n"
+            "    D. INTEGRIDAD       EN       LA          [Como máximo 05]\n"
+            "                                                                   COMITÉ/JURADO\n"
+            "       CONTRATACION PÚBLICA                       puntos\n"
+            "    E. CAPACITACIÓN                              [10] puntos       COMITÉ/JURADO\n"
+            "    F. GESTIÓN DE CALIDAD26                      [30] puntos       COMITÉ/JURADO\n"
+            "    PUNTAJE TOTAL                                100 puntos\n")
+    result = read(text)
+    assert points(result) == [("Experiencia específica adicional del personal clave", 50),
+                              ("Sostenibilidad ambiental", 5), ("Integridad en la contratación pública", 5),
+                              ("Capacitación", 10), ("Gestión de calidad", 30)]
+    assert result["avisos"] == [] and result["revisar"] is None
+
+
+def test_a_name_cut_by_a_page_break_is_not_taken_from_the_footnotes():
+    # 1249275: "A. EXPERIENCIA ESPECÍFICA  35 puntos", then footnotes that name "el propio postor"
+    text = ("CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+            "    A. EXPERIENCIA         ESPECÍFICA              35 puntos       COMITÉ\n\n"
+            "24 El solo sello de cancelado, cuando ha sido colocado por el propio postor, no puede ser\n"
+            "   considerado como una acreditación. Es válido el sello colocado por el cliente del postor\n"
+            "MUNICIPALIDAD DISTRITAL DE PONTO\n"
+            "       ADICIONAL DEL PERSONAL CLAVE\n"
+            "    B. EXPERIENCIA ADICIONAL DEL\n\n"
+            "MUNICIPALIDAD DISTRITAL DE PONTO\n"
+            "       POSTOR EN LA ESPECIALIDAD                   65 puntos       COMITÉ\n"
+            "    PUNTAJE TOTAL                                 100 puntos\n")
+    assert points(read(text)) == [("Experiencia específica adicional del personal clave", 35),
+                                  ("Experiencia adicional del postor en la especialidad", 65)]
