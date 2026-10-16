@@ -17,7 +17,7 @@ from pathlib import Path
 import requests
 
 from .bases_text import TextError, is_scanned, page_of, text_of
-from . import personal
+from . import experiencia, personal
 from .factores import factor_name
 from .ocr import ia_path
 
@@ -84,6 +84,28 @@ def chapter_iv(text: str) -> tuple[int, int] | None:
             end = re.search(r"EVALUACI[OÓ]N\s+ECON[OÓ]MICA\s*\(|CAP[IÍ]TULO\s+V\b", text[m.start() + 2000:])
             return m.start(), m.start() + 2000 + end.start() if end else m.start() + MAX_CHARS
     return None
+
+
+def proforma_start(text: str) -> int | None:
+    """Where the contract proforma begins after chapter IV's factors; past it a bases holds only the proforma and
+    its anexos, none of which is read. None until the text reaches its first clause."""
+    for m in re.finditer(r"CAP[IÍ]TULO\s+IV\b", text):
+        if re.search(r"FACTORES\s+DE\s+EVALUACI", text[m.start(): m.start() + 4000], re.I):
+            for proforma in re.finditer(r"PROFORMA\s+DEL\s+CONTRATO", text[m.start() + 2000:]):
+                at = m.start() + 2000 + proforma.start()
+                if re.search(r"CL[AÁ]USULA\s+PRIMERA", text[at: at + 6000]):
+                    return at
+            return None
+    return None
+
+
+def all_read_before(text: str) -> int | None:
+    """The proforma's start when every section the readers and the model need lies before it. Some entities move
+    chapter III, with the experiencia and the personal clave, behind the anexos; then this is None."""
+    at = proforma_start(text)
+    if at is None or not experiencia.REQUIREMENT.search(text, 0, at) or chapter_iii(text[:at]) is None:
+        return None
+    return at
 
 
 def chapter_iii(text: str) -> tuple[int, int] | None:
