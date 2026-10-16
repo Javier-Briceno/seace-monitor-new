@@ -326,3 +326,70 @@ def test_a_name_unlike_the_seace_description_asks_for_a_look_not_a_consult(web, 
     assert "no se parece a la descripción del SEACE" in page
     found = next(o for o in data.op.obras(conn, ["LA LIBERTAD"], NOW) if o["nid_proceso"] == 1)
     assert data.consult_count(found) == 0
+
+
+def extraction(conn, doc, version, campos):
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, %s, %s, 'done')",
+                 [doc, version, json.dumps(campos)])
+
+
+QUALITY = {"letra": "F", "factor": "Gestión de calidad", "nombre": "GESTIÓN DE CALIDAD", "pagina": 55,
+           "puntaje_maximo": 10, "comprobado": True,
+           "que_se_evalua": "Certificación ISO 9001:2015 vigente con alcance en ejecución de obras.",
+           "como_se_acredita": "Copia simple del certificado.",
+           "tramos": [{"condicion": "Con alcance en obras", "puntos": 10}, {"condicion": "No presenta", "puntos": 0}]}
+RESIDENTE = {"cargo": "Residente de Obra", "formacion": "Ingeniero Civil o Agrícola", "colegiatura": True,
+             "experiencia_meses": 12, "experiencia_en": "Residente o supervisor en obras de riego", "capacitacion": None}
+
+
+def test_the_obra_page_shows_what_each_factor_asks_and_each_cargos_profile_with_its_page(web, conn):
+    signed_in(web, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    doc = bases(conn, 1, lectura=reading())
+    extraction(conn, doc, "requisitos-1", {"factores": [QUALITY], "personal": [RESIDENTE], "pagina_factores": 53,
+                                           "pagina_personal": 40, "personal_comprobado": True, "revisar": None,
+                                           "archivo_factores": "BASES.pdf", "archivo_personal": "BASES.pdf"})
+    html = web.get("/obras/1").text
+    page = text(html)
+    assert "F. GESTIÓN DE CALIDAD 10 pts pág. 55" in page.replace("Gestión de calidad", "GESTIÓN DE CALIDAD")
+    assert "ISO 9001:2015 vigente" in page and "Se acredita con: Copia simple del certificado." in page
+    assert "10 pts Con alcance en obras" in page
+    assert "Perfil del personal clave pág. 40" in page
+    assert re.search(r"Residente de Obra Ingeniero Civil o Agrícola\s*, colegiado y habilitado 12 Residente o supervisor",
+                     page)
+    assert "/bases/" in html and "BASES.pdf#page=55" in html
+    assert "no se pudieron comprobar" not in page
+
+
+def test_an_old_requirements_row_takes_its_file_from_the_rule_reader(conn):
+    obra = {"nid_proceso": 1, "bases_id": 7, "factores": {"archivo": "BASES.pdf", "factores": []},
+            "personal": None, "requisitos": {"factores": [{**QUALITY, "comprobado": False}], "personal": []}}
+    found = data.requirements(obra)
+    assert found["factores"][0]["enlace"] == "/obras/1/bases/7/BASES.pdf#page=55"
+    assert found["factores"][0]["comprobado"] is False
+
+
+def test_a_factor_with_other_points_in_its_description_than_in_the_summary_asks_for_a_look(web, conn):
+    signed_in(web, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    doc = bases(conn, 1, lectura=reading())
+    extraction(conn, doc, "factores-5", {"factores": [{"factor": "Gestión de calidad", "puntos": "5"},
+                                                      {"factor": "Sostenibilidad social", "puntos": "5"}],
+                                         "total": "10", "pagina": 60, "ocr": False, "revisar": None, "avisos": [],
+                                         "archivo": "BASES.pdf"})
+    extraction(conn, doc, "requisitos-1", {"factores": [{**QUALITY, "comprobado": False}], "personal": [],
+                                           "revisar": None, "archivo_factores": "BASES.pdf"})
+    page = text(web.get("/obras/1").text)
+    assert "El factor Gestión de calidad da 10 puntos en su descripción y 5 en el cuadro resumen. Mirar la página." in page
+    assert "El factor Sostenibilidad social está en el cuadro resumen, pero no se encontró su descripción." in page
+    assert "Los puntos no se pudieron comprobar con el cuadro resumen." in page
+    found = next(o for o in data.op.obras(conn, ["LA LIBERTAD"], NOW) if o["nid_proceso"] == 1)
+    assert data.consult_count(found) == 0
+
+
+def test_factors_that_agree_ask_for_nothing(conn):
+    obra = {"nid_proceso": 1, "bases_id": 7, "factores": {"factores": [{"factor": "Gestión de calidad", "puntos": "10"}]},
+            "requisitos": {"factores": [QUALITY]}}
+    look = []
+    data.factors_disagree(obra, look)
+    assert look == []

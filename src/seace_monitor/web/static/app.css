@@ -251,6 +251,11 @@ label, legend { font-size: 13px; font-weight: 500; color: var(--grafito); }
 .etapa-cambio del { color: var(--grafito); }
 .escaneo { display: block; font-size: 12.5px; color: var(--ocre); margin-top: 2px; }
 .descripcion { color: var(--grafito); max-width: 75ch; font-size: 14px; }
+.requisitos { list-style: none; display: grid; gap: 14px; max-width: 75ch; font-size: 14px; }
+.requisitos > li { display: grid; gap: 4px; }
+.requisito-cabeza { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.tramos { list-style: none; display: grid; gap: 2px; padding-left: 12px; color: var(--grafito); }
+.tramos .cifra { display: inline-block; min-width: 4.5em; }
 @media (max-width: 559px) {
   .tabla-valores thead { display: none; }
   .tabla-valores tr { display: grid; grid-template-columns: 1fr auto; padding: 8px 12px; border-top: 1px solid var(--regla-suave); }

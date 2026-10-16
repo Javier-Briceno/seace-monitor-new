@@ -64,6 +64,43 @@
     </section>
     {% endfor %}
 
+    {% if d.requisitos and d.requisitos.factores %}
+    <section class="bloque">
+      <h2>Qué pide cada factor</h2>
+      <ul class="requisitos">
+        {% for f in d.requisitos.factores %}
+        <li>
+          <p class="requisito-cabeza"><strong>{% if f.letra %}{{ f.letra }}. {% endif %}{{ f.nombre }}</strong>{% if f.puntos is not none %} <span class="cifra">{{ f.puntos }} pts</span>{% endif %} {{ fuente(f) }}</p>
+          {% if f.que %}<p>{{ f.que }}</p>{% endif %}
+          {% if f.como %}<p class="suave">Se acredita con: {{ f.como }}</p>{% endif %}
+          {% if f.tramos %}<ul class="tramos">{% for t in f.tramos %}<li><span class="cifra">{{ t.puntos }} pts</span> {{ t.condicion }}</li>{% endfor %}</ul>{% endif %}
+          {% if not f.comprobado %}<p class="escaneo">Los puntos no se pudieron comprobar con el cuadro resumen.</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    {% if d.requisitos and d.requisitos.personal %}
+    <section class="bloque">
+      <h2>Perfil del personal clave {{ fuente(d.requisitos.personal_fuente) }}</h2>
+      <table class="tabla">
+        <thead><tr><th scope="col">Cargo</th><th scope="col">Formación</th><th scope="col" class="num">Meses</th><th scope="col">Experiencia en</th></tr></thead>
+        <tbody>
+          {% for p in d.requisitos.personal %}
+          <tr>
+            <td>{{ p.cargo or "Cargo sin nombre" }}</td>
+            <td>{{ p.formacion or "—" }}{% if p.colegiatura %}<span class="suave">, colegiado y habilitado</span>{% endif %}{% if p.capacitacion %}<span class="etapa-lugar">Capacitación: {{ p.capacitacion }}</span>{% endif %}</td>
+            <td class="num cifra">{{ p.meses if p.meses is not none else "—" }}</td>
+            <td>{{ p.en or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not d.requisitos.personal_comprobado %}<p class="escaneo">Los meses no se pudieron comprobar con la tabla del personal clave.</p>{% endif %}
+    </section>
+    {% endif %}
+
     {% if cronograma %}
     <section class="bloque">
       <h2>Cronograma</h2>

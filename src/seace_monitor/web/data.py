@@ -455,8 +455,10 @@ def detail(obra: dict) -> dict:
         personal(obra, values, manual, consult, look)
         factors(obra, values, manual, consult)
         readings_differ(obra, look)
+        factors_disagree(obra, look)
     objeto = obra.get("objeto") or {}
     return {"consultar": consult, "mirar": look, "revisar": manual, "valores": values,
+            "requisitos": requirements(obra),
             "objeto": value("Nombre en las bases", objeto["obra"], obra, objeto) if objeto.get("obra") else None,
             "cui": objeto.get("cui"),
             "sin_observaciones": bool(reading and reading.get("cuantia") and not reading.get("revisar")
@@ -525,6 +527,56 @@ def factors(obra: dict, values: list, manual: list, consult: list) -> None:
         consult.append(note(op.factor_warning_text(w), obra, found))
     items = [(f["factor"], f"{f['puntos']} pts") for f in found["factores"]] + [("Total", f"{found['total']} pts")]
     values.append(value("Factores de evaluación", "", obra, found, items))
+
+
+def requirements(obra: dict) -> dict | None:
+    """What each factor asks for its points and what each cargo needs, as the model read chapters IV and III,
+    each with the page it is on. `comprobado` is false when its points or months are not the ones the rule
+    readers read from the summary table or the personal clave table."""
+    found = obra.get("requisitos")
+    if not found or not (found.get("factores") or found.get("personal")):
+        return None
+    # rows asked before the file was kept with them take it from the rule reader of the same chapter
+    factor_file = found.get("archivo_factores") or (obra.get("factores") or {}).get("archivo")
+    personal_file = found.get("archivo_personal") or (obra.get("personal") or {}).get("archivo")
+    factors = [{"letra": f.get("letra"), "nombre": f.get("factor") or f.get("nombre"),
+                "puntos": f.get("puntaje_maximo"), "que": f.get("que_se_evalua"), "como": f.get("como_se_acredita"),
+                "tramos": [t for t in f.get("tramos") or [] if isinstance(t, dict)],
+                "comprobado": bool(f.get("comprobado")),
+                **note("", obra, {"archivo": factor_file, "pagina": f.get("pagina")})}
+               for f in found.get("factores") or []]
+    cargos = [{"cargo": p.get("cargo"), "formacion": p.get("formacion"), "colegiatura": p.get("colegiatura"),
+               "meses": p.get("experiencia_meses"), "en": p.get("experiencia_en"), "capacitacion": p.get("capacitacion")}
+              for p in found.get("personal") or []]
+    return {"factores": factors, "personal": cargos, "personal_comprobado": bool(found.get("personal_comprobado")),
+            "personal_fuente": note("", obra, {"archivo": personal_file, "pagina": found.get("pagina_personal")})}
+
+
+def factors_disagree(obra: dict, look: list) -> None:
+    """A factor whose own description gives other points than the summary table, or that only one of them has.
+    The bases contradict themselves, or one of the two readings is wrong: either way the page decides."""
+    summary = obra.get("factores") or {}
+    asked = (obra.get("requisitos") or {}).get("factores") or []
+    if summary.get("revisar") or not summary.get("factores") or not asked:
+        return
+    table = {f["factor"]: f.get("puntos") for f in summary["factores"]}
+    file = (obra.get("requisitos") or {}).get("archivo_factores") or summary.get("archivo")
+    seen = set()
+    for f in asked:
+        name, points = f.get("factor") or f.get("nombre"), f.get("puntaje_maximo")
+        seen.add(name)
+        where = {"archivo": file, "pagina": f.get("pagina")}
+        if name not in table:
+            look.append(note(f"El factor {name} se describe en las bases ({points} puntos), pero no está en el "
+                             f"cuadro resumen. Mirar la página.", obra, where))
+        elif amount(str(points)) is not None and amount(str(table[name])) is not None \
+                and amount(str(points)) != amount(str(table[name])):
+            look.append(note(f"El factor {name} da {points} puntos en su descripción y {table[name]} en el cuadro "
+                             f"resumen. Mirar la página.", obra, where))
+    for name in table:
+        if name not in seen:
+            look.append(note(f"El factor {name} está en el cuadro resumen, pero no se encontró su descripción. "
+                             f"Mirar la página.", obra, summary))
 
 
 def history(conn: psycopg.Connection, nid: int) -> list[dict]:

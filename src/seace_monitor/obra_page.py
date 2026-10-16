@@ -104,7 +104,9 @@ def obras(conn: psycopg.Connection, watched: list[str], now: datetime, closed_to
                      AND e.version_extractor LIKE 'personal-%%' ORDER BY e.creado_en DESC LIMIT 1),
                   (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
                      AND e.version_extractor LIKE 'objeto-%%' ORDER BY e.creado_en DESC LIMIT 1),
-                  n.id, l.seguimiento, l.fecha_publicacion, l.abierta
+                  n.id, l.seguimiento, l.fecha_publicacion, l.abierta,
+                  (SELECT e.campos FROM extracciones e WHERE e.documento_id = n.id
+                     AND e.version_extractor LIKE 'requisitos-%%' ORDER BY e.creado_en DESC LIMIT 1)
            FROM listed l LEFT JOIN newest n USING (nid_proceso)
            WHERE l.abierta OR %s
            -- open ones by nearest deadline, then the closed ones, latest deadline first
@@ -114,7 +116,7 @@ def obras(conn: psycopg.Connection, watched: list[str], now: datetime, closed_to
     ).fetchall()
     keys = ("nid_proceso", "nomenclatura", "entidad", "descripcion", "departamentos", "fecha_limite_ofertas",
             "valor_referencial", "bases", "lectura", "experiencia", "factores", "personal", "objeto",
-            "bases_id", "seguimiento", "fecha_publicacion", "abierta")
+            "bases_id", "seguimiento", "fecha_publicacion", "abierta", "requisitos")
     items = [dict(zip(keys, r)) for r in rows if in_watched(r[4], watched)]
     for obra in items:
         for key in ("lectura", "experiencia", "factores", "personal", "objeto"):
