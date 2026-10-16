@@ -16,6 +16,7 @@ from pathlib import Path
 from .bases_text import LAST_PAGE, TextError, ToolMissing, pdf_text_bytes, tool_path
 
 SUFFIX = "-ocr.txt"
+IA_SUFFIX = "-ia.txt"
 # Earlier runs kept the whole OCRed PDF; its text is taken from it instead of recognizing again.
 PDF_SUFFIX = "-ocr.pdf"
 # About 4 s per page with 8 jobs; a 150-page bases takes 10 minutes.
@@ -39,6 +40,12 @@ def ocrmypdf() -> str:
 
 def ocr_path(path: Path) -> Path:
     return path.with_name(path.stem + SUFFIX)
+
+
+def ia_path(path: Path) -> Path:
+    """The text of a PDF whose image pages a vision model transcribed, the rest kept as pdftotext gives it, pages
+    split by form feeds like `ocr_path`."""
+    return path.with_name(path.stem + IA_SUFFIX)
 
 
 def ocr_pdf_path(path: Path) -> Path:

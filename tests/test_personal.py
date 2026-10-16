@@ -195,3 +195,37 @@ def test_works_older_than_twenty_years_is_no_time():
             "                         mayor a veinte (20) años.\n"
             "Acreditación:\n")
     assert cargos(read(text)) == [("Residente de obra", "36 meses")]
+
+
+def test_lettered_cargos_above_their_paragraphs():
+    # obra 1255553 as a vision model transcribes it
+    text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\n\nRequisitos:\n\na) Residente de Obra\n\n"
+            "Acreditar experiencia efectiva mínima de VEINTICUATRO (24) MESES, computados desde la colegiatura, "
+            "como Residente o Supervisor o Inspector.\n\nb) Ingeniero Estructurista\n\n"
+            "Acreditar experiencia efectiva mínima de DOCE (12) MESES, computados desde la colegiatura, como "
+            "Especialista.\n\nAcreditación:\n")
+    assert cargos(read(text)) == [("Residente de Obra", "24 meses"), ("Ingeniero Estructurista", "12 meses")]
+
+
+def test_a_table_one_row_a_line_takes_the_cargo_cell_whatever_its_words():
+    # obra 1245329: the third cargo does not open with a cargo word, the CARGO header says it is one
+    text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\nPLANTEL PROFESIONAL CLAVE\nCARGO   EXPERIENCIA\n"
+            "Residente de obra   Experiencia mínima 24 meses como Residente en la ejecución de obra\n"
+            "Especialista de suelos y pavimentos   Experiencia mínima 12 meses como especialista en suelos\n"
+            "Seguridad, Salud y Medio Ambiente   Experiencia mínima 12 meses como especialista en seguridad\n"
+            "Acreditación:\n")
+    assert cargos(read(text)) == [("Residente de obra", "24 meses"), ("Especialista de suelos y pavimentos", "12 meses"),
+                                  ("Seguridad, Salud y Medio Ambiente", "12 meses")]
+
+
+def test_numbered_rows_and_bulleted_cargos_with_a_colon():
+    numbered = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\nN°   PERSONAL   EXPERIENCIA\n"
+                "1   INGENIERO RESIDENTE DE OBRA   Deberá acreditar una experiencia mínima de veinticuatro (24) meses\n"
+                "2   ARQUITECTO ESPECIALISTA EN ARQUITECTURA   Acreditar experiencia efectiva mínima de doce (12) meses\n"
+                "Acreditación:\n")
+    assert cargos(read(numbered)) == [("INGENIERO RESIDENTE DE OBRA", "24 meses"),
+                                      ("ARQUITECTO ESPECIALISTA EN ARQUITECTURA", "12 meses")]
+    bulleted = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\n"
+                "• Residente de Obra: Experiencia mínima de veinticuatro (24) meses en la especialidad.\n"
+                "Acreditación:\n")
+    assert cargos(read(bulleted)) == [("Residente de Obra", "24 meses")]

@@ -16,7 +16,8 @@ from . import letras, reading
 from .bases_text import page_of
 from .cuantia import ANY_NUMBER, money
 
-VERSION = "experiencia-3"
+VERSION = "experiencia-4"
+VALUES = {k: (lambda r, k=k: r.get(k)) for k in ("monto", "veces", "anios")}
 
 # The requirement, not the scoring factor of chapter IV ("Experiencia adicional ... PUNTAJE"). OCR
 # turns "Requisitos:" into "Reguisitos:" or "Regquisios:", or loses it; the sentence that follows stays.
@@ -120,4 +121,4 @@ def read(text: str, cuantia: Decimal | None = None) -> dict:
 
 def read_files(files: list[Path], cuantia: Decimal | None = None,
                ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
-    return reading.read_files(files, lambda text: read(text, cuantia), NOT_FOUND, ocr)
+    return reading.read_files(files, lambda text: read(text, cuantia), NOT_FOUND, ocr, VALUES)

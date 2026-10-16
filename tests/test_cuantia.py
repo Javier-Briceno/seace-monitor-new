@@ -288,3 +288,19 @@ def test_cuantia_after_the_amount_in_words():
     text = ("1.4. CUANTÍA DE LA CONTRATACIÓN\n La cuantía de la contratación asciende a la suma de doscientos "
             "sesenta y seis mil ochocientos diecisiete con 69/100 soles (S/ 266,817.69), incluidos los impuestos")
     assert read(text)["cuantia"] == "266817.69"
+
+
+def test_limites_of_a_table_written_one_row_a_line():
+    # obra 1246222 as a vision model transcribes the scan: cells apart by three spaces, not in columns
+    text = ("1.4. CUANTÍA DE LA CONTRATACIÓN\n"
+            "La cuantía de la contratación asciende a la suma de S/ 375, 449.19 (trescientos setenta y cinco mil "
+            "cuatrocientos cuarenta y nueve con 19/00 soles), incluidos los impuestos de ley.\n"
+            "CUANTÍA DE LA CONTRATACIÓN   LIMITE INFERIOR   LIMITE SUPERIOR\n"
+            "S/. 375, 449.19 (trescientos setenta y cinco mil cuatrocientos cuarenta y nueve con 19/00 soles),   "
+            "S/. 356,676.73 (trescientos cincuenta y seis mil seiscientos setenta y seis con 73/100 soles)   "
+            "S/ 412,994.10 (cuatrocientos doce mil novecientos noventa y cuatro con 10/100 soles)\n"
+            "COSTO DIRECTO   S/   270,745.39\n"
+            "1.5. EXPEDIENTE DE CONTRATACIÓN\n")
+    result = read(text)
+    assert (result["cuantia"], result["limite_inferior"], result["limite_superior"]) == (
+        "375449.19", "356676.73", "412994.10")

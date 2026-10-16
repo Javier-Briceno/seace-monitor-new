@@ -14,15 +14,22 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "factores-4"
+VERSION = "factores-5"
+# each factor by its standard name with its points, not by letter: entities reletter the factors between the
+# summary table and the detail, and two readings may give the same points to different factors
+VALUES = {"total": lambda r: r.get("total"),
+          "puntos": lambda r: sorted(f"{f['factor']} {f['puntos']}" for f in r.get("factores") or []
+                                     if f.get("puntos") is not None)}
 
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
 SUMMARY = re.compile(r"(?:CUADRO\s+)?RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES\s+DE\s+EVALUACI", re.I)
-# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos"; never the "0" of "05.00"
-FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{1,2})?\s*\]?\s*puntos"
+# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos", "100. puntos"; never the "0" of "05.00"
+FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{0,2})?\s*\]?\s*puntos"
 # Word puts each table cell on its own line
-TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE, re.I)
+# Layout text can put the figure on the line above "PUNTAJE TOTAL" and "puntos" on the line below it.
+TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE
+                   + r"|(?<![\d.,])(\d{1,3})[^\S\n]*\n[^\S\n]*PUNTAJE\s+TOTAL[^\S\n]*\n[^\S\n]*puntos", re.I)
 # "A. EXPERIENCIA ...", sub-factors "B.1 FORMACIÓN ACADÉMICA ...", and OCR's "[E. GESTIÓN DE CALIDAD?",
 # "lA. EXPERIENCIA", "|F. GESTIÓN" (a stray stroke before the letter), "A EXPERIENCIA" (the dot lost)
 FIRST_WORD = r"(?:EXPERIENCIA|SOSTENIBILIDAD|INTEGRIDAD|GESTI|CAPACITACI|MEJORA|PLANIFICACI|SEGURIDAD|TECNOLOG|PLAN\b|FORMACI|CERTIFICACI)"
@@ -39,6 +46,9 @@ UNLETTERED = re.compile(r"^()[^\S\n]*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ,/\-]{5,
 ROW_BEFORE = re.compile(r"puntos|CORRESPONDE|COMIT|JURADO|EVALUADOR|PUNTAJE|FACULTATIVOS|OBLIGATORIO", re.I)
 HEADER = re.compile(r"FACTOR|OBLIGATORIO|FACULTATIVO|PUNTAJE|EVALUADOR|EN\s+CASO\s+DE", re.I)
 POINTS = re.compile(FIGURE, re.I)
+STRUCK = re.compile(r"^[^\S\n]*\[TACHADO\][^\n]*(?:\n|$)", re.M)
+CELLS = re.compile(r" {3,}")
+BARE = re.compile(r"\[?\s*(\d{1,3})\s*\]?")
 NOT_USED = re.compile(r"NO\s+CORRESPONDE", re.I)
 TEMPLATE = re.compile(r"\[\s*Como\s+m[aá]ximo", re.I)
 EVALUATION = re.compile(r"Evaluaci[oó]n\s*:(.{0,300}?)" + FIGURE, re.I | re.S)
@@ -120,6 +130,9 @@ def summary_rows(table: str) -> list[dict]:
         name = factor_name(lines[0]) or factor_name(" ".join(lines[:3]))
         points = POINTS.search(body)
         figure = int(points.group(1)) if points else None
+        # a table written one row a line whose points cell has no "puntos": "B. SOSTENIBILIDAD AMBIENTAL   5   COMITÉ"
+        if figure is None and (bare := next((c for c in CELLS.split(lines[0].strip())[1:] if BARE.fullmatch(c)), None)):
+            figure = int(BARE.fullmatch(bare).group(1))
         # "J. PLANIFICACIÓN DETALLADA  NO CORRESPONDE" with the next row's figure on the line below it
         not_used = NOT_USED.search(body)
         if not_used and points and not_used.start() < points.start():
@@ -171,8 +184,9 @@ def read(text: str) -> dict:
     if minimum := MINIMUM.search(before):
         word = minimum.group(1).lower()
         result["minimo_tecnico"] = int(word) if word.isdigit() else MINIMUM_WORDS.get(word)
-    result["total"] = int(total.group(1))
-    table = text[table_end: total.start()]
+    result["total"] = int(total.group(1) or total.group(2))
+    # a row the entity crossed out by hand, as a vision model marks it, gives no points
+    table = STRUCK.sub("", text[table_end: total.start()])
     rows = [r for r in summary_rows(table) if not r["no_corresponde"]]
     # "E. CAPACITACIÓN [Como máximo 10]": the template's text left in the table, no points given
     if template := [r["factor"] for r in rows if r["plantilla"]]:
@@ -218,11 +232,12 @@ def read(text: str) -> dict:
 
 
 def read_files(files: list[Path], ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
-    result = reading.read_files(files, read, NOT_FOUND, ocr)
-    if not result["ocr"] or result["revisar"]:
+    result = reading.read_files(files, read, NOT_FOUND, ocr, VALUES)
+    if not result["ocr"] or result.get("ia") or result["revisar"]:
         return result
-    # From OCR a sum that is not the total is nearly always a row it lost, and a description that differs
-    # from a table adding up to the total a misread digit: not the entity's mistake.
+    # From Tesseract a sum that is not the total is nearly always a row it lost, and a description that differs
+    # from a table adding up to the total a misread digit: not the entity's mistake. A vision model's text is
+    # checked against Tesseract's reading instead.
     if any(w["aviso"] == "suma_distinta_total" for w in result["avisos"]):
         result["avisos"] = [w for w in result["avisos"] if w["aviso"] not in ("suma_distinta_total", "puntaje_distinto")]
         result["revisar"] = UNREADABLE
