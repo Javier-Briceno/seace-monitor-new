@@ -26,6 +26,8 @@ URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "anthropic/claude-haiku-5.5"
 TIMEOUT = 300
 MAX_CHARS = 45000
+# how far before the personal clave requirement chapter III's text starts at most (the formación comes first)
+PERSONAL_LEAD = 12000
 NOT_FOUND = "sin capítulos III ni IV legibles"
 EMPTY = "el modelo no devolvió factores o cargos de un capítulo encontrado"
 
@@ -90,11 +92,16 @@ def chapter_iii(text: str) -> tuple[int, int] | None:
     for m in re.finditer(r"CAP[IÍ]TULO\s+III\b", text):
         end = re.search(r"CAP[IÍ]TULO\s+IV\b", text[m.end():])
         stop = m.end() + end.start() if end else m.end() + MAX_CHARS
-        block = text[m.end(): stop]
-        if not (personal.REQUIREMENT.search(block) or personal.NUMBERED_HEADING.search(block)):
+        found = personal.REQUIREMENT.search(text, m.end(), stop) or personal.NUMBERED_HEADING.search(text, m.end(), stop)
+        if not found:
             continue
-        req = re.search(r"REQUISITOS\s+DE\s+CALIFICACI[OÓ]N", text[m.start(): stop], re.I)
-        return m.start() + (req.start() if req else 0), stop
+        # The requerimiento before it can run for many pages: start at the capacidad técnica heading that opens the
+        # personal clave's formación and experiencia, or shortly before the requirement, so it fits what is sent.
+        near = max(m.start(), found.start() - PERSONAL_LEAD)
+        heading = None
+        for heading in re.finditer(r"CAPACIDAD\s+T[EÉ]CNICA", text[near: found.start()], re.I):
+            pass
+        return (near + heading.start() if heading else near), stop
     return None
 
 

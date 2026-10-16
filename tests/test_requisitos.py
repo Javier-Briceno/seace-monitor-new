@@ -108,3 +108,11 @@ def test_a_bases_once_started_is_finished_even_if_the_cap_is_reached_between_cha
     result = requisitos.read_files(files_with(tmp_path, CHAPTER_IV + CHAPTER_III), "clave", None, None, ask,
                                    may_spend=lambda: next(room))
     assert len(asked) == 2 and result["factores"] and result["personal"]
+
+
+def test_chapter_iii_starts_near_the_personal_clave_after_a_long_requerimiento(tmp_path):
+    text = ("CAPÍTULO III\nREQUERIMIENTO\nREQUISITOS DE CALIFICACIÓN del contratista ...\n" + "especificación técnica\n" * 4000
+            + "B. CAPACIDAD TÉCNICA Y PROFESIONAL\nB.1 CALIFICACIONES DEL PERSONAL CLAVE\nIngeniero civil\n"
+            "B.2 EXPERIENCIA DEL PERSONAL CLAVE\nResidente de obra   24 meses\nCAPÍTULO IV\n")
+    start, stop = requisitos.chapter_iii(text)
+    assert text[start:].startswith("CAPACIDAD TÉCNICA") and "B.2 EXPERIENCIA" in requisitos.marked(text, start, stop)
