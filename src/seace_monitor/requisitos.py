@@ -105,15 +105,15 @@ def chapter_iii(text: str) -> tuple[int, int] | None:
     return None
 
 
-def texts(files: list[Path]) -> list[str]:
-    """The text of each file as the readers see it: the model's transcription of a scan, else its own text."""
+def texts(files: list[Path]) -> list[tuple[Path, str]]:
+    """Each file with its text as the readers see it: the model's transcription of a scan, else its own text."""
     out = []
     for path in files:
         try:
             if ia_path(path).exists():
-                out.append(text_of(ia_path(path)))
+                out.append((path, text_of(ia_path(path))))
             elif not is_scanned(text := text_of(path)):
-                out.append(text)
+                out.append((path, text))
         except TextError:
             continue
     return out
@@ -188,8 +188,8 @@ def read_files(files: list[Path], key: str, factores_reading: dict | None, perso
     result = {"factores": [], "personal": [], "pagina_factores": None, "pagina_personal": None,
               "personal_comprobado": False, "revisar": None}
     all_text = texts(files)
-    iv = next(((t, found) for t in all_text if (found := chapter_iv(t))), None)
-    iii = next(((t, found) for t in all_text if (found := chapter_iii(t))), None)
+    iv = next(((p, t, found) for p, t in all_text if (found := chapter_iv(t))), None)
+    iii = next(((p, t, found) for p, t in all_text if (found := chapter_iii(t))), None)
     if iv is None and iii is None:
         result["revisar"] = NOT_FOUND
         return result
@@ -204,14 +204,14 @@ def read_files(files: list[Path], key: str, factores_reading: dict | None, perso
         return [item for item in answer.get(field) or [] if isinstance(item, dict)]
 
     if iv:
-        text, (start, stop) = iv
+        path, text, (start, stop) = iv
         factors = asked(FACTORS_PROMPT + "\n\n" + marked(text, start, stop), "factores")
-        result["pagina_factores"] = page_of(text, start)
+        result["pagina_factores"], result["archivo_factores"] = page_of(text, start), path.name
         result["factores"] = check_factors(factors, (factores_reading or {}).get("factores"), text, start, stop)
     if iii:
-        text, (start, stop) = iii
+        path, text, (start, stop) = iii
         personnel = asked(PERSONAL_PROMPT + "\n\n" + marked(text, start, stop), "personal")
-        result["pagina_personal"] = page_of(text, start)
+        result["pagina_personal"], result["archivo_personal"] = page_of(text, start), path.name
         result["personal"], result["personal_comprobado"] = check_personal(
             personnel, (personal_reading or {}).get("personal"))
     # a chapter found but answered with nothing: kept for a person rather than asked (and paid) again every night

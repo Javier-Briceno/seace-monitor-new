@@ -42,6 +42,7 @@ def test_factors_match_the_summary_table_and_get_their_own_page(tmp_path):
         ("Experiencia específica adicional del personal clave", True, 2),
         ("Experiencia adicional del postor en la especialidad", False, 3)]
     assert charged == [Decimal("0.004")] and result["pagina_factores"] == 1
+    assert result["archivo_factores"] == "BASES.pdf"
 
 
 def test_personal_is_checked_by_its_months_in_order(tmp_path):
@@ -51,7 +52,7 @@ def test_personal_is_checked_by_its_months_in_order(tmp_path):
     off = requisitos.read_files(files_with(tmp_path, CHAPTER_III), "clave", None, reading,
                                 answer_for([], [{"cargo": "Residente de obra", "experiencia_meses": 36}]))
     assert ok["personal_comprobado"] and not off["personal_comprobado"]
-    assert ok["factores"] == [] and ok["pagina_personal"] == 1
+    assert ok["factores"] == [] and ok["pagina_personal"] == 1 and ok["archivo_personal"] == "BASES.pdf"
 
 
 def test_bases_without_either_chapter_ask_nothing(tmp_path):
