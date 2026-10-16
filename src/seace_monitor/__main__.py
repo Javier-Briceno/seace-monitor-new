@@ -18,10 +18,10 @@ from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
-from . import config, cuantia, db, experiencia, factores, mail, manual, obra_page, objeto, personal, report
+from . import config, cuantia, db, experiencia, factores, mail, manual, obra_page, objeto, personal, report, vision
 from .archives import ArchiveError, MachineError, unpack
-from .bases_text import ToolMissing, bases_files
-from .ocr import make_ocr, ocr_path, ocrmypdf
+from .bases_text import TextError, ToolMissing, bases_files, text_of
+from .ocr import ia_path, image_pages, make_ocr, ocr_path, ocrmypdf
 from .download import DocumentError, download
 from .ficha import CronogramaError, FichaError, StaleTable, offer_deadline, open_ficha, parse_cronograma, parse_estados, read_documents
 from .locate import place
@@ -29,7 +29,8 @@ from .search import LIMA, AccessError, Query, SearchError, make_session, search_
 from .store import (
     archives_to_unpack, bases_to_extract, contents_done, contents_failed, document_done, document_failed, ficha_failed,
     fichas_to_read, link_restarts, locate_from_bases, mark_changes_reported, mark_extractions_reported, mark_reported,
-    mark_stalled, open_since, pending_documents, save_extraction, save_ficha, save_new_licitaciones, tracked,
+    mark_stalled, newest_bases, open_since, pending_documents, save_extraction, save_ficha, save_new_licitaciones,
+    tracked,
 )
 
 PAUSE = 1  # seconds between requests to SEACE
@@ -233,6 +234,39 @@ def run_extraction(conn, nids=None, ocr_budget=None) -> None:
             print(f"  {document['nid_proceso']}  {line(result)}{' (OCR)' if result['ocr'] else ''}")
 
 
+def run_transcription(conn, cfg, nids) -> None:
+    """Transcribe with the vision model the image pages of the newest bases of these obras that have none yet,
+    until the month's spending reaches the cap of [vision] tope_mensual_usd. Without that setting or without
+    OPENROUTER_API_KEY, scanned bases are read through Tesseract alone."""
+    cap = (cfg.get("vision") or {}).get("tope_mensual_usd")
+    key = vision.api_key()
+    if cap is None or not key:
+        print("vision model off" + ("" if cap is None else ": OPENROUTER_API_KEY not set") + "; scans go to Tesseract")
+        return
+    cap = Decimal(str(cap))
+    for document in newest_bases(conn, nids):
+        for path in bases_files(document["ruta_local"], document["contents"]):
+            if path.suffix.lower() != ".pdf" or not path.exists() or ia_path(path).exists():
+                continue
+            try:
+                if not image_pages(text_of(path)):
+                    continue
+            except TextError:
+                continue
+            now = datetime.now(LIMA)
+            if (spent := vision.spent(conn, now)) >= cap:
+                print(f"vision model: this month's {spent} USD reached the cap of {cap} USD; scans go to Tesseract")
+                return
+            try:
+                # each page's cost is recorded as it is paid, also when a later page fails
+                out, cost, pages = vision.transcribe(path, key,
+                                                     charge=lambda usd: vision.add_spending(conn, now, usd, 1))
+            except (vision.VisionError, TextError) as error:
+                print(f"  vision {document['nid_proceso']} {path.name}: {error}; left for the next run")
+                continue
+            print(f"  vision {document['nid_proceso']} {path.name}: {pages} pages, {cost:.4f} USD")
+
+
 def run_notices(conn, cfg, proxy, session) -> None:
     """Store new obras and the changes of the tracked ones; no downloads, so it takes minutes."""
     alone = []
@@ -254,6 +288,8 @@ def run_reading(conn, cfg, session, ocr_budget) -> None:
     candidates = sorted(set(candidates) | set(tracked(conn)))
     run_downloads(conn, session, config.download_dir(cfg), candidates)
     run_unpacking(conn, candidates)
+    # before the readers: a bases read once is not read again by the same reader versions
+    run_transcription(conn, cfg, candidates)
     run_extraction(conn, candidates, ocr_budget)
 
 

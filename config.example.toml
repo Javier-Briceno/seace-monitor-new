@@ -36,6 +36,11 @@ dir = "data/informes"
 # Manual extraction templates, one TOML file per obra (python -m seace_monitor --plantilla <nid_proceso>).
 dir = "data/extracciones"
 
+[vision]
+# Image pages of scanned bases are transcribed by Claude Haiku through OpenRouter (key in OPENROUTER_API_KEY);
+# no new file is started once this month's spending reaches the cap. Leave the section out to use Tesseract only.
+tope_mensual_usd = 35
+
 [web]
 # The search tool (docker compose --profile web up -d web). url is where people open it; links in mails use it.
 url = "https://buscador.example.com"

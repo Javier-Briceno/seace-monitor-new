@@ -1,0 +1,137 @@
+"""Transcription of the image pages of scanned bases by a vision model (Claude Haiku through OpenRouter).
+
+The result is kept next to the original as `<name>-ia.txt` (ocr.ia_path), shaped like the Tesseract copy: the
+pages with text keep pdftotext's text, each image page among the first LAST_PAGE takes the model's transcription,
+every page ends with a line break and pages are split by form feeds. The readers read it before Tesseract's copy.
+
+Spending is capped per calendar month (Lima time): each page's cost, as OpenRouter reports it, is added to
+`gasto_ia`, and no file is started once the month's spending has reached the cap. The API key comes from the
+OPENROUTER_API_KEY environment variable and is never stored.
+"""
+
+import base64
+import os
+import subprocess
+import tempfile
+from collections.abc import Callable
+from datetime import datetime
+from decimal import Decimal
+from pathlib import Path
+
+import psycopg
+import requests
+
+from .bases_text import ToolMissing, text_of, tool_path
+from .ocr import ia_path, image_pages
+
+URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL = "anthropic/claude-haiku-5.5"
+TIMEOUT = 300
+PROMPT = """Transcribe el texto de esta página escaneada de unas bases de licitación de obras del Perú.
+
+Reglas:
+- Copia cada palabra y cada cifra exactamente como está impresa. No corrijas, no completes y no calcules nada.
+- En las tablas, escribe cada fila en una sola línea, con las celdas de izquierda a derecha separadas por tres espacios. Si una celda ocupa varias líneas, júntalas en esa misma fila.
+- Si una fila o una cifra está tachada a mano, escribe [TACHADO] delante de ella.
+- No transcribas firmas, sellos ni vistos buenos.
+- Devuelve solo el texto, sin comentarios y sin formato markdown."""
+
+
+class VisionError(Exception):
+    """A page could not be transcribed; the file is left for a later run."""
+
+
+class BudgetReached(Exception):
+    """The month's spending reached the cap."""
+
+
+def spent(conn: psycopg.Connection, now: datetime) -> Decimal:
+    row = conn.execute("SELECT usd FROM gasto_ia WHERE mes = %s", [now.date().replace(day=1)]).fetchone()
+    return row[0] if row else Decimal(0)
+
+
+def add_spending(conn: psycopg.Connection, now: datetime, usd: Decimal, pages: int) -> None:
+    conn.execute("""INSERT INTO gasto_ia (mes, usd, paginas) VALUES (%s, %s, %s)
+                    ON CONFLICT (mes) DO UPDATE SET usd = gasto_ia.usd + EXCLUDED.usd,
+                                                    paginas = gasto_ia.paginas + EXCLUDED.paginas""",
+                 [now.date().replace(day=1), usd, pages])
+
+
+def render(path: Path, page: int, folder: Path) -> bytes:
+    stem = folder / f"p{page}"
+    try:
+        done = subprocess.run(["pdftoppm", "-png", "-r", "150", "-singlefile", "-f", str(page), "-l", str(page),
+                               tool_path(path), str(stem)], capture_output=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired as error:
+        raise VisionError(f"page {page} took longer than {error.timeout} s to render") from error
+    image = stem.with_suffix(".png")
+    if not image.exists():
+        raise VisionError(f"page {page} gave no image: {done.stderr.decode('utf-8', 'replace').strip()[:200]}")
+    try:
+        return image.read_bytes()
+    finally:
+        image.unlink(missing_ok=True)
+
+
+def ask(key: str, image: bytes) -> tuple[str, Decimal]:
+    """The page's transcription and what it cost. A blank page comes back empty."""
+    body = {"model": MODEL, "usage": {"include": True}, "max_tokens": 8000,
+            "messages": [{"role": "system", "content": "Eres un OCR. Respondes solo con el texto transcrito."},
+                         {"role": "user", "content": [
+                             {"type": "text", "text": PROMPT},
+                             {"type": "image_url",
+                              "image_url": {"url": "data:image/png;base64," + base64.b64encode(image).decode()}}]}]}
+    try:
+        answer = requests.post(URL, json=body, timeout=TIMEOUT, headers={"Authorization": f"Bearer {key}"})
+    except requests.RequestException as error:
+        raise VisionError(f"OpenRouter unreachable: {error}") from error
+    if answer.status_code != 200:
+        raise VisionError(f"OpenRouter answered {answer.status_code}: {answer.text[:200]}")
+    try:
+        data = answer.json()
+        choice = data["choices"][0]
+        text = choice["message"]["content"] or ""
+        cost = Decimal(str((data.get("usage") or {}).get("cost") or 0))
+    except (ValueError, KeyError, AttributeError, IndexError, TypeError, ArithmeticError) as error:
+        raise VisionError(f"OpenRouter answer not understood: {answer.text[:200]}") from error
+    # an empty transcription is a blank page only when the model finished normally, not a cut or failed answer
+    if not text.strip() and choice.get("finish_reason") != "stop":
+        raise VisionError(f"empty answer, finish_reason {choice.get('finish_reason')!r}")
+    return text, cost
+
+
+def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Decimal]] = ask,
+               render: Callable[[Path, int, Path], bytes] = render,
+               charge: Callable[[Decimal], None] = lambda usd: None) -> tuple[Path, Decimal, int]:
+    """Write `<name>-ia.txt` for a PDF with image pages; returns it, its cost and the pages sent.
+    Nothing is written unless every image page was transcribed; `charge` gets each page's cost as it is paid,
+    also when a later page fails."""
+    pages = text_of(path).split("\f")
+    images = image_pages("\f".join(pages))
+    # pdftotext ends with a form feed: the empty piece after it is no page
+    images = [p for p in images if p < len(pages) or pages[p - 1].strip()]
+    if not images:
+        raise VisionError("no image pages")
+    cost = Decimal(0)
+    with tempfile.TemporaryDirectory(prefix="vision-") as folder:
+        for page in images:
+            text, usd = ask(key, render(path, page, Path(folder)))
+            charge(usd)
+            cost += usd
+            pages[page - 1] = text.replace("\r\n", "\n").replace("\f", "\n").rstrip("\n") + "\n"
+    out = ia_path(path)
+    part = out.with_name(out.name + ".part")
+    part.write_bytes("\f".join(pages).encode("utf-8"))
+    part.replace(out)
+    return out, cost, len(images)
+
+
+def api_key() -> str | None:
+    return os.environ.get("OPENROUTER_API_KEY") or None
+
+
+def check_tools() -> None:
+    try:
+        subprocess.run(["pdftoppm", "-v"], capture_output=True, timeout=30)
+    except FileNotFoundError as error:
+        raise ToolMissing("pdftoppm not found; install Poppler and put it on the PATH") from error
