@@ -14,7 +14,7 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "objeto-2"
+VERSION = "objeto-3"
 VALUES = {k: (lambda r, k=k: r.get(k)) for k in ("obra", "cui")}
 # Tesseract splits words ("SERVIC IO") and drops accents: names are compared on their letters and digits only
 ALIKE = {"obra": lambda name: re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFKD", name.upper())
@@ -139,9 +139,33 @@ def quoted(body: str) -> tuple[int, str] | None:
     return start, squeeze(inner).strip(STRIP)
 
 
+# The share of the name's first distinctive words SEACE's description must hold. Measured on 534 bases: 489 hold
+# all of them; of the 11 under this share, 9 are a real problem (the template's placeholder, bases describing
+# another obra, a name cut at the wrong place or unreadable); the other 2 are paquetes SEACE cut short.
+NAME_SHARE = 0.7
+NAME_WORDS = 10
+# Words nearly every obra name has; counted, they let another obra pass ("MEJORAMIENTO DE LA CENTRAL
+# HIDROELÉCTRICA PALTIC" against "... GUINEAMAYO")
+GENERIC = set("""MEJORAMIENTO AMPLIACION CREACION CONSTRUCCION RENOVACION REPARACION REMODELACION REHABILITACION
+RECUPERACION INSTALACION ADQUISICION SERVICIO SERVICIOS OBRA OBRAS DISTRITO PROVINCIA DEPARTAMENTO REGION DEL LOS LAS
+PARA CON QUE POR UNA SUS EJECUCION CONTRATACION PROYECTO INVERSION IOARR LOCALIDAD CENTRO POBLADO CASERIO SECTOR
+OTROS ACTIVOS ESPACIO ESPACIOS URBANO URBANA URBANOS RURAL NIVEL""".split())
+
+
+def name_share(name: str, descripcion: str) -> float:
+    """How many of the name's first distinctive words (three letters or more, accents aside, not GENERIC)
+    SEACE's description holds."""
+    def words(text: str) -> list[str]:
+        plain = unicodedata.normalize("NFKD", text.upper()).encode("ascii", "ignore").decode()
+        return [w for w in re.findall(r"[A-Z0-9]{3,}", plain) if w not in GENERIC]
+    head, seace = words(name)[:NAME_WORDS], set(words(descripcion))
+    return sum(w in seace for w in head) / len(head) if head else 1.0
+
+
 def read_files(files: list[Path], descripcion: str | None = None,
                ocr: Callable[[Path, list[int]], Path] | None = None) -> dict:
-    """With SEACE's description: a CUI there that is not the bases' one is a question for the entity."""
+    """With SEACE's description: a CUI there that is not the bases' one is a question for the entity, and a name
+    that does not resemble it is something to look at."""
     result = reading.read_files(files, read, NOT_FOUND, ocr, VALUES, ALIKE)
     result["avisos"] = []
     # A paquete names several CUIs: "CUI N° 2556200, N° 2721620, N° 2683978 Y N° 2709843".
@@ -149,4 +173,8 @@ def read_files(files: list[Path], descripcion: str | None = None,
         if descripcion and CUI.search(descripcion) else []
     if result.get("cui") and seace and result["cui"] not in seace:
         result["avisos"].append({"aviso": "cui_distinto_seace", "bases": result["cui"], "seace": seace[0]})
+    # SEACE cuts its description at 300 characters but starts with the same name: one that does not resemble
+    # the bases' name is another obra, or a name the reader cut wrongly; a person looks at the page.
+    if result.get("obra") and descripcion and (share := name_share(result["obra"], descripcion)) < NAME_SHARE:
+        result["avisos"].append({"aviso": "nombre_distinto_seace", "parecido": round(share, 2)})
     return result

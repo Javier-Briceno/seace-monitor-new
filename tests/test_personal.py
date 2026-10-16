@@ -229,3 +229,37 @@ def test_numbered_rows_and_bulleted_cargos_with_a_colon():
                 "• Residente de Obra: Experiencia mínima de veinticuatro (24) meses en la especialidad.\n"
                 "Acreditación:\n")
     assert cargos(read(bulleted)) == [("Residente de Obra", "24 meses")]
+
+
+def test_a_cargo_before_debe_acreditar_and_a_cargo_cell_with_y_o():
+    # obras 1246433 and 1254052
+    listed = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\n"
+              "➢ Residente de Obra, debe acreditar Doce (12) meses, computados desde la colegiatura, como Residente.\n"
+              "Acreditación:\n")
+    assert cargos(read(listed)) == [("Residente de Obra", "12 meses")]
+    table = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\nCargo   N°   Profesión   Experiencia\n"
+             "Residente de Obra   01   Ingeniero Civil   24 meses contabilizados desde la colegiatura\n"
+             "Especialista de Seguridad en Obra y Salud Ocupacional y/o SSOMA   01   Ingeniero Industrial   "
+             "24 meses contabilizados desde la colegiatura\nAcreditación:\n")
+    assert cargos(read(table)) == [("Residente de Obra", "24 meses"),
+                                   ("Especialista de Seguridad en Obra y Salud Ocupacional y/o SSOMA", "24 meses")]
+
+
+def test_a_table_headed_especialidad_with_cargos_like_capacitador_and_gestor():
+    # obra 1251310
+    text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\nN°   ESPECIALIDAD   EXPERIENCIA REQUERIDA\n"
+            "1   Residente de Obra   48 meses de experiencia como: Residente o supervisor\n"
+            "5   Capacitador Técnico   Contar con 24 meses como Capacitador Técnico\n"
+            "6   Gestor Social   Contar con 18 meses como Gestor Social\nAcreditación:\n")
+    assert cargos(read(text)) == [("Residente de Obra", "48 meses"), ("Capacitador Técnico", "24 meses"),
+                                  ("Gestor Social", "18 meses")]
+
+
+def test_debe_acreditar_wins_over_a_colon_later_in_the_line():
+    # obra 1252970
+    text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\n"
+            "➢ INGENIERO RESIDENTE DE OBRA, debe acreditar el tiempo de experiencia mínimo de veinticuatro (24) meses.\n"
+            "➢ ESPECIALISTA EN SEGURIDAD Y SALUD EN OBRA, debe acreditar seis (06) meses como especialista, en: "
+            "seguridad y salud ocupacional.\nAcreditación:\n")
+    assert cargos(read(text)) == [("INGENIERO RESIDENTE DE OBRA", "24 meses"),
+                                  ("ESPECIALISTA EN SEGURIDAD Y SALUD EN OBRA", "6 meses")]

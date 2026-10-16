@@ -312,3 +312,17 @@ def test_a_scan_whose_two_readings_differ_asks_for_a_look_at_the_page(web, conn)
     assert "Las dos lecturas del escaneo no coinciden en la cuantía: S/ 127,019.94 y S/ 127,019.84. Mirar la página." in page
     assert "sin observaciones" not in page
     assert "Las dos lecturas" not in text(web.get("/obras/2").text)
+
+
+def test_a_name_unlike_the_seace_description_asks_for_a_look_not_a_consult(web, conn):
+    signed_in(web, conn)
+    add(conn, 1, ["LA LIBERTAD"], NOW + timedelta(days=2))
+    doc = bases(conn, 1, lectura=reading())
+    conn.execute("INSERT INTO extracciones (documento_id, version_extractor, campos, estado) VALUES (%s, 'objeto-3', %s, 'done')",
+                 [doc, json.dumps({"obra": "CONSIGNAR NOMBRE DE LA OBRA A EJECUTAR", "cui": None, "pagina": 20,
+                                   "ocr": False, "revisar": None, "archivo": "BASES.pdf",
+                                   "avisos": [{"aviso": "nombre_distinto_seace", "parecido": 0.08}]})])
+    page = text(web.get("/obras/1").text)
+    assert "no se parece a la descripción del SEACE" in page
+    found = next(o for o in data.op.obras(conn, ["LA LIBERTAD"], NOW) if o["nid_proceso"] == 1)
+    assert data.consult_count(found) == 0

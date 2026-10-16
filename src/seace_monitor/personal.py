@@ -37,7 +37,8 @@ TIME = re.compile(r"\(?\s*(?<![\d.,])(\d{1,3})\s*\)?\s*(mes(?:es)?|a[ñn]os?)\b"
 # "una antigüedad no mayor a veinte (20) años" is about the works counted, not a cargo
 NOT_A_TIME = re.compile(r"antig[uü]edad|anteriores", re.I)
 HEAD = r"RESIDENTE|ESPECIALISTA|JEFE|ARQUE[OÓ]LOGO|ASISTENTE|SUPERVISOR|TOP[OÓ]GRAFO|COORDINADOR|INSPECTOR|" \
-       r"ADMINISTRADOR|MAESTRO|CAPATAZ|RESPONSABLE|GERENTE|DIRECTOR|PREVENCIONISTA|ARQUITECTO|PROFESIONAL"
+       r"ADMINISTRADOR|MAESTRO|CAPATAZ|RESPONSABLE|GERENTE|DIRECTOR|PREVENCIONISTA|ARQUITECTO|PROFESIONAL|" \
+       r"CAPACITADOR|GESTOR|FACILITADOR|PROMOTOR"
 HEADS = re.compile(r"\b(?:" + HEAD + r")\b", re.I)
 START = re.compile(r"^(?:" + HEAD + r"|ING\.?|INGENIER[OA]|LIC\.?|LICENCIAD[OA]|T[EÉ]CNICO|BACHILLER)\b", re.I)
 ENGINEER = re.compile(r"^(?:ING\.?|INGENIER[OA])\s+(?:(?:de|en|del)\s+)?\w{4,}", re.I)
@@ -46,8 +47,11 @@ NUMBERED = re.compile(r"^\s{0,12}\d{1,2}\s*[.)\-]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,70
 # "a) Residente de Obra" heading its own paragraph of requirements
 LETTERED = re.compile(r"^\s{0,12}[a-zA-Z]\s*[.)]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,90}?)\s*:?\s*$", re.M)
 CELLS = re.compile(r" {3,}")
+ASKS = re.compile(r"(.{4,90}?),\s*(?:debe|deber[aá]|acredita)", re.I)
 # The column headers; the cargo column is the one headed CARGO, PERSONAL or PUESTO.
 CARGO_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO)\b", re.I)
+# a one-line table may head its cargo column ESPECIALIDAD ("N°   ESPECIALIDAD   EXPERIENCIA REQUERIDA")
+ROW_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO|ESPECIALIDAD)\b", re.I)
 HEADER_WORDS = re.compile(r"\bCARGO|\bPERSONAL\b|\bPUESTO|EXPERIENCIA|EXPERENCIA|PROFESI|TIEMPO|TIPO\s+DE|"
                           r"ESPECIALIDAD|REQUERID|FORMACI|ACREDITACI|DESEMPE|RESPONSABILIDAD|CANT|^\s*N\s*[°º.]?\s*$|"
                           r"PLANTEL|^\s*DE\s*$|T[IÍ]TULO|POSICI[OÓ]N|\bCLAVE\b|\b[IÍ]TEM\b|DENOMINACI", re.I)
@@ -77,6 +81,7 @@ geométrico geometrico vial vías vias tránsito transito señalización materia
 puentes riego energía energia equipamiento planeamiento programación programacion higiene industrial bim
 geólogo geologo geotécnico geotecnico geólogo-geotécnico arqueología arqueologia patrimonio cultural monitor
 monitoreo arqueológico arqueologico electricista instalador agrónomo agronomo forestal biólogo biologo
+capacitador gestor facilitador promotor técnico tecnico
 """.split())
 
 NOT_FOUND = "sin requisito de personal clave"
@@ -227,10 +232,13 @@ def complete(cargo: str) -> bool:
     return bool(HEADS.search(cargo) or ENGINEER.match(cargo))
 
 
-def doubtful(cargo: str) -> bool:
+def doubtful(cargo: str, own_cell: bool = False) -> bool:
     """Two cargos run together (a row lost its time, so every pairing below it is off), a column of professions
-    or descriptions mixed in, or OCR noise."""
+    or descriptions mixed in, or OCR noise. A cargo read from its own cell or line (`own_cell`) cannot have taken
+    a description's "y/o" from the next column, so there "y/o" is part of the cargo ("... Ocupacional y/o SSOMA")."""
     words = cargo.lower().split()
+    if own_cell:
+        cargo = re.sub(r"\by\s*/\s*o\b", "y", cargo, flags=re.I)
     return (len(re.findall(r"\b(?:RESIDENTE|ESPECIALISTA)\b", cargo, re.I)) > 1
             or len(re.findall(r"\bING(?:\.|ENIER[OA]\b)", cargo, re.I)) > 1
             or not cargo[:1].isupper() or bool(CONNECTOR.search(cargo))
@@ -285,7 +293,7 @@ def rows_from_row_lines(lines: list[str], times: list[dict]) -> list[dict]:
     """A table written one row a line, its cells apart by runs of spaces, or "• Residente de Obra: ... (24) meses":
     the cargo is the first cell of the line that holds the time, or of the nearest line above it that opens a row.
     Under a header naming the cargo column, its first cell is the cargo whatever words it uses."""
-    headed = any(CARGO_HEADER.search(c) for line in lines[: times[0]["line"]] for c in CELLS.split(line.strip())
+    headed = any(ROW_HEADER.search(c) for line in lines[: times[0]["line"]] for c in CELLS.split(line.strip())
                  if len(CELLS.split(line.strip())) >= 2)
     rows = []
     for t in times:
@@ -304,15 +312,19 @@ def rows_from_row_lines(lines: list[str], times: list[dict]) -> list[dict]:
 
 
 def row_cargo(line: str, headed: bool) -> str | None:
-    cells = [c for c in CELLS.split(line.strip().lstrip("•·*- ")) if c]
+    cells = [c for c in CELLS.split(re.sub(r"^[^\w(\[]+", "", line.strip())) if c]
     while cells and re.fullmatch(r"\d{1,2}[.)°]?", cells[0]):
         cells.pop(0)  # the row's number
     if not cells:
         return None
     if len(cells) == 1:
-        cargo, colon, _ = cells[0].partition(":")
-        if not colon:
-            return None
+        # "Residente de Obra, debe acreditar Doce (12) meses ... en: seguridad", the colon of its description later
+        if said := ASKS.match(cells[0]):
+            cargo = said.group(1)
+        else:
+            cargo, colon, _ = cells[0].partition(":")
+            if not colon:
+                return None
     else:
         cargo = cells[0]
     cargo = cargo.strip(" :")
@@ -381,6 +393,7 @@ def read(text: str) -> dict:
     if not times:
         result["revisar"] = NO_TIME
         return result
+    own = False
     rows = rows_from_headings(block)
     if len(rows) != len(times):
         first, right = cargo_edge(lines, times)
@@ -392,10 +405,10 @@ def read(text: str) -> dict:
         # lettered cargos above their paragraphs, or a table one row a line (a vision model's transcription)
         for other in (rows_from_letters(block), rows_from_row_lines(lines, times)):
             if other and (found := pair(other, times)) is not None \
-                    and not any(doubtful(squeeze(r["cargo"])) for r in other):
-                rows, paired = other, found
+                    and not any(doubtful(squeeze(r["cargo"]), own_cell=True) for r in other):
+                rows, paired, own = other, found, True
                 break
-    if paired is None or any(doubtful(squeeze(r["cargo"])) for r in rows):
+    if paired is None or any(doubtful(squeeze(r["cargo"]), own_cell=own) for r in rows):
         result["personal"] = [{"cargo": None, "tiempo": t["tiempo"], "meses": t["meses"]} for t in times]
         result["revisar"] = UNREADABLE
         return result

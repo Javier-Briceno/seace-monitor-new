@@ -300,7 +300,7 @@ def consult_count(obra: dict) -> int:
     n += len((obra["factores"] or {}).get("avisos") or [])
     n += len(personal_found.get("avisos") or []) if not personal_found.get("ocr") else 0
     objeto_found = obra.get("objeto") or {}
-    n += len(objeto_found.get("avisos") or []) if not objeto_found.get("ocr") else 0
+    n += sum(w["aviso"] == "cui_distinto_seace" for w in objeto_found.get("avisos") or [])         if not objeto_found.get("ocr") else 0
     return n
 
 
@@ -444,6 +444,10 @@ def detail(obra: dict) -> dict:
             (look if reading.get("ocr") else consult).append(note(op.warning_text(w), obra, reading))
         found = obra.get("objeto") or {}
         for w in found.get("avisos") or []:
+            if w["aviso"] == "nombre_distinto_seace":
+                look.append(note("El nombre de la obra en las bases no se parece a la descripción del SEACE: puede "
+                                 "ser otra obra o un nombre mal leído. Mirar la página.", obra, found))
+                continue
             text = (f"El CUI de las bases ({w['bases']}) no es el que nombra la descripción del SEACE "
                     f"({w['seace']}): puede ser otra obra.")
             (look if found.get("ocr") else consult).append(note(text, obra, found))
