@@ -263,3 +263,31 @@ def test_debe_acreditar_wins_over_a_colon_later_in_the_line():
             "seguridad y salud ocupacional.\nAcreditación:\n")
     assert cargos(read(text)) == [("INGENIERO RESIDENTE DE OBRA", "24 meses"),
                                   ("ESPECIALISTA EN SEGURIDAD Y SALUD EN OBRA", "6 meses")]
+
+
+def test_a_time_said_again_in_years_counts_once():
+    # 1256286: "Mínimo 36 meses (3 años)" in a table one row a line
+    text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\nCARGO   EXPERIENCIA   EN   COMO\n"
+            "RESIDENTE DE OBRA   Mínimo 36 meses (3 años) de experiencia acumulada.   En obras civiles.   Residente\n"
+            "INGENIERO DE SEGURIDAD EN OBRA   Mínimo 24 meses (2 años) de experiencia.   En seguridad.   Prevencionista\n"
+            "Acreditación:\n")
+    result = read(text)
+    assert [(p["cargo"], p["meses"]) for p in result["personal"]] == [
+        ("RESIDENTE DE OBRA", 36), ("INGENIERO DE SEGURIDAD EN OBRA", 24)]
+    assert result["revisar"] is None
+
+
+def test_rows_whose_cells_lost_their_spacing_past_a_page_break():
+    # 1255640: rows 3 and 4 after the page break come with single spaces
+    text = ("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nRequisitos:\nN°   PERSONAL   EXPERIENCIA\n"
+            "1   INGENIERO RESIDENTE DE OBRA   Deberá acreditar una experiencia mínima de veinticuatro (24) meses\n"
+            "2   INGENIERO ESPECIALISTA EN ESTRUCTURAS   Acreditar experiencia efectiva mínima de doce (12) meses\n"
+            "53\nMUNICIPALIDAD DISTRITAL DE SAN MARCOS\n\n"
+            "3 INGENIERO ESPECIALISTA EN SUELOS Acreditar experiencia efectiva mínima de doce (12) meses, como\n\n"
+            "4 INGENIERO ESPECIALISTA DE SEGURIDAD, SALUD OCUPACIONAL Y MEDIO AMBIENTE (SSOMA) Acreditar experiencia "
+            "efectiva mínima de doce (12) meses\n\nAcreditación:\n")
+    result = read(text)
+    assert [(p["cargo"], p["meses"]) for p in result["personal"]] == [
+        ("INGENIERO RESIDENTE DE OBRA", 24), ("INGENIERO ESPECIALISTA EN ESTRUCTURAS", 12),
+        ("INGENIERO ESPECIALISTA EN SUELOS", 12),
+        ("INGENIERO ESPECIALISTA DE SEGURIDAD, SALUD OCUPACIONAL Y MEDIO AMBIENTE (SSOMA)", 12)]

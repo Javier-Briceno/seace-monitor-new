@@ -48,6 +48,8 @@ NUMBERED = re.compile(r"^\s{0,12}\d{1,2}\s*[.)\-]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,70
 LETTERED = re.compile(r"^\s{0,12}[a-zA-Z]\s*[.)]\s+([A-ZÁÉÍÓÚÑ][^\n]{3,90}?)\s*:?\s*$", re.M)
 CELLS = re.compile(r" {3,}")
 ASKS = re.compile(r"(.{4,90}?),\s*(?:debe|deber[aá]|acredita)", re.I)
+CAPITALS_THEN_ASKS = re.compile(r"(?:\d{1,2}[.)°]?\s+)?([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ(),/\-]*(?:\s+[A-ZÁÉÍÓÚÑ(),/\-]+){1,14})"
+                                r"\s+(?=(?:Acreditar|Acredita|Deber[aá]|Debe|M[ií]nimo|Contar|Experiencia)\b)")
 # The column headers; the cargo column is the one headed CARGO, PERSONAL or PUESTO.
 CARGO_HEADER = re.compile(r"\b(?:CARGO|PERSONAL|PUESTO)\b", re.I)
 # a one-line table may head its cargo column ESPECIALIDAD ("N°   ESPECIALIDAD   EXPERIENCIA REQUERIDA")
@@ -124,7 +126,12 @@ def times_in(block: str) -> list[dict]:
         found.append({"line": i, "x": m.start(), "end": m.end(), "valor": n, "letras": None,
                       "tiempo": f"{n} {('año' if years else 'mes') + ('' if n == 1 else 's' if years else 'es')}",
                       "meses": n * 12 if years else n})
-    return sorted(found, key=lambda t: (t["line"], t["x"]))
+    found.sort(key=lambda t: (t["line"], t["x"]))
+    # "36 meses (3 años)": the same time said twice, the second one in parentheses right after the first
+    lines = block.split("\n")
+    return [t for n, t in enumerate(found)
+            if not (n and found[n - 1]["line"] == t["line"] and found[n - 1]["meses"] == t["meses"]
+                    and re.fullmatch(r"\s*\(\s*", lines[t["line"]][found[n - 1]["end"]: t["x"] + 1]))]
 
 
 def description_column(lines: list[str]) -> int:
@@ -242,7 +249,8 @@ def doubtful(cargo: str, own_cell: bool = False) -> bool:
     return (len(re.findall(r"\b(?:RESIDENTE|ESPECIALISTA)\b", cargo, re.I)) > 1
             or len(re.findall(r"\bING(?:\.|ENIER[OA]\b)", cargo, re.I)) > 1
             or not cargo[:1].isupper() or bool(CONNECTOR.search(cargo))
-            or len(cargo) > 75 or bool(re.search(r"\d", cargo))
+            # its own cell holds a long name alone ("ESPECIALISTA DE SEGURIDAD, SALUD OCUPACIONAL Y MEDIO AMBIENTE (SSOMA)")
+            or len(cargo) > (100 if own_cell else 75) or bool(re.search(r"\d", cargo))
             or any(a == b for a, b in zip(words, words[1:]))
             or bool(re.search(r"\bING(?:\.|ENIER[OA])\s+CIVIL\b|\bREQUISITO|\bIMPORTANTE\b|\by\s*/\s*o\b",
                               cargo, re.I))
@@ -318,8 +326,12 @@ def row_cargo(line: str, headed: bool) -> str | None:
     if not cells:
         return None
     if len(cells) == 1:
+        # "3 INGENIERO ESPECIALISTA EN SUELOS Acreditar experiencia ... (12) meses": the row's cells lost their
+        # spacing past a page break, the cargo in capitals up to the description's first word
+        if said := CAPITALS_THEN_ASKS.match(cells[0]):
+            cargo = said.group(1)
         # "Residente de Obra, debe acreditar Doce (12) meses ... en: seguridad", the colon of its description later
-        if said := ASKS.match(cells[0]):
+        elif said := ASKS.match(cells[0]):
             cargo = said.group(1)
         else:
             cargo, colon, _ = cells[0].partition(":")
