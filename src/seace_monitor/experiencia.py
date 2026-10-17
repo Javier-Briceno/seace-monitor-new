@@ -16,7 +16,7 @@ from . import letras, reading
 from .bases_text import page_of
 from .cuantia import ANY_NUMBER, money
 
-VERSION = "experiencia-4"
+VERSION = "experiencia-5"
 VALUES = {k: (lambda r, k=k: r.get(k)) for k in ("monto", "veces", "anios")}
 
 # The requirement, not the scoring factor of chapter IV ("Experiencia adicional ... PUNTAJE"). OCR

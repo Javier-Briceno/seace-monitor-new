@@ -14,7 +14,7 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "objeto-3"
+VERSION = "objeto-4"
 VALUES = {k: (lambda r, k=k: r.get(k)) for k in ("obra", "cui")}
 # Tesseract splits words ("SERVIC IO") and drops accents: names are compared on their letters and digits only
 ALIKE = {"obra": lambda name: re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFKD", name.upper())

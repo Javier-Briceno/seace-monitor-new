@@ -15,7 +15,7 @@ from pathlib import Path
 from . import letras, reading
 from .bases_text import page_of
 
-VERSION = "personal-5"
+VERSION = "personal-6"
 # the months in the order of the cargos (both readings keep the table's order): a time moved to another cargo
 # differs. The cargo names are not compared, Tesseract garbles them.
 VALUES = {"meses": lambda r: [p["meses"] for p in r.get("personal") or [] if p.get("meses") is not None]}
