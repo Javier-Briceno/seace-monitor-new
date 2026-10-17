@@ -301,3 +301,13 @@ def test_the_night_reading_transcribes_only_the_bases_inside_an_archive(conn, mo
     monkeypatch.setattr(vision, "transcribe", lambda p, key, charge, known: sent.append(p.name) or (p, 0, 1, 0))
     main.run_transcription(conn, {"vision": {"tope_mensual_usd": 35}}, [1])
     assert sent == ["bases integradas.pdf"]
+
+
+def test_a_scan_under_the_entitys_invisible_ocr_is_transcribed_too(monkeypatch, tmp_path):
+    ocr_layer = image_pdf(tmp_path / "PUQUIO.pdf", b"\x80", b"BT 3 Tr /F1 12 Tf 10 10 Td (CUANTIA S/ 1,250,000.00) Tj ET")
+    plain = image_pdf(tmp_path / "TEXTO.pdf", b"\x80", b"BT /F1 12 Tf 10 10 Td (CUANTIA) Tj ET")
+    assert vision.invisible_text_pages(ocr_layer) == [1] and vision.invisible_text_pages(plain) == []
+    monkeypatch.setattr(vision, "text_of", lambda p: pages_of("1.4 LA CUANTIA ES S/ 1,25O,OOO.OO " * 30))
+    sent = []
+    vision.transcribe(ocr_layer, "clave", answering(sent), numbered_render)
+    assert sent == [b"1"]

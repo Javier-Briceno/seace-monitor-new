@@ -31,7 +31,7 @@ import psycopg
 import requests
 
 from . import requisitos
-from .bases_text import TextError, ToolMissing, text_of, tool_path
+from .bases_text import LAST_PAGE, TextError, ToolMissing, text_of, tool_path
 from .ocr import ia_path, image_pages
 
 URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -162,6 +162,25 @@ def fingerprints(path: Path) -> list[str | None]:
         return []
 
 
+def invisible_text_pages(path: Path) -> list[int]:
+    """Scanned pages with the entity's own OCR as an invisible layer on top (text render mode 3): they have text,
+    but only as good as that OCR ("[80]" where the scan says [30]), so they are transcribed like a bare scan."""
+    found = []
+    try:
+        with pikepdf.open(path) as pdf:
+            for n, page in enumerate(pdf.pages[:LAST_PAGE], 1):
+                try:
+                    ops = pikepdf.parse_content_stream(page)
+                except pikepdf.PdfError:
+                    continue
+                if any(str(op) == "Tr" and operands and int(operands[0]) == 3 for operands, op in ops) \
+                        and any(str(op) == "Do" for _, op in ops):
+                    found.append(n)
+    except (pikepdf.PdfError, OSError):
+        return []
+    return found
+
+
 def known_pages(folder: Path, but: Path) -> dict[str, str]:
     """The transcribed pages of the obra's other files, by fingerprint."""
     known = {}
@@ -214,7 +233,7 @@ def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Deci
     from `known` (transcriptions by fingerprint). Nothing is written unless every page to transcribe was
     transcribed; `charge` gets each page's cost as it is paid, also when a later page fails."""
     pages = text_of(path).split("\f")
-    images = image_pages("\f".join(pages))
+    images = image_pages("\f".join(pages)) + invisible_text_pages(path)
     # pdftotext ends with a form feed: the empty piece after it is no page
     images = set(p for p in images if p < len(pages) or pages[p - 1].strip())
     if not images:

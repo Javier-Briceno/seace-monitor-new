@@ -250,7 +250,7 @@ def run_transcription(conn, cfg, nids) -> None:
             if path.suffix.lower() != ".pdf" or not path.exists() or ia_path(path).exists():
                 continue
             try:
-                if not image_pages(text_of(path)):
+                if not image_pages(text_of(path)) and not vision.invisible_text_pages(path):
                     continue
             except TextError:
                 continue
