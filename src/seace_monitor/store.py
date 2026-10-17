@@ -357,8 +357,10 @@ def newest_bases(conn: psycopg.Connection, nids: list[int]) -> list[dict]:
     return [dict(zip(("id", "nid_proceso", "ruta_local", "contents"), r)) for r in rows]
 
 
-def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | None = None) -> list[dict]:
-    """Downloaded bases of these obras without an extraction of this version; None means of every obra.
+def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | None = None,
+                     again: str | None = None) -> list[dict]:
+    """Downloaded bases of these obras without an extraction of this version, or with one that gave up for the
+    reason `again`; None means of every obra.
 
     An archive waits until it has been unpacked (or found broken); `contents` are its files. `newest`:
     the bases the obra is offered on now, its latest integradas or else its latest administrativas.
@@ -377,8 +379,9 @@ def bases_to_extract(conn: psycopg.Connection, version: str, nids: list[int] | N
              LEFT JOIN documento_contenido c ON c.documento_id = d.id
              WHERE d.estado = 'done' AND d.tipo ILIKE 'bases%%'
                AND (lower(d.ruta_local) NOT LIKE ALL(%s) OR d.contenido_estado IS NOT NULL)
-               AND NOT EXISTS (SELECT 1 FROM extracciones e WHERE e.documento_id = d.id AND e.version_extractor = %s)"""
-    params = [[f"%{s}" for s in sorted(ARCHIVE_SUFFIXES)], version]
+               AND NOT EXISTS (SELECT 1 FROM extracciones e WHERE e.documento_id = d.id AND e.version_extractor = %s
+                               AND (%s::text IS NULL OR e.motivo_no_legible IS DISTINCT FROM %s))"""
+    params = [[f"%{s}" for s in sorted(ARCHIVE_SUFFIXES)], version, again, again]
     if nids is not None:
         sql += " AND d.nid_proceso = ANY(%s)"
         params.append(nids)

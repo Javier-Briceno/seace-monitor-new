@@ -277,7 +277,8 @@ def run_requirements(conn, cfg, nids=None, run_cap: Decimal | None = None) -> No
     if cap is None or not key:
         return
     cap, run_spent = Decimal(str(cap)), Decimal(0)
-    pending = [d for d in bases_to_extract(conn, requisitos.VERSION, nids) if d["newest"]]
+    # a bases read before its scan was transcribed had neither chapter: it is looked at again, free until one is found
+    pending = [d for d in bases_to_extract(conn, requisitos.VERSION, nids, again=requisitos.NOT_FOUND) if d["newest"]]
     print(f"bases to ask with {requisitos.VERSION}: {len(pending)}")
     for document in pending:
         now = datetime.now(LIMA)
@@ -300,6 +301,8 @@ def run_requirements(conn, cfg, nids=None, run_cap: Decimal | None = None) -> No
             return
         except requisitos.RequisitosError as error:
             print(f"  {document['nid_proceso']}  {error}; left for the next run")
+            continue
+        if result["revisar"] == requisitos.NOT_FOUND and latest_reading(conn, document["id"], "requisitos"):
             continue
         save_extraction(conn, document["id"], requisitos.VERSION, result, result["revisar"])
         checked = sum(f["comprobado"] for f in result["factores"])

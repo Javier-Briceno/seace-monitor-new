@@ -253,6 +253,15 @@ def test_archived_bases_wait_until_unpacked(conn, rows, documents):
     assert [p["contents"] for p in bases_to_extract(conn, "cuantia-1")] == [["bases.pdf"]]
 
 
+
+def test_bases_given_up_for_one_reason_can_be_looked_at_again(conn, rows, documents):
+    _, bases = downloaded(conn, rows, documents, "data/informe.pdf", "data/bases.pdf")
+    save_extraction(conn, bases, "requisitos-1", {"factores": []}, "sin capítulos III ni IV legibles")
+    assert bases_to_extract(conn, "requisitos-1") == []
+    assert [p["id"] for p in bases_to_extract(conn, "requisitos-1", again="sin capítulos III ni IV legibles")] == [bases]
+    save_extraction(conn, bases, "requisitos-1", {"factores": []}, "el modelo no devolvió factores")
+    assert bases_to_extract(conn, "requisitos-1", again="sin capítulos III ni IV legibles") == []
+
 def test_extracted_bases_are_not_extracted_again_by_the_same_version(conn, rows, documents):
     _, bases = downloaded(conn, rows, documents, "data/informe.pdf", "data/bases.pdf")
     save_extraction(conn, bases, "cuantia-1", {"cuantia": "1.00"}, None)
