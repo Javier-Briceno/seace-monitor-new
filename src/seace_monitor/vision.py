@@ -22,6 +22,7 @@ import re
 import subprocess
 import tempfile
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -52,6 +53,8 @@ HOMOGLYPHS = str.maketrans("АВЕКМНОРСТХУаеорсухіјѕ", "ABEK
 # Headings on top of a page; Tesseract's accents are not trusted.
 GENERAL = re.compile(r"^\W{0,10}SECCI.N\s+GENERAL\b", re.M)
 SPECIFIC = re.compile(r"^\W{0,10}SECCI.N\s+ESPEC.FICA\b", re.M)
+# Pages sent to the model at once; one at a time a bases of a hundred pages takes over an hour.
+WORKERS = 8
 # Without the sección específica's heading this many pages after the general one, the skipped pages are sent too.
 GENERAL_PAGES = 40
 # Words on the first pages of a bases, for a file unpacked from an archive whose name does not say so
@@ -241,42 +244,64 @@ def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Deci
     marks = fingerprints(path) if known else []
     cost, sent, reused = Decimal(0), 0, 0
     general_from, skipped = None, []
-    with tempfile.TemporaryDirectory(prefix="vision-") as folder:
+    with tempfile.TemporaryDirectory(prefix="vision-") as folder, ThreadPoolExecutor(WORKERS) as pool:
 
-        def take(page):
+        def take(batch):
+            """The pages of a batch at once; each one paid is charged, also when another one of them failed."""
             nonlocal cost, sent, reused
-            mark = marks[page - 1] if page <= len(marks) else None
-            if mark and mark in known:
-                text = known[mark]
-                reused += 1
-            else:
-                text, usd = ask(key, render(path, page, Path(folder)))
-                charge(usd)
-                cost += usd
-                sent += 1
-            pages[page - 1] = text.replace("\r\n", "\n").replace("\f", "\n").translate(HOMOGLYPHS).rstrip("\n") + "\n"
+            mark = lambda page: marks[page - 1] if page <= len(marks) else None
+            asked = {page: pool.submit(lambda p: ask(key, render(path, p, Path(folder))), page)
+                     for page in batch if not (mark(page) and mark(page) in known)}
+            failed = None
+            for page in batch:
+                if page not in asked:
+                    text = known[mark(page)]
+                    reused += 1
+                else:
+                    try:
+                        text, usd = asked[page].result()
+                    except VisionError as error:
+                        failed = failed or error
+                        continue
+                    charge(usd)
+                    cost += usd
+                    sent += 1
+                pages[page - 1] = text.replace("\r\n", "\n").replace("\f", "\n").translate(HOMOGLYPHS).rstrip("\n") + "\n"
+            if failed:
+                raise failed
 
-        for page in range(1, len(pages) + 1):
-            if general_from is not None:
-                if SPECIFIC.search(top(probe(path, page) if page in images else pages[page - 1])):
-                    general_from = None
-                elif page - general_from > GENERAL_PAGES:
-                    for back in skipped:
-                        take(back)
-                    general_from, skipped = None, []
-                elif page in images:
-                    skipped.append(page)
-                    continue
-            if page in images:
-                take(page)
-            if general_from is None and not skipped and page >= 2 and GENERAL.search(top(pages[page - 1])):
-                general_from = page
-            done = "\f".join(pages[:page])
-            if (at := requisitos.all_read_before(done)) is not None and done[:at].count("\f") < page:
-                break
+        # A batch is sent once WORKERS pages wait, so a heading or the proforma found in it may leave a few pages past
+        # it paid for: their answers are kept, nothing is thrown away.
+        page, batch, stop = 1, [], False
+        while page <= len(pages) and not stop:
+            first = page
+            while page <= len(pages) and len(batch) < WORKERS:
+                if general_from is not None:
+                    if SPECIFIC.search(top(probe(path, page) if page in images else pages[page - 1])):
+                        general_from = None
+                    elif page - general_from > GENERAL_PAGES:
+                        batch += skipped
+                        general_from, skipped = None, []
+                    elif page in images:
+                        skipped.append(page)
+                        page += 1
+                        continue
+                if page in images:
+                    batch.append(page)
+                page += 1
+            take(batch)
+            batch = []
+            for q in range(first, page):
+                if general_from is None and not skipped and q >= 2 and GENERAL.search(top(pages[q - 1])):
+                    general_from = q
+                elif general_from is not None and q > general_from and SPECIFIC.search(top(pages[q - 1])):
+                    general_from = None  # the sección específica already in this batch
+                done = "\f".join(pages[:q])
+                if (at := requisitos.all_read_before(done)) is not None and done[:at].count("\f") < q:
+                    stop = True
+                    break
         if general_from is not None:
-            for back in skipped:
-                take(back)
+            take(skipped)
     out = ia_path(path)
     part = out.with_name(out.name + ".part")
     part.write_bytes("\f".join(pages).encode("utf-8"))

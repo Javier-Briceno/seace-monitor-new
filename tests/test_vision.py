@@ -159,7 +159,9 @@ def pages_of(*texts):
 
 
 def scanned(monkeypatch, *texts, marks=None):
-    """transcribe on a made-up file whose pages are these texts; '' is a scanned page."""
+    """transcribe on a made-up file whose pages are these texts; '' is a scanned page. One page at a time, so the
+    pages sent are exactly the ones a heading or the proforma leaves."""
+    monkeypatch.setattr(vision, "WORKERS", 1)
     monkeypatch.setattr(vision, "text_of", lambda p: pages_of(*texts))
     monkeypatch.setattr(vision, "fingerprints", lambda p: marks or [None] * len(texts))
 
@@ -311,3 +313,20 @@ def test_a_scan_under_the_entitys_invisible_ocr_is_transcribed_too(monkeypatch, 
     sent = []
     vision.transcribe(ocr_layer, "clave", answering(sent), numbered_render)
     assert sent == [b"1"]
+
+
+def test_pages_go_out_several_at_once_and_each_paid_one_is_charged_when_another_fails(monkeypatch, tmp_path):
+    scanned(monkeypatch, "", "", "", "")
+    monkeypatch.setattr(vision, "WORKERS", 4)
+
+    def ask(key, image):
+        if image == b"3":
+            raise vision.VisionError("OpenRouter answered 502")
+        return "texto", Decimal("0.001")
+
+    charged = []
+    with pytest.raises(vision.VisionError):
+        vision.transcribe(tmp_path / "BASES.pdf", "clave", ask, numbered_render, charged.append)
+    assert charged == [Decimal("0.001")] * 3 and not ia_path(tmp_path / "BASES.pdf").exists()
+    out, cost, pages, reused = vision.transcribe(tmp_path / "BASES.pdf", "clave", answering([]), numbered_render)
+    assert (pages, cost) == (4, Decimal("0.004")) and out.read_text(encoding="utf-8").count("pagina") == 4
