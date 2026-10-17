@@ -69,7 +69,7 @@ TEMPLATE = re.compile(r"(?:SIMBOLOG[I1]A\s+UTILIZADA|DIRECCION\s+GENERAL\s+DE\s+
 BASES_TITLE = re.compile(r"(?<!DE )(?<!DE LAS )(?<!EN )(?<!LAS )\bBASES\s+(?:ESTANDAR|INTEGRADAS|ADMINISTRATIVAS)\b")
 # How a document that only mentions the bases starts
 NOT_BASES = re.compile(r"^\W{0,40}(?:\S+\s+){0,30}?(?:ACTA\b|INFORME\s+N|INFORME\s+TECNICO|OFICIO\b|MEMORANDUM\b"
-                       r"|CARTA\s+N|PLIEGO\s+(?:DE\s+)?(?:ABSOLU|OBSERVA)|NRO\.?\s+ORDEN|RESOLUCION\b"
+                       r"|CARTA\s+N|PLIEGO\s+(?:DE\s+)?(?:ABSOLU|OBSERVA)|NRO\W{0,2}\s*ORDEN|RESOLUCION\b"
                        r"|PRESUPUESTO\b|TERMINOS?\s+DE\s+REFERENCIA|REQUERIMIENTO\b)")
 BASES_NAME = re.compile(r"\bBASES?\b|BASES[_\s-]|^\d*BASES", re.I)
 # Short words of any Spanish text; a scan read upside down or as noise has few of them

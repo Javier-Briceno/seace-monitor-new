@@ -266,6 +266,16 @@ MUNICIPALIDAD
 PROVINCIAL DE TRUJILLO
 BASES INTEGRADAS
 LICITACIÓN PÚBLICA DE OBRAS N? 09-2026-MPT/C-1"""
+ABSOLUCION = """NRO,
+ORDEN
+NOMBRE O RAZON
+SOCIAL
+CONSULTA O COMENTARIO TECNICO
+ABSOLUCION
+IMPLEMENTACION EN BASES
+INTEGRADAS"""
+ABSOLUCION_NEXT = """MEJOREN LOS REQUERIMIENTOS MINIMOS ESTABLECIDOS POR LA
+BASES INTEGRADAS DEL PRESENTE PROCEDIMIENTO"""
 UPSIDE_DOWN = "“selopaaro.d soj ep aued Jod eunjvej el epiduu enaj ap ouewe; o odn ¡a 1od anb onjes " * 3
 
 
@@ -280,6 +290,9 @@ def test_an_unpacked_file_is_the_bases_by_the_standards_headings_not_by_a_mentio
     assert vision.is_bases(tmp_path / "BASE INTEGRAL LICITACION PUBLICA 2026.pdf")
     assert vision.is_bases(tmp_path / "BASES INTEGRADAS.pdf")
     assert vision.is_bases(tmp_path / "scan_20260929110015.pdf", lambda path, page: [COVER, SYMBOLS][page - 1])
+    # Tesseract reads the table's "NRO." as "NRO," on some scans
+    assert not vision.is_bases(tmp_path / "scan_20260929110015.pdf",
+                               lambda path, page: [ABSOLUCION, ABSOLUCION_NEXT][page - 1])
 
 
 def test_a_scan_that_cannot_be_read_is_taken_by_its_name(monkeypatch, tmp_path):
