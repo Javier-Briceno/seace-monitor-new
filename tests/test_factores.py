@@ -305,6 +305,26 @@ def test_a_footnote_number_glued_to_the_evaluator_is_no_figure_and_como_maximo_c
     assert result["avisos"] == [] and result["revisar"] is None
 
 
+
+def test_both_template_choices_left_in_a_row_count_only_when_the_table_needs_them():
+    # 1255735: "[Como máximo 5] puntos / NO CORRESPONDE", neither struck out, and the other rows add up to 100
+    table = ("CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"
+             "A. EXPERIENCIA ESPECÍFICA ADICIONAL DEL PERSONAL CLAVE   50 puntos   COMITÉ\n"
+             "B. SOSTENIBILIDAD AMBIENTAL   5 puntos   COMITÉ\n"
+             "C. SOSTENIBILIDAD SOCIAL   [Como máximo 5] puntos / NO CORRESPONDE   COMITÉ/JURADO28\n"
+             "D. INTEGRIDAD EN LA CONTRATACION PÚBLICA   5 puntos   COMITÉ\n"
+             "E. CAPACITACIÓN   [...] puntos / NO CORRESPONDE   COMITÉ/JURADO\n"
+             "F. GESTIÓN DE CALIDAD29   5 puntos   COMITÉ\n"
+             "K. SEGURIDAD Y SALUD   5 puntos   COMITÉ\n"
+             "M. EXPERIENCIA ADICIONAL DEL POSTOR EN LA ESPECIALIDAD   30 puntos   COMITÉ\n"
+             "PUNTAJE TOTAL   100 puntos30\n")
+    result = read(table)
+    assert "Sostenibilidad social" not in dict(points(result)) and result["suma"] == 100
+    assert result["avisos"] == [{"aviso": "factor_sin_rellenar", "factores": ["Sostenibilidad social"]}]
+    needed = read(table.replace("30 puntos   COMITÉ", "25 puntos   COMITÉ"))
+    assert dict(points(needed))["Sostenibilidad social"] == 5 and needed["suma"] == 100
+
+
 def test_a_name_cut_by_a_page_break_is_not_taken_from_the_footnotes():
     # 1249275: "A. EXPERIENCIA ESPECÍFICA  35 puntos", then footnotes that name "el propio postor"
     text = ("CUADRO RESUMEN FACTORES DE EVALUACIÓN\n"

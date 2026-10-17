@@ -156,6 +156,7 @@ def summary_rows(table: str) -> list[dict]:
         rows.append({"letra": m.group(1), "factor": name or UNNAMED, "puntos": figure,
                      "no_corresponde": bool(not_used) and figure is None,
                      "plantilla": bool(TEMPLATE.search(body)) and figure is None,
+                     "eleccion": bool(TEMPLATE.search(body)) and bool(not_used) and figure is not None,
                      "maximo": int(fixed.group(1)) if (fixed := TEMPLATE_FIGURE.search(body)) else None})
     return rows
 
@@ -214,13 +215,19 @@ def read(text: str) -> dict:
                 and sum(others) != result["total"]:
             for r in template:
                 r["puntos"], r["plantilla"] = r["maximo"], False
+    # "C. SOSTENIBILIDAD SOCIAL [Como máximo 5] puntos / NO CORRESPONDE": both of the template's choices left;
+    # the factor is left out when the table adds up to its total without it
+    chosen = [r for r in rows if r["eleccion"]]
+    rest = [r["puntos"] for r in rows if not r["eleccion"] and not r["plantilla"]]
+    if not chosen or None in rest or sum(rest) != result["total"]:
+        chosen = []
     # "E. CAPACITACIÓN [Como máximo 10]": the template's text left in the table, no points given
-    if template := [r["factor"] for r in rows if r["plantilla"]]:
+    if template := [r["factor"] for r in rows if r["plantilla"] or r in chosen]:
         result["avisos"].append({"aviso": "factor_sin_rellenar", "factores": template})
-        rows = [r for r in rows if not r["plantilla"]]
+        rows = [r for r in rows if not r["plantilla"] and r not in chosen]
     # More figures in the table than rows read: a row lost its letter ("o INTEGRIDAD ..."), the sum would lie.
     figures = sum(1 for p in POINTS.finditer(table) if not glued_footnote(table, p))
-    if figures > sum(1 for r in rows if r["puntos"] is not None):
+    if figures > len(chosen) + sum(1 for r in rows if r["puntos"] is not None):
         result["revisar"] = UNREADABLE
         return result
     for row in rows:
