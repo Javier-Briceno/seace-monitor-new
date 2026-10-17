@@ -19,7 +19,7 @@ from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 
 from . import (config, cuantia, db, experiencia, factores, mail, manual, obra_page, objeto, personal, report, requisitos,
-               vision)
+               stats, vision)
 from .archives import ArchiveError, MachineError, unpack
 from .bases_text import TextError, ToolMissing, bases_files, text_of
 from .ocr import ia_path, image_pages, make_ocr, ocr_path, ocrmypdf
@@ -348,6 +348,8 @@ def main() -> int:
     part = parser.add_mutually_exclusive_group()
     part.add_argument("--avisos", action="store_true", help="search, track and send the report; bases read by an earlier --lectura show up in it")
     part.add_argument("--lectura", action="store_true", help="download, unpack, OCR and read the bases of the reported and tracked obras; no report")
+    parser.add_argument("--estadisticas", action="store_true",
+                        help="print how the open obras' bases were read and what the vision model cost, and exit")
     parser.add_argument("--fallo", metavar="UNIT", help="mail that this run failed, with the log read from stdin, and exit")
     args = parser.parse_args()
 
@@ -375,6 +377,9 @@ def main() -> int:
         except manual.TemplateError as error:
             print(error, file=sys.stderr)
             return 1
+        return 0
+    if args.estadisticas:
+        print(stats.text(conn))
         return 0
     if args.desempaquetar:
         run_unpacking(conn)
