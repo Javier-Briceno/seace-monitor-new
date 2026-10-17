@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -57,9 +58,22 @@ SPECIFIC = re.compile(r"^\W{0,10}SECCI.N\s+ESPEC.FICA\b", re.M)
 WORKERS = 8
 # Without the sección específica's heading this many pages after the general one, the skipped pages are sent too.
 GENERAL_PAGES = 40
-# Words on the first pages of a bases, for a file unpacked from an archive whose name does not say so
-BASES_COVER = re.compile(r"BASES\s+(?:EST.NDAR|INTEGRADAS|ADMINISTRATIVAS|DE\s+LA\s+LICITACI|DEL\s+PROCEDIMIENTO)"
-                         r"|SECCI.N\s+ESPEC.FICA", re.I)
+# Pages of an unpacked file looked at to tell whether it is the bases.
+COVER_PAGES = 3
+# Headings of the standard's own first pages: its cover, the symbol table and the two sections. Actas, informes
+# and absoluciones name the bases too, but inside a sentence, never on a short line of their own.
+TEMPLATE = re.compile(r"(?:SIMBOLOG[I1]A\s+UTILIZADA|DIRECCION\s+GENERAL\s+DE\s+ABASTECIMIENTO"
+                      r"|SECCION\s+(?:GENERAL|ESPECIFICA)|DISPOSICIONES\s+COMUNES\s+A\s+LOS\s+PROCEDIMIENTOS)"
+                      r"(?!\s*[,;])")
+# The bases as a title, not "ACTA DE INTEGRACIÓN DE BASES" or "IMPLEMENTACIÓN EN BASES INTEGRADAS"
+BASES_TITLE = re.compile(r"(?<!DE )(?<!DE LAS )(?<!EN )(?<!LAS )\bBASES\s+(?:ESTANDAR|INTEGRADAS|ADMINISTRATIVAS)\b")
+# How a document that only mentions the bases starts
+NOT_BASES = re.compile(r"^\W{0,40}(?:\S+\s+){0,30}?(?:ACTA\b|INFORME\s+N|INFORME\s+TECNICO|OFICIO\b|MEMORANDUM\b"
+                       r"|CARTA\s+N|PLIEGO\s+(?:DE\s+)?(?:ABSOLU|OBSERVA)|NRO\.?\s+ORDEN|RESOLUCION\b"
+                       r"|PRESUPUESTO\b|TERMINOS?\s+DE\s+REFERENCIA|REQUERIMIENTO\b)")
+BASES_NAME = re.compile(r"\bBASES?\b|BASES[_\s-]|^\d*BASES", re.I)
+# Short words of any Spanish text; a scan read upside down or as noise has few of them
+COMMON_WORDS = {"DE", "LA", "EL", "LOS", "LAS", "DEL", "EN", "Y", "QUE", "POR", "PARA", "CON", "SE", "AL", "A", "N"}
 
 
 def top(page: str, lines: int = 8) -> str:
@@ -212,19 +226,48 @@ def tesseract_page(path: Path, page: int) -> str:
     return done.stdout.decode("utf-8", "replace")
 
 
-def is_bases(path: Path, probe: Callable[[Path, int], str] = tesseract_page) -> bool:
-    """Whether a file unpacked from an archive is the bases: its name says so, or its first pages do."""
-    if re.search(r"bases", path.name, re.I):
-        return True
+def cover_page(path: Path, page: int) -> str:
+    """Tesseract's text of one page, turned upright first: some entities scan their bases upside down."""
+    with tempfile.TemporaryDirectory(prefix="cover-") as folder:
+        try:
+            image = render(path, page, Path(folder))
+            done = subprocess.run(["tesseract", "stdin", "stdout", "-l", "spa", "--psm", "1"], input=image,
+                                  capture_output=True, timeout=TIMEOUT)
+        except (VisionError, OSError, subprocess.TimeoutExpired):
+            return ""
+    return done.stdout.decode("utf-8", "replace")
+
+
+def plain(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text)
+    return re.sub(r"\s+", " ", "".join(c for c in text if not unicodedata.combining(c))).upper()
+
+
+def readable(text: str) -> bool:
+    words = re.findall(r"[A-Z]+", text)
+    return len(words) >= 30 and sum(w in COMMON_WORDS for w in words) / len(words) >= 0.12
+
+
+def is_bases(path: Path, probe: Callable[[Path, int], str] | None = None) -> bool:
+    """Whether a file unpacked from an archive is the bases, by the standard's headings on its first pages. A file
+    whose first pages cannot be read is taken by its name, so that no bases is lost for a bad scan."""
+    probe = probe or cover_page
     try:
         # pdftotext ends with a form feed: the empty piece after it is no page
-        pages = text_of(path).split("\f")[:-1]
+        pages = text_of(path).split("\f")[:-1][:COVER_PAGES]
     except TextError:
-        return False
-    for n, text in enumerate(pages[:2], 1):
-        if BASES_COVER.search(text if text.strip() else probe(path, n)):
-            return True
-    return False
+        pages = []
+    pages = [text if text.strip() else probe(path, n) for n, text in enumerate(pages, 1)]
+    lines = [plain(line).strip(" .:-_|") for page in pages for line in page.splitlines()
+             if 0 < len(line.strip()) <= 90]
+    if any(TEMPLATE.match(line) for line in lines):
+        return True
+    first = plain(pages[0]) if pages else ""
+    if not first and len(pages) > 1:
+        first = plain(pages[1])
+    if any(BASES_TITLE.search(line) for line in lines) and not NOT_BASES.search(first):
+        return True
+    return not readable(" ".join(map(plain, pages))) and bool(BASES_NAME.search(path.stem.replace("_", " ")))
 
 
 def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Decimal]] = ask,

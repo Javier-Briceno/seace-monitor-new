@@ -240,14 +240,54 @@ def test_a_chapter_iii_behind_the_anexos_keeps_the_transcription_going(monkeypat
     assert sent == [str(n).encode() for n in range(1, 7)]
 
 
-def test_an_unpacked_file_is_the_bases_by_its_name_or_its_first_pages(monkeypatch, tmp_path):
-    texts = {"PLANO A-01.pdf": pages_of("PLANTA GENERAL"), "DOCUMENTOS.pdf": pages_of("", ""),
-             "LPA_06.pdf": pages_of("BASES ESTÁNDAR DE LICITACIÓN PÚBLICA ABREVIADA")}
+ACTA = """                                      ACTA DE INTEGRACIÓN DE BASES
+          LICITACIÓN PÚBLICA ABREVIADA DE OBRAS N° 07-2026-GRLL-GRCO                   -   I CONVOCATORIA
+    Siendo el día 18 de mayo del 2026, en la Gerencia Regional de Contrataciones del Gobierno
+    Regional de La Libertad, se reunieron los evaluadores tipo comité. El comité dispone una revisión de la
+    sección general, sección específica y de los anexos de las bases integradas."""
+MEMORIA = """    4.a MEMORIA DE COSTOS Y BASES PARA EL CALCULO
+                       CALCULO DE HORAS HOMBRE
+❖ CALCULO DE DIAS LABORALES 2026
+  Los trabajadores de construcción civil que laboren en días feriados,
+  percibirán una asignación especial equivalente al diez por ciento (10%) de
+  la Bonificación Unificada de la Construcción (BUC) y diez por Ciento
+  (10%) de la Bonificación por Alta Especialización (BAE) a la ocupación
+  que corresponda. Esta asignación no será computable para el cálculo de
+  la indemnización por tiempo de servicios gratificaciones, vacaciones ni
+  beneficios sociales."""
+COVER = """' PERU Ministerio
+de Economía y Finanzas
+DIRECCIÓN GENERAL DE ABASTECIMIENTO"""
+SYMBOLS = """MUNICIPALIDAD DISTRITAL DE MAGDALENA DE CAO
+LICITACION PÚBLICA ABREVIADA DE OBRAS N*03-2026-MDMC/C - 1
+SIMBOLOGÍA UTILIZADA:"""
+OWN_COVER = """a MUNICIPALIDAD PROVINCIAL DE TRUJILLO
+MUNICIPALIDAD
+PROVINCIAL DE TRUJILLO
+BASES INTEGRADAS
+LICITACIÓN PÚBLICA DE OBRAS N? 09-2026-MPT/C-1"""
+UPSIDE_DOWN = "“selopaaro.d soj ep aued Jod eunjvej el epiduu enaj ap ouewe; o odn ¡a 1od anb onjes " * 3
+
+
+def test_an_unpacked_file_is_the_bases_by_the_standards_headings_not_by_a_mention(monkeypatch, tmp_path):
+    texts = {"ACTA DE INTEGRACIÓN DE BASES.pdf": pages_of(ACTA),
+             "3.Memoria de Costos y Bases para el cálculo.pdf": pages_of(MEMORIA),
+             "BASE INTEGRAL LICITACION PUBLICA 2026.pdf": pages_of(COVER, SYMBOLS),
+             "BASES INTEGRADAS.pdf": pages_of(OWN_COVER), "scan_20260929110015.pdf": pages_of("", "")}
     monkeypatch.setattr(vision, "text_of", lambda p: texts[p.name])
-    probe = lambda path, page: "BASES INTEGRADAS" if page == 2 else ""
-    assert vision.is_bases(tmp_path / "Bases_Integradas.pdf")
-    assert vision.is_bases(tmp_path / "LPA_06.pdf") and vision.is_bases(tmp_path / "DOCUMENTOS.pdf", probe)
-    assert not vision.is_bases(tmp_path / "PLANO A-01.pdf", lambda path, page: "PLANTA")
+    assert not vision.is_bases(tmp_path / "ACTA DE INTEGRACIÓN DE BASES.pdf")
+    assert not vision.is_bases(tmp_path / "3.Memoria de Costos y Bases para el cálculo.pdf")
+    assert vision.is_bases(tmp_path / "BASE INTEGRAL LICITACION PUBLICA 2026.pdf")
+    assert vision.is_bases(tmp_path / "BASES INTEGRADAS.pdf")
+    assert vision.is_bases(tmp_path / "scan_20260929110015.pdf", lambda path, page: [COVER, SYMBOLS][page - 1])
+
+
+def test_a_scan_that_cannot_be_read_is_taken_by_its_name(monkeypatch, tmp_path):
+    monkeypatch.setattr(vision, "text_of", lambda p: pages_of("", ""))
+    upside_down = lambda path, page: UPSIDE_DOWN
+    assert vision.is_bases(tmp_path / "BASES POYOR.pdf", upside_down)
+    assert vision.is_bases(tmp_path / "0BASES_CANAL_HOYOS_LPA_15.pdf", upside_down)
+    assert not vision.is_bases(tmp_path / "PRESUPUESTO DE OBRA.pdf", upside_down)
 
 
 def image_pdf(path, image_bytes, overlay=b""):
@@ -298,7 +338,7 @@ def test_the_night_reading_transcribes_only_the_bases_inside_an_archive(conn, mo
     monkeypatch.setattr(main, "image_pages", lambda text: [1])
     monkeypatch.setattr(main, "text_of", lambda p: "")
     monkeypatch.setattr(vision, "text_of", lambda p: pages_of(""))
-    monkeypatch.setattr(vision, "tesseract_page", lambda p, n: "PLANTA")
+    monkeypatch.setattr(vision, "cover_page", lambda p, n: "PLANTA")
     sent = []
     monkeypatch.setattr(vision, "transcribe", lambda p, key, charge, known: sent.append(p.name) or (p, 0, 1, 0))
     main.run_transcription(conn, {"vision": {"tope_mensual_usd": 35}}, [1])
