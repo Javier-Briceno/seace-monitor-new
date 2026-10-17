@@ -304,3 +304,35 @@ def test_limites_of_a_table_written_one_row_a_line():
     result = read(text)
     assert (result["cuantia"], result["limite_inferior"], result["limite_superior"]) == (
         "375449.19", "356676.73", "412994.10")
+
+
+CUANTIA = ("1.4. CUANTÍA DE LA CONTRATACIÓN\n       La cuantía de la contratación asciende a la suma de S/ 499,994.52 "
+           "(CUATROCIENTOS NOVENTA Y NUEVE MIL NOVECIENTOS NOVENTA Y CUATRO Y 52/100 SOLES),\n"
+           "       incluidos los impuestos de ley y cualquier otro concepto que incida en el costo total.\n\f")
+
+
+def test_without_the_sentence_the_kept_table_says_the_offer_type():
+    # 1256532 deleted "La evaluación de ofertas económicas en el presente procedimiento de selección es:"
+    fixed = ("4.2. EVALUACIÓN ECONÓMICA\n\nA. OFERTA ECONÓMICA EN EL SISTEMA DE ENTREGA DE SOLO CONSTRUCCIÓN\n"
+             "                                       OFERTA ECONÓMICA\n"
+             "   Los postores presentan su oferta económica considerando el 100% del monto considerado de la\n"
+             "    cuantía de la contratación.\n"
+             "   Los evaluadores descalifican las propuestas económicas que oferten montos diferentes al 100%\n"
+             "    de la cuantía de la contratación.\n")
+    assert read(CUANTIA + fixed)["tipo_oferta"] == "fija"
+    # 1248173: "LIMITIDA", above the table of the 95 % to 110 % range
+    limited = ("4.2. EVALUACIÓN ECONÓMICA\n  La evaluación de ofertas económicas en el presente procedimiento de "
+               "selección es:\n  LIMITIDA.\n  Evaluación:   Se evalúa considerando el precio ofertado por el postor "
+               "que debe encontrarse en el rango entre el\n  95% y 110% de la cuantía de la contratación.\n")
+    assert read(CUANTIA + limited)["tipo_oferta"] == "limitada"
+
+
+def test_the_template_note_describing_both_tables_says_nothing():
+    note = ("4.2. EVALUACIÓN ECONÓMICA (Puntaje Máximo: 100 Puntos)\n Importante para la entidad contratante\n"
+            " • La entidad contratante puede optar entre dos métodos de evaluación ofertas:\n"
+            " • Oferta económica limitada: la oferta económica de los postores debe encontrarse en el rango entre "
+            "el 95% y 110% de la cuantía de la contratación.\n")
+    assert read(CUANTIA + note)["tipo_oferta"] == ""
+    ended = note + " Esta nota debe ser eliminada una vez culminada la elaboración de bases.\n"
+    fixed = " OFERTA ECONÓMICA\n • Los evaluadores descalifican las propuestas que oferten montos diferentes al 100%\n"
+    assert read(CUANTIA + ended + fixed)["tipo_oferta"] == "fija"

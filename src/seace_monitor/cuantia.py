@@ -50,6 +50,14 @@ DESIGN_AND_BUILD = re.compile(r"cuant[ií]a\s+del\s+componente", re.I)
 DESIGN_BUDGET = re.compile(r"COMPONENTE\s+(?:DE\s+)?DISE[ÑN]O", re.I)
 BUDGET_END = re.compile(r"\n\s*1\.5\b|EXPEDIENTE\s+DE\s+CONTRATACI[OÓ]N", re.I)
 TYPE = re.compile(r"presente\s+procedimiento\s+de\s+selecci[oó]n\s+es\s*:?(.{0,200})", re.I | re.S)
+# Without that sentence, the table the entity kept under chapter IV's EVALUACIÓN ECONÓMICA says it; the template's
+# note before it ("Importante para la entidad ... puede optar entre dos métodos") describes both.
+ECONOMIC = re.compile(r"EVALUACI[OÓ]N\s+ECON[OÓ]MICA")
+ECONOMIC_END = re.compile(r"\n[^\S\n]*(?:4\.3\.?\s+PUNTAJE|CAP[IÍ]TULO\s+V)", re.I)
+NOTE = re.compile(r"Importante\s+para\s+la\s+entidad.{0,3000}?Esta\s+nota\s+debe\s+ser\s+eliminada[^\n]*", re.I | re.S)
+BOTH_METHODS = re.compile(r"optar\s+entre\s+dos\s+m[eé]todos", re.I)
+FIXED_TABLE = re.compile(r"montos\s+diferentes\s+al\s+100\s*%|No\s+hay\s+asignaci[oó]n\s+de\s+puntaje\s+por\s+la\s+oferta", re.I)
+LIMITED_TABLE = re.compile(r"rango\s+entre\s+el\s+9\d\s*%\s+y\s+(?:el\s+)?11\d\s*%|inversamente\s+proporcional", re.I)
 # The límites table sits right under its header; further down come the Amazonía table and the budget.
 TABLE_LINES = 14
 # A límite this far from the cuantía is a misread column, not a figure an entity would write.
@@ -127,6 +135,27 @@ def offer_type(text: str) -> tuple[str, int | None]:
         for choice in ("LIMITADA", "FIJA"):
             if choice in words:
                 return choice.lower(), at + words.index(choice)
+    return offer_table(text)
+
+
+def offer_table(text: str) -> tuple[str, int | None]:
+    """'fija' or 'limitada' by the one table chapter IV's EVALUACIÓN ECONÓMICA kept, '' with both or neither."""
+    heads = list(ECONOMIC.finditer(text))
+    if not heads:
+        return "", None
+    start = heads[-1].start()
+    block = text[start: start + 6000]
+    if end := ECONOMIC_END.search(block, 30):
+        block = block[: end.start()]
+    # the note's own words are blanked, not cut, so positions still point into the text
+    block = NOTE.sub(lambda m: " " * len(m.group()), block)
+    if BOTH_METHODS.search(block):
+        return "", None
+    fixed, limited = FIXED_TABLE.search(block), LIMITED_TABLE.search(block)
+    if fixed and not limited:
+        return "fija", start + fixed.start()
+    if limited and not fixed:
+        return "limitada", start + limited.start()
     return "", None
 
 
