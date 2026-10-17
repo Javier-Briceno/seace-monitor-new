@@ -14,7 +14,7 @@ from pathlib import Path
 from . import reading
 from .bases_text import page_of
 
-VERSION = "factores-5"
+VERSION = "factores-6"
 # each factor by its standard name with its points, not by letter: entities reletter the factors between the
 # summary table and the detail, and two readings may give the same points to different factors
 VALUES = {"total": lambda r: r.get("total"),
