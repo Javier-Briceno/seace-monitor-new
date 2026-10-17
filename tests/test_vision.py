@@ -262,11 +262,14 @@ def image_pdf(path, image_bytes, overlay=b""):
     return path
 
 
-def test_two_pages_are_the_same_only_when_they_draw_the_same_scan_and_nothing_else(tmp_path):
+def test_two_pages_are_the_same_only_when_they_draw_the_same_scan_and_the_same_on_top(tmp_path):
     one = vision.fingerprints(image_pdf(tmp_path / "a.pdf", b"\x80"))
     assert one == vision.fingerprints(image_pdf(tmp_path / "b.pdf", b"\x80")) and one[0]
     assert vision.fingerprints(image_pdf(tmp_path / "c.pdf", b"\x81")) != one
-    assert vision.fingerprints(image_pdf(tmp_path / "d.pdf", b"\x80", b"0 0 m 50 50 l S")) == [None]
+    # a line drawn over the same scan, as a correction would be
+    struck = vision.fingerprints(image_pdf(tmp_path / "d.pdf", b"\x80", b"0 0 m 50 50 l S"))
+    assert struck[0] and struck != one
+    assert struck == vision.fingerprints(image_pdf(tmp_path / "e.pdf", b"\x80", b"0 0 m 50 50 l S"))
 
 
 def test_known_pages_come_from_the_obras_other_transcribed_files(tmp_path):

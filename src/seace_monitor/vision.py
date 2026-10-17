@@ -57,8 +57,6 @@ GENERAL_PAGES = 40
 # Words on the first pages of a bases, for a file unpacked from an archive whose name does not say so
 BASES_COVER = re.compile(r"BASES\s+(?:EST.NDAR|INTEGRADAS|ADMINISTRATIVAS|DE\s+LA\s+LICITACI|DEL\s+PROCEDIMIENTO)"
                          r"|SECCI.N\s+ESPEC.FICA", re.I)
-# Operators of a page that only draws scanned images; anything else (text, lines, shapes) may change what it shows.
-DRAW_ONLY = {"q", "Q", "cm", "Do", "gs", "re", "W", "W*", "n"}
 
 
 def top(page: str, lines: int = 8) -> str:
@@ -129,8 +127,9 @@ def ask(key: str, image: bytes) -> tuple[str, Decimal]:
 
 
 def fingerprint(page: pikepdf.Page) -> str | None:
-    """The same for two pages only when both draw the same scanned images, byte for byte, in the same place and
-    nothing else; None for any other page."""
+    """The same for two pages only when both draw the same scanned images, byte for byte, with the same operators
+    in the same place (an entity's typed header and footer around the scan included) and nothing else differs;
+    None for a page without a scan, with annotations or drawing another document inside it."""
     if page.obj.get("/Annots"):
         return None
     try:
@@ -138,16 +137,18 @@ def fingerprint(page: pikepdf.Page) -> str | None:
     except pikepdf.PdfError:
         return None
     xobjects = page.resources.get("/XObject") or {}
+    fonts = page.resources.get("/Font") or {}
     digest, images = hashlib.sha256(), 0
     for operands, op in ops:
-        if str(op) not in DRAW_ONLY:
-            return None
         if str(op) == "Do":
             image = xobjects.get(str(operands[0]))
             if image is None or image.get("/Subtype") != "/Image":
                 return None
             digest.update(hashlib.sha256(image.read_raw_bytes()).digest())
             images += 1
+        elif str(op) == "Tf":
+            font = fonts.get(str(operands[0]))
+            digest.update(f"Tf {font.get('/BaseFont') if font is not None else None} {operands[1]};".encode())
         else:
             digest.update(f"{op} {[str(o) for o in operands]};".encode())
     return digest.hexdigest() if images else None
