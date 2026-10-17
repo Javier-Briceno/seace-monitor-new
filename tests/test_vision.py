@@ -330,3 +330,18 @@ def test_pages_go_out_several_at_once_and_each_paid_one_is_charged_when_another_
     assert charged == [Decimal("0.001")] * 3 and not ia_path(tmp_path / "BASES.pdf").exists()
     out, cost, pages, reused = vision.transcribe(tmp_path / "BASES.pdf", "clave", answering([]), numbered_render)
     assert (pages, cost) == (4, Decimal("0.004")) and out.read_text(encoding="utf-8").count("pagina") == 4
+
+
+def test_an_unexpected_failure_of_one_page_still_charges_the_others(monkeypatch, tmp_path):
+    scanned(monkeypatch, "", "", "")
+    monkeypatch.setattr(vision, "WORKERS", 3)
+
+    def ask(key, image):
+        if image == b"1":
+            raise KeyError("bug")
+        return "texto", Decimal("0.001")
+
+    charged = []
+    with pytest.raises(KeyError):
+        vision.transcribe(tmp_path / "BASES.pdf", "clave", ask, numbered_render, charged.append)
+    assert charged == [Decimal("0.001")] * 2

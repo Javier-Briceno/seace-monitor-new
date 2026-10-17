@@ -260,7 +260,8 @@ def transcribe(path: Path, key: str, ask: Callable[[str, bytes], tuple[str, Deci
                 else:
                     try:
                         text, usd = asked[page].result()
-                    except VisionError as error:
+                    # any failure: the other pages of the batch are still collected and charged
+                    except Exception as error:
                         failed = failed or error
                         continue
                     charge(usd)
