@@ -16,7 +16,7 @@ from . import letras, reading
 from .bases_text import page_of
 from .reading import SCANNED
 
-VERSION = "cuantia-7"
+VERSION = "cuantia-8"
 # compared between the model's and Tesseract's reading of a scanned 1.4
 VALUES = {k: (lambda r, k=k: r.get(k)) for k in ("cuantia", "tipo_oferta", "limite_inferior", "limite_superior")}
 
