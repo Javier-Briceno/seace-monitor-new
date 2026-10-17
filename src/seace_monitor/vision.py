@@ -104,7 +104,7 @@ def render(path: Path, page: int, folder: Path) -> bytes:
 
 def ask(key: str, image: bytes) -> tuple[str, Decimal]:
     """The page's transcription and what it cost. A blank page comes back empty."""
-    body = {"model": MODEL, "usage": {"include": True}, "max_tokens": 8000,
+    body = {"model": MODEL, "usage": {"include": True}, "max_tokens": 16000,
             "messages": [{"role": "system", "content": "Eres un OCR. Respondes solo con el texto transcrito."},
                          {"role": "user", "content": [
                              {"type": "text", "text": PROMPT},
