@@ -95,14 +95,29 @@ def chapter_iii(text: str) -> tuple[int, int] | None:
         found = personal.REQUIREMENT.search(text, m.end(), stop) or personal.NUMBERED_HEADING.search(text, m.end(), stop)
         if not found:
             continue
-        # The requerimiento before it can run for many pages: start at the capacidad técnica heading that opens the
-        # personal clave's formación and experiencia, or shortly before the requirement, so it fits what is sent.
-        near = max(m.start(), found.start() - PERSONAL_LEAD)
-        heading = None
-        for heading in re.finditer(r"CAPACIDAD\s+T[EÉ]CNICA", text[near: found.start()], re.I):
-            pass
-        return (near + heading.start() if heading else near), stop
+        return lead_in(text, m.start(), found.start()), stop
     return None
+
+
+def lead_in(text: str, floor: int, requirement: int) -> int:
+    """The requerimiento before the personal clave can run for many pages: start at the capacidad técnica heading
+    that opens the personal clave's formación and experiencia, or shortly before the requirement, so it fits."""
+    near = max(floor, requirement - PERSONAL_LEAD)
+    heading = None
+    for heading in re.finditer(r"CAPACIDAD\s+T[EÉ]CNICA", text[near: requirement], re.I):
+        pass
+    return near + heading.start() if heading else near
+
+
+def around_personal(text: str, page: int) -> tuple[int, int] | None:
+    """Chapter III around the requirement the personal clave reader read on `page`, for bases without the heading
+    chapter_iii looks for, or with another chapter between it and the requirement."""
+    at = len("\f".join(text.split("\f")[: page - 1]))
+    found = personal.REQUIREMENT.search(text, at) or personal.NUMBERED_HEADING.search(text, at)
+    if not found or page_of(text, found.start()) != page:
+        return None
+    end = re.search(r"CAP[IÍ]TULO\s+IV\b", text[found.end():])
+    return lead_in(text, 0, found.start()), found.end() + end.start() if end else found.end() + MAX_CHARS
 
 
 def texts(files: list[Path]) -> list[tuple[Path, str]]:
@@ -190,6 +205,9 @@ def read_files(files: list[Path], key: str, factores_reading: dict | None, perso
     all_text = texts(files)
     iv = next(((p, t, found) for p, t in all_text if (found := chapter_iv(t))), None)
     iii = next(((p, t, found) for p, t in all_text if (found := chapter_iii(t))), None)
+    if iii is None and (where := personal_reading or {}).get("archivo") and where.get("pagina"):
+        iii = next(((p, t, found) for p, t in all_text
+                    if p.name == where["archivo"] and (found := around_personal(t, where["pagina"]))), None)
     if iv is None and iii is None:
         result["revisar"] = NOT_FOUND
         return result

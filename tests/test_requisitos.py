@@ -117,3 +117,23 @@ def test_chapter_iii_starts_near_the_personal_clave_after_a_long_requerimiento(t
             "B.2 EXPERIENCIA DEL PERSONAL CLAVE\nResidente de obra   24 meses\nCAPÍTULO IV\n")
     start, stop = requisitos.chapter_iii(text)
     assert text[start:].startswith("CAPACIDAD TÉCNICA") and "B.2 EXPERIENCIA" in requisitos.marked(text, start, stop)
+
+
+def test_without_the_heading_the_personal_clave_readers_page_gives_chapter_iii(tmp_path):
+    # 1253255 has no CAPÍTULO III heading in its sección específica; a TDR in the same archive names the requirement too
+    tdr = tmp_path / "TDR.pdf"
+    tdr.write_bytes(b"")
+    requisitos.ia_path(tdr).write_text("B.2 EXPERIENCIA DEL PERSONAL CLAVE\nAsistente   6 meses\n", encoding="utf-8")
+    bases = files_with(tmp_path, "CAPÍTULO II\nDEL PROCEDIMIENTO\n\fB.2 EXPERIENCIA DEL PERSONAL CLAVE\n"
+                                 "Residente de obra   24 meses\n\fCAPÍTULO IV\nFACTORES\n")
+    asked = []
+
+    def ask(key, prompt):
+        asked.append(prompt)
+        return {"personal": [{"cargo": "Residente de obra", "experiencia_meses": 24}]}, Decimal("0.002")
+
+    reading = {"archivo": "BASES.pdf", "pagina": 2, "personal": [{"cargo": "Residente de obra", "meses": 24}]}
+    result = requisitos.read_files([tdr] + bases, "clave", None, reading, ask)
+    assert len(asked) == 1 and "Residente de obra   24 meses" in asked[0] and "Asistente" not in asked[0]
+    assert (result["pagina_personal"], result["archivo_personal"], result["personal_comprobado"]) == (1, "BASES.pdf", True)
+    assert requisitos.read_files(bases, "clave", None, {**reading, "pagina": 1}, ask)["personal"] == []
