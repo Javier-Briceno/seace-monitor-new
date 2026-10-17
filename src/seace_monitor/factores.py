@@ -24,9 +24,8 @@ VALUES = {"total": lambda r: r.get("total"),
 TECHNICAL = re.compile(r"EVALUACI[OÓ]N\s+T[EÉ]CNICA\s*\n", re.I)
 # Not the "CUADRO RESUMEN DEL PAGO AL CONTRATISTA" of the contract chapter; OCR can lose "CUADRO".
 SUMMARY = re.compile(r"(?:CUADRO\s+)?RESUMEN\W{0,5}(?:DE\s+)?(?:LOS\s+)?FACTORES\s+DE\s+EVALUACI", re.I)
-# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos", "100. puntos"; never the "0" of "05.00", nor a
-# footnote number glued to a word above "puntos" ("COMITÉ/JURADO24")
-FIGURE = r"\[?\s*(?<![\d.,A-Za-zÁÉÍÓÚÑ])(\d{1,3})(?:[.,]\d{0,2})?\s*\]?\s*puntos"
+# "40 puntos", "[5] puntos", "05.00 puntos", "100.0 puntos", "100. puntos"; never the "0" of "05.00"
+FIGURE = r"\[?\s*(?<![\d.,])(\d{1,3})(?:[.,]\d{0,2})?\s*\]?\s*puntos"
 # Word puts each table cell on its own line
 # Layout text can put the figure on the line above "PUNTAJE TOTAL" and "puntos" on the line below it.
 TOTAL = re.compile(r"PUNTAJE\s+TOTAL[^\n]*?(?:\n[^\n\d]{0,20})?" + FIGURE
@@ -138,7 +137,7 @@ def summary_rows(table: str) -> list[dict]:
         if not name:
             kept = [line for line in lines if not FOOTNOTE.match(line)]
             name = factor_name(" ".join(kept[:3])) or factor_name(" ".join(kept[:12]))
-        points = POINTS.search(body)
+        points = next((p for p in POINTS.finditer(body) if not glued_footnote(body, p)), None)
         figure = int(points.group(1)) if points else None
         # a table written one row a line whose points cell has no "puntos": "B. SOSTENIBILIDAD AMBIENTAL   5   COMITÉ"
         if figure is None and (bare := next((c for c in CELLS.split(lines[0].strip())[1:] if BARE.fullmatch(c)), None)):
@@ -159,6 +158,12 @@ def summary_rows(table: str) -> list[dict]:
                      "plantilla": bool(TEMPLATE.search(body)) and figure is None,
                      "maximo": int(fixed.group(1)) if (fixed := TEMPLATE_FIGURE.search(body)) else None})
     return rows
+
+
+def glued_footnote(body: str, points: re.Match) -> bool:
+    """ "COMITÉ/JURADO24" with "puntos" on a line below: a footnote's number glued to the evaluator, not the figure."""
+    start = points.start(1)
+    return start > 0 and body[start - 1].isalpha() and "\n" in body[points.end(1): points.end()]
 
 
 def described_points(block: str) -> dict[str, int]:
@@ -214,7 +219,8 @@ def read(text: str) -> dict:
         result["avisos"].append({"aviso": "factor_sin_rellenar", "factores": template})
         rows = [r for r in rows if not r["plantilla"]]
     # More figures in the table than rows read: a row lost its letter ("o INTEGRIDAD ..."), the sum would lie.
-    if len(POINTS.findall(table)) > sum(1 for r in rows if r["puntos"] is not None):
+    figures = sum(1 for p in POINTS.finditer(table) if not glued_footnote(table, p))
+    if figures > sum(1 for r in rows if r["puntos"] is not None):
         result["revisar"] = UNREADABLE
         return result
     for row in rows:
