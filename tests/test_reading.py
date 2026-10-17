@@ -124,6 +124,39 @@ def test_every_file_with_a_model_text_is_read_not_only_the_first_few(tmp_path):
     assert (result["cuantia"], result["archivo"]) == ("7.00", "ANEXO 3.pdf")
 
 
+
+def mixed(monkeypatch, tmp_path: Path, transcription: str) -> Path:
+    """A PDF whose 1.4 is on a text page and whose second page is a scan."""
+    path = tmp_path / "BASES.pdf"
+    path.write_bytes(b"")
+    ia_path(path).write_text(transcription, encoding="utf-8")
+    pdf_text = "1.4 LA CUANTIA ES S/ 5.00 " * 10 + "\f\f" + "CAPITULO V PROFORMA " * 10
+    monkeypatch.setattr(reading, "text_of", lambda p: pdf_text if p == path else p.read_text(encoding="utf-8"))
+    return path
+
+
+def read_type(text: str) -> dict:
+    found = read(text)
+    offer = re.search(r"OFERTA (FIJA|LIMITADA)", text)
+    return {**found, "tipo": offer.group(1) if offer else ""}
+
+
+TYPE = {**VALUES, "tipo": lambda r: r.get("tipo")}
+
+
+def test_a_mixed_pdf_is_read_from_its_transcription_when_a_scanned_page_holds_more(monkeypatch, tmp_path):
+    path = mixed(monkeypatch, tmp_path, "1.4 LA CUANTIA ES S/ 5.00 " * 10 + "\fOFERTA FIJA\f" + "CAPITULO V " * 10)
+    result = reading.read_files([path], read_type, MISSING, None, TYPE)
+    assert (result["cuantia"], result["tipo"], result["ocr"], result["ia"]) == ("5.00", "FIJA", True, True)
+
+
+def test_a_mixed_pdf_keeps_its_text_reading_when_the_transcription_reads_nothing_more(monkeypatch, tmp_path):
+    path = mixed(monkeypatch, tmp_path, "1.4 LA CUANTIA ES S/ 5.00 " * 10 + "\fSELLO\f" + "CAPITULO V " * 10)
+    result = reading.read_files([path], read_type, MISSING, None, TYPE)
+    assert (result["cuantia"], result["tipo"], result["ocr"]) == ("5.00", "", False)
+    lost = mixed(monkeypatch, tmp_path, "1.4 LA CUANT1A E5 ..." + "\fOFERTA FIJA\f")
+    assert reading.read_files([lost], read_type, MISSING, None, TYPE)["ocr"] is False
+
 def test_points_moved_to_another_factor_and_months_moved_to_another_cargo_differ():
     from seace_monitor import factores, personal
     first = {"revisar": None, "total": 100, "factores": [{"factor": "Gestión de calidad", "puntos": 40},
